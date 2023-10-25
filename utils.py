@@ -1,20 +1,15 @@
+import json
 import os
 import torch
+
+import pandas as pd
+import torch.nn.functional as F
+
+from enum import Enum
 from PIL import Image
 from torchvision import transforms
-import pandas as pd
-from enum import Enum
-import torch.nn.functional as F
-import json
 
 IMAGE_SIZE = 1024
-file_path = "ocelot2023_v1.0.1/metadata.json"
-
-with open(file_path, "r") as file:
-    data = json.load(file)
-
-SAMPLES = list(data["sample_pairs"].keys())
-SAMPLES.sort()
 
 
 class Annotation(Enum):
@@ -88,7 +83,6 @@ def load_csv_to_tensors(directory_path, default_shape=(1, 3)):
 
     for csv_file in csv_files:
         csv_path = os.path.join(directory_path, csv_file)
-        # print(csv_path)
 
         # Check if the file is empty
         if os.path.getsize(csv_path) == 0:
@@ -104,16 +98,18 @@ def load_csv_to_tensors(directory_path, default_shape=(1, 3)):
     return tensors
 
 
-def calculate_areas_scalar(sample):
-    file_path = "ocelot2023_v1.0.1/metadata.json"
+def calculate_ROI_scaling_value(sample_id: str):
+    file_path = "ocelot_data/metadata.json"
 
     with open(file_path, "r") as file:
         data = json.load(file)
 
-    cell_dict = data["sample_pairs"][sample]["cell"]
-    tissue_dict = data["sample_pairs"][sample]["tissue"]
+    cell_dict = data["sample_pairs"][sample_id]["cell"]
+    tissue_dict = data["sample_pairs"][sample_id]["tissue"]
 
-    scalar = torch.tensor(cell_dict["resized_mpp_x"] / tissue_dict["resized_mpp_x"])
+    scaling_value = torch.tensor(
+        cell_dict["resized_mpp_x"] / tissue_dict["resized_mpp_x"]
+    )
 
     keys_to_extract = ["x_start", "y_start", "x_end", "y_end"]
 
@@ -123,50 +119,41 @@ def calculate_areas_scalar(sample):
     cell_area = torch.tensor(list(cell_dict.values()))
     tissue_area = torch.tensor(list(tissue_dict.values()))
 
-    return cell_area, tissue_area, scalar
+    return cell_area, tissue_area, scaling_value
 
 
-def calculate_TC_in_CA(cell_tensors, image_tensors):
-    """
-    Count cells with a specific annotation and puts it into a dictionary
-
-    Parameters:
-    - cell_tensors: list of tensors, containing cell information.
-    - image_tensors: list of tensors, containing image information.
-
-    Returns:
-    - dictionary[Annotation] = count
-    """
-
-    d = {}
+def calculate_TC_in_CA(cell_tensors, tissue_tensors, sample_ids: list[str]):
+    counting_dict = {}
 
     # Iterate over pairs of cell and image tensors
-    for i, tensors in enumerate(zip(cell_tensors, image_tensors)):
-        cell_tensor, image_tensor = tensors
+    for i, (cell_tensor, tissue_tensor) in enumerate(zip(cell_tensors, tissue_tensors)):
+        sample_id = sample_ids[i]
 
-        sample = SAMPLES[i]
+        cell_area, tissue_area, scaling_value = calculate_ROI_scaling_value(sample_id)
 
-        cell_area, tissue_area, scalar = calculate_areas_scalar(sample)
-
-        cell_annotation = cell_tensor[:, 2]
+        cell_annotations = cell_tensor[:, 2]
         cell_tensor = cell_tensor[:, :2]
 
-        cell_tensor = points_to_pixels(cell_tensor, cell_area, tissue_area, scalar)
+        cell_tensor = translate_cell_to_tissue_coordinates(
+            cell_tensor, cell_area, tissue_area, scaling_value
+        )
         cell_tensor = cell_tensor.to(dtype=torch.int)
 
-        for row, cell_annotation in zip(cell_tensor, cell_annotation):
-            width, height = row
+        for cell_coordinate, cell_annotation in zip(cell_tensor, cell_annotations):
+            x_cor, y_cor = cell_coordinate
 
             annotation = Annotation(
-                (cell_annotation.item(), image_tensor[0, height, width].item())
+                (cell_annotation.item(), tissue_tensor[0, y_cor, x_cor].item())
             )
 
-            d[annotation.name] = d.get(annotation.name, 0) + 1
+            counting_dict[annotation.name] = counting_dict.get(annotation.name, 0) + 1
 
-    return d
+    return counting_dict
 
 
-def points_to_pixels(points_in_sfov, cell_area, tissue_area, scalar):
+def translate_cell_to_tissue_coordinates(
+    cell_coordinates, cell_area, tissue_area, scaling_value
+):
     offset_cell = (
         (cell_area[:2] - tissue_area[:2])
         / torch.tensor(
@@ -176,7 +163,7 @@ def points_to_pixels(points_in_sfov, cell_area, tissue_area, scalar):
     )
 
     offset_cell = offset_cell.to(dtype=torch.int)
-    points_in_lfov = transform_points(points_in_sfov, offset_cell, scalar)
+    points_in_lfov = transform_points(cell_coordinates, offset_cell, scaling_value)
 
     return points_in_lfov
 
