@@ -19,21 +19,21 @@ SAMPLES.sort()
 
 class Annotation(Enum):
     UNK_UNK = (255, 255)
-    UNK_1 = (255, 1)
-    UNK_2 = (255, 2)
-    C1_UNK = (1, 255)
+    UNK_BG = (255, 1)
+    UNK_CA = (255, 2)
+    BC_UNK = (1, 255)
     BC_non_CA = (1, 1)
     BC_CA = (1, 2)
-    C2_UNK = (2, 255)
+    TC_UNK = (2, 255)
     TC_non_CA = (2, 1)
     TC_CA = (2, 2)
     UNK_neg1 = (255, -1)
     Cneg1_UNK = (-1, 255)
     Cneg1_neg1 = (-1, -1)
-    Cneg1_1 = (-1, 1)
-    Cneg1_2 = (-1, 2)
-    C1_neg1 = (1, -1)
-    C2_neg1 = (2, -1)
+    Cneg1_BG = (-1, 1)
+    Cneg1_CA = (-1, 2)
+    BC_neg1 = (1, -1)
+    TC_neg1 = (2, -1)
 
 
 def load_images_to_tensors(image_folder):
@@ -104,6 +104,28 @@ def load_csv_to_tensors(directory_path, default_shape=(1, 3)):
     return tensors
 
 
+def calculate_areas_scalar(sample):
+    file_path = "ocelot2023_v1.0.1/metadata.json"
+
+    with open(file_path, "r") as file:
+        data = json.load(file)
+
+    cell_dict = data["sample_pairs"][sample]["cell"]
+    tissue_dict = data["sample_pairs"][sample]["tissue"]
+
+    scalar = torch.tensor(cell_dict["resized_mpp_x"] / tissue_dict["resized_mpp_x"])
+
+    keys_to_extract = ["x_start", "y_start", "x_end", "y_end"]
+
+    cell_dict = {k: cell_dict[k] for k in keys_to_extract if k in cell_dict}
+    tissue_dict = {k: tissue_dict[k] for k in keys_to_extract if k in tissue_dict}
+
+    cell_area = torch.tensor(list(cell_dict.values()))
+    tissue_area = torch.tensor(list(tissue_dict.values()))
+
+    return cell_area, tissue_area, scalar
+
+
 def calculate_TC_in_CA(cell_tensors, image_tensors):
     """
     Count cells with a specific annotation and puts it into a dictionary
@@ -144,28 +166,6 @@ def calculate_TC_in_CA(cell_tensors, image_tensors):
     return d
 
 
-def calculate_areas_scalar(sample):
-    file_path = "ocelot2023_v1.0.1/metadata.json"
-
-    with open(file_path, "r") as file:
-        data = json.load(file)
-
-    cell_dict = data["sample_pairs"][sample]["cell"]
-    tissue_dict = data["sample_pairs"][sample]["tissue"]
-
-    scalar = torch.tensor(cell_dict["resized_mpp_x"] / tissue_dict["resized_mpp_x"])
-
-    keys_to_extract = ["x_start", "y_start", "x_end", "y_end"]
-
-    cell_dict = {k: cell_dict[k] for k in keys_to_extract if k in cell_dict}
-    tissue_dict = {k: tissue_dict[k] for k in keys_to_extract if k in tissue_dict}
-
-    cell_area = torch.tensor(list(cell_dict.values()))
-    tissue_area = torch.tensor(list(tissue_dict.values()))
-
-    return cell_area, tissue_area, scalar
-
-
 def points_to_pixels(points_in_sfov, cell_area, tissue_area, scalar):
     offset_cell = (
         (cell_area[:2] - tissue_area[:2])
@@ -175,9 +175,8 @@ def points_to_pixels(points_in_sfov, cell_area, tissue_area, scalar):
         * IMAGE_SIZE
     )
 
+    offset_cell = offset_cell.to(dtype=torch.int)
     points_in_lfov = transform_points(points_in_sfov, offset_cell, scalar)
-
-    points_in_lfov = points_in_lfov.to(dtype=torch.float)
 
     return points_in_lfov
 
