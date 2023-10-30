@@ -6,6 +6,7 @@ import pandas as pd
 import torch.nn.functional as F
 
 from enum import Enum
+from monai.transforms import SpatialCrop, Resize
 from PIL import Image
 from torchvision.transforms import PILToTensor
 
@@ -29,6 +30,21 @@ class Annotation(Enum):
     Cneg1_CA = (-1, 2)
     BC_neg1 = (1, -1)
     TC_neg1 = (2, -1)
+
+
+def crop_and_upscale_tissue(
+    tissue_tensor, offset_tensor, scaling_value, image_size=1024
+):
+    crop_func = SpatialCrop(
+        roi_center=offset_tensor,
+        roi_size=image_size * torch.tensor([scaling_value, scaling_value]),
+    )
+    resize_func = Resize(spatial_size=torch.tensor([image_size, image_size]))
+
+    cropped = crop_func(tissue_tensor)
+    resized_tensor = resize_func(cropped)
+
+    return resized_tensor
 
 
 def get_cell_annotations_in_tissue_coordinates(
