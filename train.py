@@ -18,6 +18,7 @@ model = _segm_resnet(
     output_stride=8,
     pretrained_backbone=True,
 )
+model.to(device)
 
 
 # Creating the dataset class
