@@ -1,7 +1,7 @@
 ocelot_data/
 __pycache__/
 .DS_Store
-myenv/*
+samples/*
 
 
 # Byte-compiled / optimized / DLL files
