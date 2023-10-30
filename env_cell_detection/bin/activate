@@ -28,6 +28,7 @@ deactivate () {
     fi
 
     unset VIRTUAL_ENV
+    unset VIRTUAL_ENV_PROMPT
     if [ ! "${1:-}" = "nondestructive" ] ; then
     # Self destruct!
         unset -f deactivate
@@ -37,7 +38,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="/Users/bendikholter/master_project/myenv"
+VIRTUAL_ENV="/cluster/home/bendikgh/master_project/env_cell_detection"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"
@@ -54,8 +55,10 @@ fi
 
 if [ -z "${VIRTUAL_ENV_DISABLE_PROMPT:-}" ] ; then
     _OLD_VIRTUAL_PS1="${PS1:-}"
-    PS1="(myenv) ${PS1:-}"
+    PS1="(env_cell_detection) ${PS1:-}"
     export PS1
+    VIRTUAL_ENV_PROMPT="(env_cell_detection) "
+    export VIRTUAL_ENV_PROMPT
 fi
 
 # This should detect bash and zsh, which have a hash command that must
