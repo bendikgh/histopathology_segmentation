@@ -41,25 +41,25 @@ class OcelotCellDataset(ArrayDataset):
     def decode_target(cls, target):
         return target.argmax(1)
 
-    def __init__(self, cell_tensors, cell_annotations, device=None):
-        super().__init__(img=cell_tensors, seg=cell_annotations)
-        self.device = device
-        self.processed_images, self.processed_labels = self.process_data()
+    # def __init__(self, cell_tensors, cell_annotations, device=None):
+    #     super().__init__(img=cell_tensors, seg=cell_annotations)
+    #     self.device = device
+    #     self.processed_images, self.processed_labels = self.process_data()
 
-    def process_data(self):
-        processed_images = []
-        processed_labels = []
-        for index in range(len(self)):
-            image, label = super().__getitem__(index)
-            processed_images.append(torch.tensor(image))
-            processed_labels.append(torch.tensor(label))
+    # def process_data(self):
+    #     processed_images = []
+    #     processed_labels = []
+    #     for index in range(len(self)):
+    #         image, label = super().__getitem__(index)
+    #         processed_images.append(torch.tensor(image))
+    #         processed_labels.append(torch.tensor(label))
 
-        return torch.stack(processed_images).to(self.device), torch.stack(
-            processed_labels
-        ).to(self.device)
+    #     return torch.stack(processed_images).to(self.device), torch.stack(
+    #         processed_labels
+    #     ).to(self.device)
 
-    def __getitem__(self, index):
-        return self.processed_images[index], self.processed_labels[index].squeeze()
+    # def __getitem__(self, index):
+    #     return self.processed_images[index], self.processed_labels[index].squeeze()
 
-    def __len__(self):
-        return super().__len__()
+    # def __len__(self):
+    #     return super().__len__()
