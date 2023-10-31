@@ -25,7 +25,7 @@ def crop_and_upscale_tissue(
     cropped = crop_func(tissue_tensor)
     resized_tensor = resize_func(cropped)
 
-    return resized_tensor
+    return torch.tensor(resized_tensor, dtype=torch.uint8)
 
 
 def get_cell_annotations_in_tissue_coordinates(
