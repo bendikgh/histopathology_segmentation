@@ -1,1 +1,1 @@
-# master_project
+# Histopathology Segmentation
