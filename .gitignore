@@ -2,7 +2,7 @@ ocelot_data/
 __pycache__/
 .DS_Store
 samples/*
-
+my_env/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
