@@ -117,3 +117,5 @@ data/
 *.log
 *.swp
 *.bak
+
+*.pth
