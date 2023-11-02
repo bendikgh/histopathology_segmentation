@@ -1,14 +1,18 @@
 import json
 import os
 import torch
+import cv2
 
 import pandas as pd
+import numpy as np
 import torch.nn.functional as F
 
-from enum import Enum
 from monai.transforms import SpatialCrop, Resize
+from monai.data import DataLoader
 from PIL import Image
 from torchvision.transforms import PILToTensor
+
+from dataset import OcelotCellDataset
 
 IMAGE_SIZE = 1024
 
@@ -90,7 +94,10 @@ def read_data(data_folder_path: str) -> dict:
     Stores the result in a dictionary.
     """
 
-    data = {}
+    # data = {}
+    train_data = {}
+    val_data = {}
+    test_data = {}
 
     metadata = get_metadata(path=data_folder_path)
 
@@ -133,6 +140,7 @@ def read_data(data_folder_path: str) -> dict:
         tissue_image_tensor = get_image_tensor_from_path(tissue_image_path)
         cell_image_tensor = get_image_tensor_from_path(cell_image_path)
 
+        data = {}
         data[f_name] = {
             "tissue_annotated": tissue_annotated_tensor,
             "cell_annotated": cell_annotated_tensor,
@@ -144,8 +152,14 @@ def read_data(data_folder_path: str) -> dict:
             "x_offset": metadata["sample_pairs"][f_name]["patch_x_offset"],
             "y_offset": metadata["sample_pairs"][f_name]["patch_y_offset"],
         }
+        if partition_folder == "train":
+            train_data.update(data)
+        elif partition_folder == "val":
+            val_data.update(data)
+        else:
+            test_data.update(data)
 
-    return data
+    return train_data, val_data, test_data
 
 
 def transform_points(points, offset, scalar):
@@ -161,3 +175,112 @@ def transform_points(points, offset, scalar):
     transformed_tensor = F.linear(points.view(-1, points.size(-1)), scalar)
     transformed_tensor = repeated_offset + transformed_tensor
     return transformed_tensor.view(points.size())
+
+
+def create_cell_segmentation_image(
+    annotated_data: torch.Tensor,
+    cell_mpp: float,
+    radius: float = 1.4,
+    image_size: int = 1024,
+):
+    pixel_radius = int(radius / cell_mpp)
+
+    # Initialize a 3-channel image
+    image = np.zeros((image_size, image_size, 3), dtype="uint8")
+
+    for x, y, label in annotated_data:
+        if label == 1:
+            # Create a temporary single-channel image for drawing
+            tmp = image[:, :, 2].copy()
+            cv2.circle(tmp, (x.item(), y.item()), pixel_radius, 1, -1)
+            image[:, :, 2] = tmp
+        elif label == 2:
+            tmp = image[:, :, 1].copy()
+            cv2.circle(tmp, (x.item(), y.item()), pixel_radius, 1, -1)
+            image[:, :, 1] = tmp
+    mask = np.all(image == [0, 0, 0], axis=-1)
+    image[mask] = [1, 0, 0]
+    return image
+
+
+def create_segmented_data(data: dict, annotation_path: str):
+    """
+    Takes the path of the annotated data, e.g. 'ocelot_data/annotations'
+    and creates a folder in each of the 'train', 'val' and 'test' folders,
+    called 'segmented cell'. This will contain all the appropriate annotated
+    cell images.
+
+    Note:
+      - This function takes some time to run, usually around 2.5 minutes
+    """
+
+    # Finding and creating the necessary folders
+    train_segmented_folder = os.path.join(annotation_path, "train/segmented_cell")
+    val_segmented_folder = os.path.join(annotation_path, "val/segmented_cell")
+    test_segmented_folder = os.path.join(annotation_path, "test/segmented_cell")
+
+    os.makedirs(train_segmented_folder, exist_ok=True)
+    os.makedirs(val_segmented_folder, exist_ok=True)
+    os.makedirs(test_segmented_folder, exist_ok=True)
+
+    for data_id, data_object in data.items():
+        annotated_data = data_object["cell_annotated"]
+        cell_mpp = data_object["cell_mpp"]
+
+        # Figuring out which folder the data object belongs to
+        partition = get_partition_from_file_name(data_id)
+        if partition == "train":
+            image_folder = train_segmented_folder
+        elif partition == "val":
+            image_folder = val_segmented_folder
+        else:
+            image_folder = test_segmented_folder
+
+        segmented_cell_image = create_cell_segmentation_image(
+            annotated_data=annotated_data, cell_mpp=cell_mpp
+        )
+        image_path = os.path.join(image_folder, f"{data_id}.png")
+        img = Image.fromarray(segmented_cell_image.astype(np.uint8))
+        img.save(image_path)
+
+
+def get_cell_annotation_tensor(data, folder_name):
+    cell_annotations = []
+    for f_name in sorted(list(data.keys())):
+        image_path = os.path.join(folder_name, f"{f_name}.png")
+        cell_annotation = get_image_tensor_from_path(image_path)
+        cell_annotations.append(cell_annotation)
+    return torch.stack(cell_annotations)
+
+
+def get_tissue_crops_scaled_tensor(data, image_size: int = 1024):
+    cell_channels_with_tissue_annotations = []
+    image_size = 1024
+
+    for data_id in sorted(list(data.keys())):
+        data_object = data[data_id]
+        offset_tensor = (
+            torch.tensor([data_object["x_offset"], data_object["y_offset"]])
+            * image_size
+        )
+        scaling_value = data_object["cell_mpp"] / data_object["tissue_mpp"]
+        tissue_tensor = data_object["tissue_annotated"]
+        cell_tensor = data_object["cell_image"]
+
+        cropped_scaled = crop_and_upscale_tissue(
+            tissue_tensor, offset_tensor, scaling_value
+        )
+        cell_tensor_tissue_annotation = torch.cat([cell_tensor, cropped_scaled], 0)
+
+        cell_channels_with_tissue_annotations.append(cell_tensor_tissue_annotation)
+    return torch.stack(cell_channels_with_tissue_annotations)
+
+
+def get_data_loader(data, segmented_cell_folder):
+    cell_annotations_tensor = get_cell_annotation_tensor(data, segmented_cell_folder)
+    tissue_crops_scaled_tensor = get_tissue_crops_scaled_tensor(data)
+    dataset = OcelotCellDataset(
+        img=tissue_crops_scaled_tensor,
+        seg=cell_annotations_tensor,
+    )
+    return DataLoader(dataset=dataset, batch_size=2)
