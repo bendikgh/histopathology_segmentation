@@ -276,11 +276,11 @@ def get_tissue_crops_scaled_tensor(data, image_size: int = 1024):
     return torch.stack(cell_channels_with_tissue_annotations)
 
 
-def get_data_loader(data, segmented_cell_folder):
+def get_data_loader(data, segmented_cell_folder, batch_size=2):
     cell_annotations_tensor = get_cell_annotation_tensor(data, segmented_cell_folder)
     tissue_crops_scaled_tensor = get_tissue_crops_scaled_tensor(data)
     dataset = OcelotCellDataset(
         img=tissue_crops_scaled_tensor,
         seg=cell_annotations_tensor,
     )
-    return DataLoader(dataset=dataset, batch_size=2)
+    return DataLoader(dataset=dataset, batch_size=batch_size)
