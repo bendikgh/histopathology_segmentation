@@ -75,7 +75,7 @@ def main():
     train_dataloader = DataLoader(
         dataset=train_dataset, batch_size=batch_size, shuffle=True
     )
-    val_dataloader = DataLoader(dataset=val_dataset)
+    val_dataloader = DataLoader(dataset=val_dataset, batch_size=batch_size)
 
     model = _segm_resnet(
         name="deeplabv3plus",
@@ -86,7 +86,7 @@ def main():
     )
     model.to(device)
 
-    loss_function = DiceLoss()
+    loss_function = DiceLoss(softmax=True)
     optimizer = Adam(model.parameters(), lr=1e-3)
 
     train(
