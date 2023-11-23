@@ -16,12 +16,10 @@ jupyter:
 # Fixing automatic autoreload
 # %load_ext autoreload
 # %autoreload 2
-```
 
-```{python}
-import os 
 
 # Making sure we are running the code from the root directory
+import os 
 current_directory = os.getcwd()
 if current_directory.endswith("notebooks"):
     os.chdir("..")
