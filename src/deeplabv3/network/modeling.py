@@ -45,9 +45,9 @@ def _segm_resnet(name, backbone_name, num_classes, output_stride, pretrained_bac
         pretrained=pretrained_backbone,
         replace_stride_with_dilation=replace_stride_with_dilation,
     )
-    backbone.conv1 = nn.Conv2d(
-        4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False
-    )
+    # backbone.conv1 = nn.Conv2d(
+    #     4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False
+    # )
     inplanes = 2048
     low_level_planes = 256
 
