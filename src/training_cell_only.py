@@ -15,6 +15,8 @@ from train_utils import train
 def main():
     default_epochs = 2
     default_batch_size = 2
+    default_data_dir = "ocelot_data"
+    default_checkpoint_interval = 5
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -22,21 +24,27 @@ def main():
         "--epochs", type=int, default=default_epochs, help="Number of epochs"
     )
     parser.add_argument(
-        "--batch_size", type=int, default=default_batch_size, help="Batch size"
+        "--batch-size", type=int, default=default_batch_size, help="Batch size"
     )
     parser.add_argument(
-        "--data_dir", type=str, default="ocelot_data", help="Path to data directory"
+        "--data-dir", type=str, default=default_data_dir, help="Path to data directory"
+    )
+    parser.add_argument(
+        "--checkpoint-interval", type=int, default=default_checkpoint_interval, help="Checkpoint Interval"
     )
     args = parser.parse_args()
 
     num_epochs = args.epochs
     batch_size = args.batch_size
     data_dir = args.data_dir
+    checkpoint_interval = args.checkpoint_interval
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
+    print(f"Data directory: {data_dir}")
     print(f"Number of epochs: {num_epochs}")
     print(f"Batch size: {batch_size}")
+    print(f"Checkpoint interval: {checkpoint_interval}")
     print(f"Device: {device}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
@@ -89,8 +97,8 @@ def main():
         loss_function=loss_function,
         optimizer=optimizer,
         device=device,
-        checkpoint_interval=5,
-        break_after_one_iteration=True,
+        checkpoint_interval=checkpoint_interval,
+        break_after_one_iteration=False,
     )
 
 
