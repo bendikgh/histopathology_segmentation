@@ -15,15 +15,21 @@ def plot_losses(training_losses, val_losses, save_path: str):
     plt.close()
 
 
-def run_training(model, train_dataloader, optimizer, loss_function, device, break_after_one_iteration: bool = False): 
+def run_training(
+    model,
+    train_dataloader,
+    optimizer,
+    loss_function,
+    device,
+    break_after_one_iteration: bool = False,
+):
     model.train()
     training_loss = 0
     for images, masks in tqdm(train_dataloader):
         images, masks = images.to(device), masks.to(device)
-        masks = masks.permute(0, 3, 1, 2)
 
         optimizer.zero_grad()
-        outputs = model(images.permute((0, 3, 1, 2)))
+        outputs = model(images)
         loss = loss_function(outputs, masks)
         loss.backward()
         optimizer.step()
@@ -32,21 +38,27 @@ def run_training(model, train_dataloader, optimizer, loss_function, device, brea
         if break_after_one_iteration:
             print("Breaking after one iteration")
             break
-    
+
     if not break_after_one_iteration:
         training_loss /= len(train_dataloader)
 
     return training_loss
 
-def run_validation(model, val_dataloader, loss_function, device, break_after_one_iteration: bool = False): 
+
+def run_validation(
+    model,
+    val_dataloader,
+    loss_function,
+    device,
+    break_after_one_iteration: bool = False,
+):
     model.eval()
     val_loss = 0
     with torch.no_grad():
         for images, masks in tqdm(val_dataloader):
             images, masks = images.to(device), masks.to(device)
-            masks = masks.permute(0, 3, 1, 2)
 
-            outputs = model(images.permute((0, 3, 1, 2)))
+            outputs = model(images)
             loss = loss_function(outputs, masks)
 
             val_loss += loss.item()
@@ -77,10 +89,10 @@ def train(
         training_loss = run_training(
             model=model,
             train_dataloader=train_dataloader,
-            optimizer=optimizer, 
+            optimizer=optimizer,
             loss_function=loss_function,
             device=device,
-            break_after_one_iteration=break_after_one_iteration
+            break_after_one_iteration=break_after_one_iteration,
         )
         training_losses.append(training_loss)
 
@@ -89,11 +101,11 @@ def train(
             val_dataloader=val_dataloader,
             loss_function=loss_function,
             device=device,
-            break_after_one_iteration=break_after_one_iteration
+            break_after_one_iteration=break_after_one_iteration,
         )
         val_losses.append(val_loss)
 
-        # Plotting results and saving model 
+        # Plotting results and saving model
         if (epoch + 1) % checkpoint_interval == 0 or (epoch + 1) == num_epochs:
             torch.save(
                 model.state_dict(),

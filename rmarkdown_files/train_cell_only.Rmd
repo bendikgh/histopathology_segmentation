@@ -32,17 +32,15 @@ else:
 
 ```{python}
 import torch
-import time
-
-import matplotlib.pyplot as plt
 
 from glob import glob
-from tqdm import tqdm
-from monai.data import ImageDataset, DataLoader
+from monai.data import DataLoader
 from monai.losses import DiceLoss
 from torch.optim import Adam
 
-from deeplabv3.network.modeling import _segm_resnet
+from src.deeplabv3.network.modeling import _segm_resnet
+from src.dataset import CellOnlyDataset
+from src.train_utils import train
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"device: {device}")
@@ -78,13 +76,34 @@ test_image_files = [
 ```
 
 ```{python}
-train_dataset = ImageDataset(image_files=train_image_files, seg_files=train_seg_files)
-val_dataset = ImageDataset(image_files=val_image_files, seg_files=val_seg_files)
-test_dataset = ImageDataset(image_files=test_image_files, seg_files=test_seg_files)
+import albumentations as A
 
-train_dataloader = DataLoader(dataset=train_dataset, batch_size=2, shuffle=True)
+train_data = [{"img": image, "seg": seg} for image, seg in zip(train_image_files, train_seg_files)]
+```
+
+```{python}
+transforms = A.Compose([
+    A.GaussianBlur(blur_limit=(3, 7), p=0.5),  # You can adjust the blur limit
+    A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),  # Adjust var_limit for noise intensity
+    A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
+    A.HorizontalFlip(p=0.5),
+    A.RandomRotate90(p=0.5)
+])
+```
+
+```{python}
+train_dataset = CellOnlyDataset(image_files=train_image_files, seg_files=train_seg_files, transform=transforms)
+val_dataset = CellOnlyDataset(image_files=val_image_files, seg_files=val_seg_files)
+test_dataset = CellOnlyDataset(image_files=test_image_files, seg_files=test_seg_files)
+
+train_dataloader = DataLoader(dataset=train_dataset, batch_size=2)
 val_dataloader = DataLoader(dataset=val_dataset)
 test_dataloader = DataLoader(dataset=test_dataset)
+```
+
+```{python}
+tmp = next(iter(train_dataloader))
+print(tmp[0].size())
 ```
 
 ```{python}
@@ -105,10 +124,6 @@ optimizer = Adam(model.parameters(), lr=1e-3)
 ```
 
 ```{python}
-from src.train_utils import train
-```
-
-```{python}
 num_epochs = 2
 training_losses, validation_losses = train(
     num_epochs=num_epochs,
@@ -118,7 +133,8 @@ training_losses, validation_losses = train(
     loss_function=loss_function,
     optimizer=optimizer,
     device=device,
-    checkpoint_interval=1
+    checkpoint_interval=1,
+    break_after_one_iteration=True
 )
 print(training_losses)
 print(validation_losses)

@@ -2,6 +2,8 @@ import torch
 import numpy as np
 
 from monai.data import ArrayDataset, ImageDataset
+from PIL import Image
+from torchvision.transforms import ToTensor
 
 
 class OcelotTissueDataset(ImageDataset):
@@ -63,3 +65,28 @@ class OcelotCellDataset(ArrayDataset):
 
     # def __len__(self):
     #     return super().__len__()
+
+
+class CellOnlyDataset(ImageDataset):
+    def __init__(self, image_files, seg_files, transform=None) -> None:
+        self.image_files = image_files
+        self.seg_files = seg_files
+        self.to_tensor = ToTensor()
+        self.transform = transform
+
+    def __getitem__(self, idx):
+        image_path = self.image_files[idx]
+        seg_path = self.seg_files[idx]
+
+        image = self.to_tensor(Image.open(image_path).convert("RGB"))
+        seg = self.to_tensor(Image.open(seg_path).convert("RGB")) * 255
+
+        if self.transform:
+            transformed = self.transform(
+                image=np.array(image.permute((1, 2, 0))),
+                mask=np.array(seg.permute((1, 2, 0))),
+            )
+            image = torch.tensor(transformed["image"]).permute((2, 0, 1))
+            seg = torch.tensor(transformed["mask"]).permute((2, 0, 1))
+
+        return image, seg

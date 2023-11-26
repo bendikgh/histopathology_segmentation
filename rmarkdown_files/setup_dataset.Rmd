@@ -38,7 +38,7 @@ from src.utils import (
 ```
 
 ```{python}
-on_idun = True
+on_idun = False
 
 if on_idun:
   data_path = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
