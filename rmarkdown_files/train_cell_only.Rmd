@@ -32,6 +32,7 @@ else:
 
 ```{python}
 import torch
+import albumentations as A
 
 from glob import glob
 from monai.data import DataLoader
@@ -47,38 +48,34 @@ print(f"device: {device}")
 ```
 
 ```{python}
-train_seg_files = glob("ocelot_data/annotations/train/segmented_cell/*")
+data_path = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+
+train_seg_files = glob(os.path.join(data_path, "annotations/train/segmented_cell/*"))
 train_image_numbers = [
     file_name.split("/")[-1].split(".")[0] for file_name in train_seg_files
 ]
 train_image_files = [
-    os.path.join("ocelot_data/images/train/cell", image_number + ".jpg")
+    os.path.join(data_path, "images/train/cell", image_number + ".jpg")
     for image_number in train_image_numbers
 ]
 
-val_seg_files = glob("ocelot_data/annotations/val/segmented_cell/*")
+val_seg_files = glob(os.path.join(data_path, "annotations/val/segmented_cell/*"))
 val_image_numbers = [
     file_name.split("/")[-1].split(".")[0] for file_name in val_seg_files
 ]
 val_image_files = [
-    os.path.join("ocelot_data/images/val/cell", image_number + ".jpg")
+    os.path.join(data_path, "images/val/cell", image_number + ".jpg")
     for image_number in val_image_numbers
 ]
 
-test_seg_files = glob("ocelot_data/annotations/test/segmented_cell/*")
+test_seg_files = glob(os.path.join(data_path, "annotations/test/segmented_cell/*"))
 test_image_numbers = [
     file_name.split("/")[-1].split(".")[0] for file_name in test_seg_files
 ]
 test_image_files = [
-    os.path.join("ocelot_data/images/test/cell", image_number + ".jpg")
+    os.path.join(data_path, "images/test/cell", image_number + ".jpg")
     for image_number in test_image_numbers
 ]
-```
-
-```{python}
-import albumentations as A
-
-train_data = [{"img": image, "seg": seg} for image, seg in zip(train_image_files, train_seg_files)]
 ```
 
 ```{python}
@@ -96,35 +93,35 @@ train_dataset = CellOnlyDataset(image_files=train_image_files, seg_files=train_s
 val_dataset = CellOnlyDataset(image_files=val_image_files, seg_files=val_seg_files)
 test_dataset = CellOnlyDataset(image_files=test_image_files, seg_files=test_seg_files)
 
-train_dataloader = DataLoader(dataset=train_dataset, batch_size=2)
+train_dataloader = DataLoader(dataset=train_dataset, batch_size=2, drop_last=True)
 val_dataloader = DataLoader(dataset=val_dataset)
 test_dataloader = DataLoader(dataset=test_dataset)
 ```
 
 ```{python}
-tmp = next(iter(train_dataloader))
-print(tmp[0].size())
-```
-
-```{python}
+backbone = "resnet34"
+dropout_rate = 0.3
 model = _segm_resnet(
     name="deeplabv3plus",
-    backbone_name="resnet50",
+    backbone_name=backbone,
     num_classes=3,
     output_stride=8,
     pretrained_backbone=True,
+    dropout_rate=dropout_rate
 )
 model.to(device)
 print()
 ```
 
 ```{python}
-loss_function = DiceLoss()
+loss_function = DiceLoss(softmax=True)
 optimizer = Adam(model.parameters(), lr=1e-3)
 ```
 
 ```{python}
 num_epochs = 2
+checkpoint_interval = 3
+
 training_losses, validation_losses = train(
     num_epochs=num_epochs,
     train_dataloader=train_dataloader,
@@ -133,8 +130,10 @@ training_losses, validation_losses = train(
     loss_function=loss_function,
     optimizer=optimizer,
     device=device,
-    checkpoint_interval=1,
-    break_after_one_iteration=True
+    checkpoint_interval=checkpoint_interval,
+    break_after_one_iteration=False, 
+    dropout_rate=dropout_rate, 
+    backbone=backbone
 )
 print(training_losses)
 print(validation_losses)

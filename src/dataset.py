@@ -79,7 +79,7 @@ class CellOnlyDataset(ImageDataset):
         seg_path = self.seg_files[idx]
 
         image = self.to_tensor(Image.open(image_path).convert("RGB"))
-        seg = self.to_tensor(Image.open(seg_path).convert("RGB")) * 255
+        seg = self.to_tensor(Image.open(seg_path).convert("RGB"))*255
 
         if self.transform:
             transformed = self.transform(

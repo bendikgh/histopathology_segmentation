@@ -81,7 +81,11 @@ def train(
     device,
     checkpoint_interval: int = 5,
     break_after_one_iteration: bool = False,
+    dropout_rate: float = 0.5,
+    backbone: str = "resnet50"
 ):
+    learning_rate = optimizer.param_groups[0]['lr']
+    start = time.time()
     current_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
     training_losses = []
     val_losses = []
@@ -109,14 +113,18 @@ def train(
         if (epoch + 1) % checkpoint_interval == 0 or (epoch + 1) == num_epochs:
             torch.save(
                 model.state_dict(),
-                f"outputs/models/{current_time}_deeplabv3plus_cell_only_{epoch + 1}.pth",
+                f"outputs/models/{current_time}_deeplabv3plus_cell_only_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone}_epochs-{epoch + 1}.pth",
             )
             plot_losses(
                 training_losses,
                 val_losses,
-                save_path=f"outputs/plots/{current_time}_deeplabv3plus_cell_only.png",
+                save_path=f"outputs/plots/{current_time}_deeplabv3plus_cell_only_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone}.png",
             )
-            print(f"Saved model and plotted results after {epoch + 1} epochs!")
+            with open(f"outputs/logs/{current_time}_deeplabv3plus_cell_only_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone}.txt", "w") as file: 
+                file.write(f"Number of epochs: {epoch + 1}, total time: {time.time() - start:.3f} seconds \n")
+                file.write(f"training_losses = {str(training_losses)}\n")
+                file.write(f"val_losses = {str(val_losses)}\n")
+            print(f"Saved model and logs, and plotted results after {epoch + 1} epochs!")
 
         print(
             f"Epoch {epoch + 1}/{num_epochs} - Training loss: {training_loss:.4f} - Validation loss: {val_loss:.4f}"

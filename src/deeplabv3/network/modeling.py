@@ -33,23 +33,32 @@ def _segm_hrnet(name, backbone_name, num_classes, pretrained_backbone):
     return model
 
 
-def _segm_resnet(name, backbone_name, num_classes, output_stride, pretrained_backbone):
+def _segm_resnet(name, backbone_name, num_classes, output_stride, pretrained_backbone, dropout_rate=0.5):
     if output_stride == 8:
         replace_stride_with_dilation = [False, True, True]
         aspp_dilate = [12, 24, 36]
     else:
         replace_stride_with_dilation = [False, False, True]
         aspp_dilate = [6, 12, 18]
+    
+    if backbone_name == "resnet34": 
+        replace_stride_with_dilation = [False, False, False]
+
 
     backbone = resnet.__dict__[backbone_name](
         pretrained=pretrained_backbone,
         replace_stride_with_dilation=replace_stride_with_dilation,
+        dropout_rate=dropout_rate
     )
     # backbone.conv1 = nn.Conv2d(
     #     4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False
     # )
     inplanes = 2048
     low_level_planes = 256
+
+    if backbone_name == "resnet34": 
+        low_level_planes = 64
+        inplanes = 512
 
     if name == "deeplabv3plus":
         return_layers = {"layer4": "out", "layer1": "low_level"}
