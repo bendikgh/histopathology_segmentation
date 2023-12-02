@@ -90,3 +90,34 @@ class CellOnlyDataset(ImageDataset):
             seg = torch.tensor(transformed["mask"]).permute((2, 0, 1))
 
         return image, seg
+
+
+class TissueDataset(ImageDataset):
+    def __init__(self, image_files, seg_files, transform=None) -> None:
+        self.image_files = image_files
+        self.seg_files = seg_files
+        self.to_tensor = ToTensor()
+        self.transform = transform
+
+    def __getitem__(self, idx):
+        image_path = self.image_files[idx]
+        seg_path = self.seg_files[idx]
+
+        image = self.to_tensor(Image.open(image_path).convert("RGB"))
+        seg_image = self.to_tensor(Image.open(seg_path))*255
+
+        seg = torch.zeros(3, 1024, 1024)
+        unique_values = [1.0, 2.0, 255.0]
+
+        for channel, value in enumerate(unique_values):
+            seg[channel] = (seg_image == value)
+
+        if self.transform:
+            transformed = self.transform(
+                image=np.array(image.permute((1, 2, 0))),
+                mask=np.array(seg.permute((1, 2, 0))),
+            )
+            image = torch.tensor(transformed["image"]).permute((2, 0, 1))
+            seg = torch.tensor(transformed["mask"]).permute((2, 0, 1))
+
+        return image, seg

@@ -12,7 +12,7 @@ from monai.data import DataLoader
 from PIL import Image
 from torchvision.transforms import PILToTensor
 
-from src.dataset import OcelotCellDataset
+from dataset import OcelotCellDataset
 
 IMAGE_SIZE = 1024
 
@@ -29,8 +29,11 @@ def crop_and_upscale_tissue(
 
     cropped = crop_func(tissue_tensor)
     resized_tensor = resize_func(cropped)
+    
+    # Edit: removed uint8
+    # cropped_resized = torch.tensor(resized_tensor, dtype=torch.uint8)
 
-    return torch.tensor(resized_tensor, dtype=torch.uint8)
+    return resized_tensor
 
 
 def get_cell_annotations_in_tissue_coordinates(
