@@ -12,7 +12,7 @@ from monai.data import DataLoader
 from PIL import Image
 from torchvision.transforms import PILToTensor
 
-from dataset import OcelotCellDataset
+from src.dataset import OcelotCellDataset
 
 IMAGE_SIZE = 1024
 

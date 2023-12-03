@@ -30,9 +30,12 @@ else:
 
 ```{python}
 import torch
+import json
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+
 
 from torchvision.transforms import PILToTensor
 from src.utils import (
@@ -46,7 +49,14 @@ tensor_transformation = PILToTensor()
 ```
 
 ```{python}
-folder_path = "ocelot_data/"
+data_dir = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+metadata_path = os.path.join(data_dir, "metadata.json")
+with open(metadata_path, "r") as file:
+    metadata = json.load(file)
+```
+
+```{python}
+folder_path = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
 metadata = get_metadata(folder_path)
 train_data, val_data, test_data = read_data(folder_path)
 ```
@@ -96,12 +106,12 @@ tissue_image = train_data[img_id]["tissue_image"]
 cell_image = train_data[img_id]["cell_image"]
 tissue_annotated_image = train_data[img_id]["tissue_annotated"]
 
-rgb_image = np.zeros((1024, 1024, 3), dtype=np.uint8)
-rgb_image[tissue_annotated_image[0] == 2, 1] = 255
-rgb_image = np.transpose(rgb_image, (2, 0, 1))
+#rgb_image = np.zeros((1024, 1024, 3), dtype=np.uint8)
+rgb_image = tissue_image[:]
+rgb_image[1, tissue_annotated_image[0] == 2] = 255
 
-alpha = 0.2
-green_blend = (alpha * rgb_image + (1 - alpha) * tissue_image.numpy()).astype(np.uint8)
+alpha = 0.0001
+green_blend = (alpha * rgb_image + (1 - alpha) * tissue_image).to(torch.uint8)
 ```
 
 ```{python}
@@ -115,6 +125,7 @@ for i in range(len(tissue_coords)):
     x, y = tissue_coords[i]
     color = "yellow" if tissue_labels[i] == 1 else "blue"
     plt.scatter(x, y, color=color, s=3)
+plt.axis("off")
 
 # Plotting the actual points 
 plt.subplot(1, 2, 2)
@@ -123,28 +134,50 @@ for i in range(len(cell_coords)):
     x, y = cell_coords[i]
     color = "yellow" if cell_labels[i] == 1 else "blue"
     plt.scatter(x, y, color=color, s=25)
+plt.axis("off")
+
+
 ```
 
 ```{python}
-num_TC = 0
-num_TC_CA = 0
+def count_cell_and_tissue_annotations(data_dict): 
+  num_TC = 0
+  num_TC_CA = 0
+  num_BC = 0
+  num_BC_CA = 0
 
-for sample_id, sample in train_data.items(): 
-  tissue_annotations = get_cell_annotations_in_tissue_coordinates(sample, image_size=1024)
+  for sample_id, sample in data_dict.items(): 
+    tissue_annotations = get_cell_annotations_in_tissue_coordinates(sample, image_size=1024)
 
-  sample_num_TC = (tissue_annotations[:, 2] == 2).sum()
-  num_TC += sample_num_TC
+    sample_num_TC = (tissue_annotations[:, 2] == 2).sum()
+    sample_num_BC = (tissue_annotations[:, 2] == 1).sum()
+    num_TC += sample_num_TC
+    num_BC += sample_num_BC
 
-  tissue_annotated_image = sample["tissue_annotated"].squeeze()
-  sample_num_TC_CA = 0
-  for (x, y, label) in tissue_annotations: 
-    if tissue_annotated_image[y, x] == 2 and label == 2: 
-      sample_num_TC_CA += 1
-  num_TC_CA += sample_num_TC_CA
+    tissue_annotated_image = sample["tissue_annotated"].squeeze()
+    sample_num_TC_CA = 0
+    sample_num_BC_CA = 0
+    for (x, y, label) in tissue_annotations: 
+      if tissue_annotated_image[y, x] == 2 and label == 2: 
+        sample_num_TC_CA += 1
+      elif tissue_annotated_image[y, x] == 2 and label == 1: 
+        sample_num_BC_CA += 1
+    num_TC_CA += sample_num_TC_CA
+    num_BC_CA += sample_num_BC_CA
+  return num_TC, num_TC_CA, num_BC, num_BC_CA
 
-print(num_TC)
-print(num_TC_CA)
-print(num_TC_CA / num_TC.item())
+train_TC, train_TC_CA, train_BC, train_BC_CA = count_cell_and_tissue_annotations(train_data)
+val_TC, val_TC_CA, val_BC, val_BC_CA = count_cell_and_tissue_annotations(val_data)
+test_TC, test_TC_CA, test_BC, test_BC_CA = count_cell_and_tissue_annotations(test_data)
+
+TC = train_TC + val_TC + test_TC
+TC_CA = train_TC_CA + val_TC_CA + test_TC_CA
+BC = train_BC + val_BC + test_BC
+BC_CA = train_BC_CA + val_BC_CA + test_BC_CA
+print(TC)
+print(TC_CA, TC-TC_CA)
+print(BC)
+print(BC_CA, BC-BC_CA)
 ```
 
 ```{python}

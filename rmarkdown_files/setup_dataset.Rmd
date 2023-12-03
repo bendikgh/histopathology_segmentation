@@ -38,7 +38,7 @@ from src.utils import (
 ```
 
 ```{python}
-on_idun = False
+on_idun = True
 
 if on_idun:
   data_path = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
@@ -49,6 +49,7 @@ total_data = {}
 total_data.update(train_data)
 total_data.update(val_data)
 total_data.update(test_data)
+annotation_path = os.path.join(data_path, "annotations")
 ```
 
 ```{python}
@@ -105,4 +106,18 @@ plt.axis("off")
 
 plt.show()
 
+```
+
+```{python}
+path = os.path.join("/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data", "images/train/cell/288.jpg")
+img = get_image_tensor_from_path(path)
+plt.figure(figsize=(16, 8))
+plt.subplot(1, 2, 1)
+plt.imshow(img.permute(1, 2, 0))
+plt.axis("off")
+
+plt.subplot(1, 2, 2)
+plt.imshow(train_img*255)
+plt.axis("off")
+plt.show()
 ```
