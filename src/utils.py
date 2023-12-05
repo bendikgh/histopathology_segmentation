@@ -25,7 +25,7 @@ def crop_and_upscale_tissue(
         roi_center=offset_tensor,
         roi_size=image_size * torch.tensor([scaling_value, scaling_value]),
     )
-    resize_func = Resize(spatial_size=torch.tensor([image_size, image_size]))
+    resize_func = Resize(spatial_size=torch.tensor([image_size, image_size]), mode="nearest")
 
     cropped = crop_func(tissue_tensor)
     resized_tensor = resize_func(cropped)
@@ -259,12 +259,14 @@ def get_cell_annotation_tensor(data, folder_name):
 
 def get_tissue_crops_scaled_tensor(data, image_size: int = 1024):
     cell_channels_with_tissue_annotations = []
-    image_size = 1024
+
 
     for data_id in sorted(list(data.keys())):
         data_object = data[data_id]
         offset_tensor = (
-            torch.tensor([data_object["x_offset"], data_object["y_offset"]])
+            # For some reason we have to swap y and x here, otherwise the 
+            # crops seemingly are reversed (though all documentation says otherwise...)
+            torch.tensor([data_object["y_offset"], data_object["x_offset"]])
             * image_size
         )
         scaling_value = data_object["cell_mpp"] / data_object["tissue_mpp"]

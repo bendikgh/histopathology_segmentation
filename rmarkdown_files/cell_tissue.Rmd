@@ -33,6 +33,7 @@ else:
 ```{python}
 import torch
 import albumentations as A
+import matplotlib.pyplot as plt
 
 from glob import glob
 from monai.data import DataLoader
@@ -139,6 +140,13 @@ images, seg = next(iter(train_tissue_dataloader))
 ```{python}
 print(images.size())
 print(seg.size())
+```
+
+```{python}
+plt.imshow(images[0].permute(1, 2, 0))
+plt.show()
+plt.imshow(seg[0].permute(1, 2, 0))
+plt.show()
 ```
 
 ```{python}

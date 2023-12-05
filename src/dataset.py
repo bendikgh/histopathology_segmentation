@@ -121,3 +121,34 @@ class TissueDataset(ImageDataset):
             seg = torch.tensor(transformed["mask"]).permute((2, 0, 1))
 
         return image, seg
+
+class TissueLeakingDataset(ImageDataset):
+    def __init__(self, input_files, cell_seg_files, tissue_seg_files, transform=None) -> None:
+        self.image_files = input_files
+        self.cell_seg_files = cell_seg_files
+        self.tissue_seg_files = tissue_seg_files
+        self.to_tensor = ToTensor()
+        self.transform = transform
+
+    def __getitem__(self, idx):
+        image_path = self.image_files[idx]
+        cell_seg_path = self.cell_seg_files[idx]
+        tissue_seg_path = self.tissue_seg_files[idx]
+
+        image = self.to_tensor(Image.open(image_path).convert("RGB"))
+        cell_seg = self.to_tensor(Image.open(cell_seg_path).convert("RGB"))*255
+        tissue_seg = self.to_tensor(Image.open(tissue_seg_path).convert("RGB"))*255
+
+        if self.transform:
+            transformed = self.transform(
+                image=np.array(image.permute((1, 2, 0))),
+                mask1=np.array(cell_seg.permute((1, 2, 0))),
+                mask2=np.array(tissue_seg.permute((1, 2, 0))),
+            )
+            image = torch.tensor(transformed["image"]).permute((2, 0, 1))
+            cell_seg = torch.tensor(transformed["mask1"]).permute((2, 0, 1))
+            tissue_seg = torch.tensor(transformed["mask2"]).permute((2, 0, 1))
+
+        image = torch.cat((image, tissue_seg), dim=0)
+
+        return image, cell_seg
