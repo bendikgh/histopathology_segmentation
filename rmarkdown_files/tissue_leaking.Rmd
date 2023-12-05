@@ -32,22 +32,13 @@ else:
 
 ```{python}
 import torch
-import time
-import numpy as np 
-import matplotlib.pyplot as plt
 import albumentations as A
 
-from monai.data import ArrayDataset, ImageDataset, DataLoader
-from PIL import Image
+from monai.data import DataLoader
 from monai.losses import DiceLoss
 from torch.optim import Adam
-from torchvision.transforms import ToTensor
 from glob import glob
 
-from src.utils import (
-    read_data, 
-    get_data_loader
-)
 from src.deeplabv3.network.modeling import _segm_resnet
 from src.dataset import TissueLeakingDataset
 

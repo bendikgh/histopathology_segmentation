@@ -34,7 +34,6 @@ import json
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 
 
 from torchvision.transforms import PILToTensor
@@ -146,7 +145,7 @@ def count_cell_and_tissue_annotations(data_dict):
   num_BC = 0
   num_BC_CA = 0
 
-  for sample_id, sample in data_dict.items(): 
+  for _, sample in data_dict.items(): 
     tissue_annotations = get_cell_annotations_in_tissue_coordinates(sample, image_size=1024)
 
     sample_num_TC = (tissue_annotations[:, 2] == 2).sum()

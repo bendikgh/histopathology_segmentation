@@ -5,17 +5,10 @@ import cv2
 
 import pandas as pd
 import numpy as np
-import torch.nn.functional as F
 
 from monai.transforms import SpatialCrop, Resize
-from monai.data import DataLoader
 from PIL import Image
 from torchvision.transforms import PILToTensor
-
-from src.dataset import OcelotCellDataset
-
-IMAGE_SIZE = 1024
-
 
 
 def crop_and_upscale_tissue(
@@ -25,11 +18,13 @@ def crop_and_upscale_tissue(
         roi_center=offset_tensor,
         roi_size=image_size * torch.tensor([scaling_value, scaling_value]),
     )
-    resize_func = Resize(spatial_size=torch.tensor([image_size, image_size]), mode="nearest")
+    resize_func = Resize(
+        spatial_size=torch.tensor([image_size, image_size]), mode="nearest"
+    )
 
     cropped = crop_func(tissue_tensor)
     resized_tensor = resize_func(cropped)
-    
+
     # Edit: removed uint8
     # cropped_resized = torch.tensor(resized_tensor, dtype=torch.uint8)
 
@@ -166,21 +161,6 @@ def read_data(data_folder_path: str) -> dict:
     return train_data, val_data, test_data
 
 
-def transform_points(points, offset, scalar):
-    if torch.numel(scalar) == 1:
-        # Create an identity matrix of the correct size and scale it by the scalar value
-        scalar_size = points.size(-1)
-        scalar = torch.eye(scalar_size) * scalar
-
-    scalar = scalar.to(dtype=torch.float)
-    points = points.to(dtype=torch.float)
-    repeated_offset = offset.repeat(points.size(-2), 1)
-
-    transformed_tensor = F.linear(points.view(-1, points.size(-1)), scalar)
-    transformed_tensor = repeated_offset + transformed_tensor
-    return transformed_tensor.view(points.size())
-
-
 def create_cell_segmentation_image(
     annotated_data: torch.Tensor,
     cell_mpp: float,
@@ -260,11 +240,10 @@ def get_cell_annotation_tensor(data, folder_name):
 def get_tissue_crops_scaled_tensor(data, image_size: int = 1024):
     cell_channels_with_tissue_annotations = []
 
-
     for data_id in sorted(list(data.keys())):
         data_object = data[data_id]
         offset_tensor = (
-            # For some reason we have to swap y and x here, otherwise the 
+            # For some reason we have to swap y and x here, otherwise the
             # crops seemingly are reversed (though all documentation says otherwise...)
             torch.tensor([data_object["y_offset"], data_object["x_offset"]])
             * image_size
@@ -280,13 +259,3 @@ def get_tissue_crops_scaled_tensor(data, image_size: int = 1024):
 
         cell_channels_with_tissue_annotations.append(cell_tensor_tissue_annotation)
     return torch.stack(cell_channels_with_tissue_annotations)
-
-
-def get_data_loader(data, segmented_cell_folder, batch_size=2):
-    cell_annotations_tensor = get_cell_annotation_tensor(data, segmented_cell_folder)
-    tissue_crops_scaled_tensor = get_tissue_crops_scaled_tensor(data)
-    dataset = OcelotCellDataset(
-        img=tissue_crops_scaled_tensor,
-        seg=cell_annotations_tensor,
-    )
-    return DataLoader(dataset=dataset, batch_size=batch_size)

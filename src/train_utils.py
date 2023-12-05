@@ -83,9 +83,9 @@ def train(
     break_after_one_iteration: bool = False,
     dropout_rate: float = 0.5,
     backbone: str = "resnet50",
-    model_name: str = "cell_only"
+    model_name: str = "cell_only",
 ):
-    learning_rate = optimizer.param_groups[0]['lr']
+    learning_rate = optimizer.param_groups[0]["lr"]
     start = time.time()
     current_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
     training_losses = []
@@ -121,11 +121,18 @@ def train(
                 val_losses,
                 save_path=f"outputs/plots/{current_time}_deeplabv3plus_{model_name}_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone}.png",
             )
-            with open(f"outputs/logs/{current_time}_deeplabv3plus_{model_name}_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone}.txt", "w") as file: 
-                file.write(f"Number of epochs: {epoch + 1}, total time: {time.time() - start:.3f} seconds \n")
+            with open(
+                f"outputs/logs/{current_time}_deeplabv3plus_{model_name}_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone}.txt",
+                "w",
+            ) as file:
+                file.write(
+                    f"Number of epochs: {epoch + 1}, total time: {time.time() - start:.3f} seconds \n"
+                )
                 file.write(f"training_losses = {str(training_losses)}\n")
                 file.write(f"val_losses = {str(val_losses)}\n")
-            print(f"Saved model and logs, and plotted results after {epoch + 1} epochs!")
+            print(
+                f"Saved model and logs, and plotted results after {epoch + 1} epochs!"
+            )
 
         print(
             f"Epoch {epoch + 1}/{num_epochs} - Training loss: {training_loss:.4f} - Validation loss: {val_loss:.4f}"

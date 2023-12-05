@@ -38,35 +38,6 @@ class OcelotTissueDataset(ImageDataset):
         return super().__len__()
 
 
-class OcelotCellDataset(ArrayDataset):
-    @classmethod
-    def decode_target(cls, target):
-        return target.argmax(1)
-
-    # def __init__(self, cell_tensors, cell_annotations, device=None):
-    #     super().__init__(img=cell_tensors, seg=cell_annotations)
-    #     self.device = device
-    #     self.processed_images, self.processed_labels = self.process_data()
-
-    # def process_data(self):
-    #     processed_images = []
-    #     processed_labels = []
-    #     for index in range(len(self)):
-    #         image, label = super().__getitem__(index)
-    #         processed_images.append(torch.tensor(image))
-    #         processed_labels.append(torch.tensor(label))
-
-    #     return torch.stack(processed_images).to(self.device), torch.stack(
-    #         processed_labels
-    #     ).to(self.device)
-
-    # def __getitem__(self, index):
-    #     return self.processed_images[index], self.processed_labels[index].squeeze()
-
-    # def __len__(self):
-    #     return super().__len__()
-
-
 class CellOnlyDataset(ImageDataset):
     def __init__(self, image_files, seg_files, transform=None) -> None:
         self.image_files = image_files
@@ -79,7 +50,7 @@ class CellOnlyDataset(ImageDataset):
         seg_path = self.seg_files[idx]
 
         image = self.to_tensor(Image.open(image_path).convert("RGB"))
-        seg = self.to_tensor(Image.open(seg_path).convert("RGB"))*255
+        seg = self.to_tensor(Image.open(seg_path).convert("RGB")) * 255
 
         if self.transform:
             transformed = self.transform(
@@ -104,13 +75,13 @@ class TissueDataset(ImageDataset):
         seg_path = self.seg_files[idx]
 
         image = self.to_tensor(Image.open(image_path).convert("RGB"))
-        seg_image = self.to_tensor(Image.open(seg_path))*255
+        seg_image = self.to_tensor(Image.open(seg_path)) * 255
 
         seg = torch.zeros(3, 1024, 1024)
         unique_values = [1.0, 2.0, 255.0]
 
         for channel, value in enumerate(unique_values):
-            seg[channel] = (seg_image == value)
+            seg[channel] = seg_image == value
 
         if self.transform:
             transformed = self.transform(
@@ -122,8 +93,11 @@ class TissueDataset(ImageDataset):
 
         return image, seg
 
+
 class TissueLeakingDataset(ImageDataset):
-    def __init__(self, input_files, cell_seg_files, tissue_seg_files, transform=None) -> None:
+    def __init__(
+        self, input_files, cell_seg_files, tissue_seg_files, transform=None
+    ) -> None:
         self.image_files = input_files
         self.cell_seg_files = cell_seg_files
         self.tissue_seg_files = tissue_seg_files
@@ -136,8 +110,8 @@ class TissueLeakingDataset(ImageDataset):
         tissue_seg_path = self.tissue_seg_files[idx]
 
         image = self.to_tensor(Image.open(image_path).convert("RGB"))
-        cell_seg = self.to_tensor(Image.open(cell_seg_path).convert("RGB"))*255
-        tissue_seg = self.to_tensor(Image.open(tissue_seg_path).convert("RGB"))*255
+        cell_seg = self.to_tensor(Image.open(cell_seg_path).convert("RGB")) * 255
+        tissue_seg = self.to_tensor(Image.open(tissue_seg_path).convert("RGB")) * 255
 
         if self.transform:
             transformed = self.transform(

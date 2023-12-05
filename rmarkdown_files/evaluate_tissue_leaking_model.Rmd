@@ -31,19 +31,14 @@ else:
 ```
 
 ```{python}
-import argparse
 import torch
 import matplotlib.pyplot as plt 
 import seaborn as sns
 
 from glob import glob
-from monai.losses import DiceLoss
-from monai.data import ImageDataset
 from torch.utils.data import DataLoader
-from torch.optim import Adam
 
 from src.deeplabv3.network.modeling import _segm_resnet
-from src.train_utils import train
 from src.dataset import TissueLeakingDataset
 
 sns.set_theme()
@@ -105,7 +100,7 @@ test_dataloader = DataLoader(dataset=test_dataset, batch_size=2, drop_last=True)
 
 ```{python}
 from monai.metrics import DiceMetric
-from monai.transforms import Compose, Activations, AsDiscrete
+from monai.transforms import Compose, AsDiscrete
 
 def calculate_dice_score(dataloader, model, device): 
 
@@ -150,9 +145,7 @@ print(f"Dice score on validation set: {val_dice_score}")
 ```
 
 ```{python}
-import cv2
 import torch.nn.functional as F
-import numpy as np
 from skimage.feature import peak_local_max
 
 from src.utils import create_cell_segmentation_image

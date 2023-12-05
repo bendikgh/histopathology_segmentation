@@ -5,7 +5,6 @@ import albumentations as A
 
 from glob import glob
 from monai.losses import DiceLoss
-from monai.data import ImageDataset
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 
@@ -35,7 +34,10 @@ def main():
         "--data-dir", type=str, default=default_data_dir, help="Path to data directory"
     )
     parser.add_argument(
-        "--checkpoint-interval", type=int, default=default_checkpoint_interval, help="Checkpoint Interval"
+        "--checkpoint-interval",
+        type=int,
+        default=default_checkpoint_interval,
+        help="Checkpoint Interval",
     )
     parser.add_argument(
         "--backbone", type=str, default=default_backbone_model, help="Backbone model"
@@ -44,9 +46,12 @@ def main():
         "--dropout", type=float, default=default_dropout_rate, help="Dropout rate"
     )
     parser.add_argument(
-        "--learning-rate", type=float, default=default_learning_rate, help="Learning rate"
+        "--learning-rate",
+        type=float,
+        default=default_learning_rate,
+        help="Learning rate",
     )
-    
+
     args = parser.parse_args()
 
     num_epochs = args.epochs
@@ -69,7 +74,7 @@ def main():
     print(f"Device: {device}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
-    # Find the correct files 
+    # Find the correct files
     train_seg_files = glob(os.path.join(data_dir, "annotations/train/segmented_cell/*"))
     train_image_numbers = [
         file_name.split("/")[-1].split(".")[0] for file_name in train_seg_files
@@ -89,13 +94,17 @@ def main():
     ]
 
     # Create dataset and dataloader
-    transforms = A.Compose([
-        A.GaussianBlur(blur_limit=(3, 7), p=0.5),  # You can adjust the blur limit
-        A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),  # Adjust var_limit for noise intensity
-        A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
-        A.HorizontalFlip(p=0.5),
-        A.RandomRotate90(p=0.5)
-    ])
+    transforms = A.Compose(
+        [
+            A.GaussianBlur(blur_limit=(3, 7), p=0.5),  # You can adjust the blur limit
+            A.GaussNoise(
+                var_limit=(0.1, 0.3), p=0.5
+            ),  # Adjust var_limit for noise intensity
+            A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
+            A.HorizontalFlip(p=0.5),
+            A.RandomRotate90(p=0.5),
+        ]
+    )
     train_dataset = CellOnlyDataset(
         image_files=train_image_files, seg_files=train_seg_files
     )
@@ -113,7 +122,7 @@ def main():
         num_classes=3,
         output_stride=8,
         pretrained_backbone=True,
-        dropout_rate=dropout_rate
+        dropout_rate=dropout_rate,
     )
     model.to(device)
 
@@ -130,8 +139,8 @@ def main():
         device=device,
         checkpoint_interval=checkpoint_interval,
         break_after_one_iteration=False,
-        dropout_rate=dropout_rate, 
-        backbone=backbone_model
+        dropout_rate=dropout_rate,
+        backbone=backbone_model,
     )
 
 

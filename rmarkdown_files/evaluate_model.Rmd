@@ -31,19 +31,14 @@ else:
 ```
 
 ```{python}
-import argparse
 import torch
 import matplotlib.pyplot as plt 
 import seaborn as sns
 
 from glob import glob
-from monai.losses import DiceLoss
-from monai.data import ImageDataset
 from torch.utils.data import DataLoader
-from torch.optim import Adam
 
 from src.deeplabv3.network.modeling import _segm_resnet
-from src.train_utils import train
 from src.dataset import CellOnlyDataset
 
 sns.set_theme()
@@ -147,7 +142,7 @@ show_batch_predictions(images, masks, outputs)
 
 ```{python}
 from monai.metrics import DiceMetric
-from monai.transforms import Compose, Activations, AsDiscrete
+from monai.transforms import Compose, AsDiscrete
 
 def calculate_dice_score(dataloader, model, device): 
 
