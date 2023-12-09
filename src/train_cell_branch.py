@@ -8,6 +8,7 @@ from monai.losses import DiceLoss
 from monai.data import ImageDataset
 from torch.utils.data import DataLoader
 from torch.optim import Adam
+from torch.nn.functional import softmax
 
 from deeplabv3.network.modeling import _segm_resnet
 from train_utils import train
@@ -18,94 +19,81 @@ import numpy as np
 
 # Function for crop and scale tissue image
 from utils import crop_and_upscale_tissue, get_metadata
+from dataset import CellTissueDataset
 
 
-def get_tissue_croped_scaled_tensor(
-    tissue_tensor, image_file, data_path, image_size: int = 1024
-):
-    data_id = image_file.split("/")[-1].split(".")[0]
-    data_object = get_metadata(data_path)["sample_pairs"][data_id]
+# def get_tissue_croped_scaled_tensor(
+#     tissue_tensor, image_file, data_path, image_size: int = 1024
+# ):
+#     data_id = image_file.split("/")[-1].split(".")[0]
+#     data_object = get_metadata(data_path)["sample_pairs"][data_id]
 
-    offset_tensor = (
-        torch.tensor([data_object["patch_x_offset"], data_object["patch_y_offset"]])
-        * image_size
-    )
-    scaling_value = (
-        data_object["cell"]["resized_mpp_x"] / data_object["tissue"]["resized_mpp_x"]
-    )
+#     offset_tensor = (
+#         torch.tensor([data_object["patch_x_offset"], data_object["patch_y_offset"]])
+#         * image_size
+#     )
+#     scaling_value = (
+#         data_object["cell"]["resized_mpp_x"] / data_object["tissue"]["resized_mpp_x"]
+#     )
 
-    cropped_scaled = crop_and_upscale_tissue(
-        tissue_tensor, offset_tensor, scaling_value
-    )
+#     cropped_scaled = crop_and_upscale_tissue(
+#         tissue_tensor, offset_tensor, scaling_value
+#     )
 
-    return cropped_scaled
+#     return cropped_scaled
 
 
-class CellTissueDataset(ImageDataset):
-    def __init__(
-        self,
-        image_files,
-        seg_files,
-        image_tissue_files,
-        model_tissue,
-        cell_transform=None,
-        tissue_transform=None,
-    ) -> None:
-        self.image_files = image_files
-        self.seg_files = seg_files
-        self.to_tensor = ToTensor()
-        self.cell_transform = cell_transform
+# class CellTissueDataset(ImageDataset):
+#     def __init__(self, image_files, seg_files, image_tissue_files, model_tissue, transform=None) -> None:
+#         self.image_files = image_files
+#         self.seg_files = seg_files
+#         self.to_tensor = ToTensor()
+#         self.image_tissue_files = image_tissue_files
 
-        self.image_tissue_files = image_tissue_files
-        self.model_tissue = model_tissue
-        self.tissue_transform = tissue_transform
-        self.data_path = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+#         self.model_tissue = model_tissue
+#         self.transform = transform
 
-    def __getitem__(self, idx):
-        # Cell
-        image_path = self.image_files[idx]
-        seg_path = self.seg_files[idx]
 
-        image = self.to_tensor(Image.open(image_path).convert("RGB"))
-        seg = self.to_tensor(Image.open(seg_path).convert("RGB")) * 255
+#     def __getitem__(self, idx):
+#         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#         data_path = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
 
-        if self.cell_transform:
-            transformed = self.cell_transform(
-                image=np.array(image.permute((1, 2, 0))),
-                mask=np.array(seg.permute((1, 2, 0))),
-            )
-            image = torch.tensor(transformed["image"]).permute((2, 0, 1))
-            seg = torch.tensor(transformed["mask"]).permute((2, 0, 1))
+#         # Cell
+#         image_path = self.image_files[idx]
+#         seg_path = self.seg_files[idx]
 
-        # tissue
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        image_path = self.image_tissue_files[idx]
-        image_tissue = self.to_tensor(Image.open(image_path).convert("RGB")).unsqueeze(
-            0
-        )
-        image_tissue = image_tissue.to(device)
+#         image = self.to_tensor(Image.open(image_path).convert("RGB"))
+#         seg = self.to_tensor(Image.open(seg_path).convert("RGB"))*255
 
-        image_tissue = self.model_tissue(image_tissue)
+#         # tissue
+#         image_path = self.image_tissue_files[idx]
+#         image_tissue = self.to_tensor(Image.open(image_path).convert("RGB")).unsqueeze(0)
+#         image_tissue = image_tissue.to(device)
 
-        image_tissue = image_tissue.detach().cpu().squeeze(0)
+#         image_tissue = self.model_tissue(image_tissue)
 
-        max_values, _ = image_tissue.max(0, keepdim=True)
-        image_tissue = image_tissue == max_values
+#         image_tissue = image_tissue.detach().cpu().squeeze(0)
 
-        # Scale and crop
-        image_tissue = get_tissue_croped_scaled_tensor(
-            image_tissue, image_path, self.data_path
-        )
+#         # max_values, _ = image_tissue.max(0, keepdim=True)
+#         image_tissue = softmax(image_tissue, 0)
 
-        if self.tissue_transform:
-            transformed = self.tissue_transform(
-                image=np.array(image_tissue.permute((1, 2, 0))),
-            )
-            image_tissue = torch.tensor(transformed["image"]).permute((2, 0, 1))
+#         # Scale and crop
+#         image_tissue = get_tissue_croped_scaled_tensor(image_tissue, image_path, data_path)
 
-        image = torch.cat([image, image_tissue], dim=0)
 
-        return image, seg
+#         if self.transform:
+#             transformed = self.transform(
+#                 image=np.array(image.permute((1, 2, 0))),
+#                 mask1=np.array(seg.permute((1, 2, 0))),
+#                 mask2=np.array(image_tissue.permute((1, 2, 0))),
+#             )
+#             image = torch.tensor(transformed["image"]).permute((2, 0, 1))
+#             seg = torch.tensor(transformed["mask1"]).permute((2, 0, 1))
+#             image_tissue = torch.tensor(transformed["mask2"]).permute((2, 0, 1))
+
+#         image = torch.cat((image, image_tissue), dim=0)
+
+#         return image, seg
 
 
 def main():
@@ -211,6 +199,10 @@ def main():
         os.path.join(data_dir, "images/train/tissue", image_number + ".jpg")
         for image_number in train_tissue_image_numbers
     ]
+    train_tissue_predicted = [
+        os.path.join(data_path, "annotations/train/pred_tissue", image_number + ".jpg")
+        for image_number in train_tissue_image_numbers
+    ]
 
     val_tissue_seg_files = glob(os.path.join(data_dir, "annotations/val/tissue/*"))
     val_tissue_image_numbers = [
@@ -220,14 +212,9 @@ def main():
         os.path.join(data_dir, "images/val/tissue", image_number + ".jpg")
         for image_number in val_tissue_image_numbers
     ]
-
-    test_tissue_seg_files = glob(os.path.join(data_dir, "annotations/test/tissue/*"))
-    test_tissue_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in test_tissue_seg_files
-    ]
-    test_tissue_image_files = [
-        os.path.join(data_dir, "images/test/tissue", image_number + ".jpg")
-        for image_number in test_tissue_image_numbers
+    val_tissue_predicted = [
+        os.path.join(data_path, "annotations/val/pred_tissue", image_number + ".jpg")
+        for image_number in val_tissue_image_numbers
     ]
 
     # Create dataset and dataloader
@@ -240,7 +227,8 @@ def main():
             A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
             A.HorizontalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
-        ]
+        ],
+        additional_targets={"mask1": "mask", "mask2": "mask"},
     )
 
     model_tissue = _segm_resnet(
@@ -254,7 +242,7 @@ def main():
     model_tissue.to(device)
     model_tissue.load_state_dict(
         torch.load(
-            "outputs/models/2023-12-02_00-17-23_deeplabv3plus_cell_only_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-150.pth"
+            "outputs/models/2023-12-07_22-49-54_deeplabv3plus_cell_only_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-290.pth"
         )
     )
     model_tissue.eval()
@@ -262,27 +250,19 @@ def main():
     train_cell_tissue_dataset = CellTissueDataset(
         image_files=train_image_files,
         seg_files=train_seg_files,
-        image_tissue_files=train_tissue_image_files,
-        model_tissue=model_tissue,
+        image_tissue_files=train_tissue_predicted,
+        transform=transforms,
     )
     val_cell_tissue_dataset = CellTissueDataset(
         image_files=val_image_files,
         seg_files=val_seg_files,
-        image_tissue_files=val_tissue_image_files,
-        model_tissue=model_tissue,
-    )
-    test_cell_tissue_dataset = CellTissueDataset(
-        image_files=test_image_files,
-        seg_files=test_seg_files,
-        image_tissue_files=test_tissue_image_files,
-        model_tissue=model_tissue,
+        image_tissue_files=val_tissue_predicted,
     )
 
     train_cell_tissue_dataloader = DataLoader(
-        dataset=train_cell_tissue_dataset, batch_size=2, drop_last=True
+        dataset=train_cell_tissue_dataset, batch_size=batch_size, drop_last=True
     )
     val_cell_tissue_dataloader = DataLoader(dataset=val_cell_tissue_dataset)
-    test_cell_tissue_dataloader = DataLoader(dataset=test_cell_tissue_dataset)
 
     # Create model and optimizer
     model_cell = _segm_resnet(
@@ -312,6 +292,7 @@ def main():
         break_after_one_iteration=False,
         dropout_rate=dropout_rate,
         backbone=backbone_model,
+        model_name="tissue-cell",
     )
 
 

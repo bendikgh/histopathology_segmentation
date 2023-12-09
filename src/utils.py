@@ -173,12 +173,12 @@ def create_cell_segmentation_image(
     image = np.zeros((image_size, image_size, 3), dtype="uint8")
 
     for x, y, label in annotated_data:
-        if label == 1:
+        if label == 1: # Background
             # Create a temporary single-channel image for drawing
             tmp = image[:, :, 2].copy()
             cv2.circle(tmp, (x.item(), y.item()), pixel_radius, 1, -1)
             image[:, :, 2] = tmp
-        elif label == 2:
+        elif label == 2: # Tumor
             tmp = image[:, :, 1].copy()
             cv2.circle(tmp, (x.item(), y.item()), pixel_radius, 1, -1)
             image[:, :, 1] = tmp

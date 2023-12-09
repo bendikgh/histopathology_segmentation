@@ -76,7 +76,6 @@ def main():
 
     # Find the correct files
     train_tissue_seg_files = glob(os.path.join(data_dir, "annotations/train/tissue/*"))
-
     train_tissue_image_numbers = [
         file_name.split("/")[-1].split(".")[0] for file_name in train_tissue_seg_files
     ]
@@ -92,15 +91,6 @@ def main():
     val_tissue_image_files = [
         os.path.join(data_dir, "images/val/tissue", image_number + ".jpg")
         for image_number in val_tissue_image_numbers
-    ]
-
-    test_tissue_seg_files = glob(os.path.join(data_dir, "annotations/test/tissue/*"))
-    test_tissue_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in test_tissue_seg_files
-    ]
-    test_tissue_image_files = [
-        os.path.join(data_dir, "images/test/tissue", image_number + ".jpg")
-        for image_number in test_tissue_image_numbers
     ]
 
     # Create dataset and dataloader
@@ -137,7 +127,7 @@ def main():
         num_classes=3,
         output_stride=8,
         pretrained_backbone=True,
-        dropout_rate=dropout_rate,
+        dropout_rate=dropout_rate
     )
     model.to(device)
 
@@ -156,6 +146,7 @@ def main():
         break_after_one_iteration=False,
         dropout_rate=dropout_rate,
         backbone=backbone_model,
+        model_name = "tissue_branch"
     )
 
 

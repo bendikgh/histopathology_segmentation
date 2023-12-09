@@ -4,6 +4,7 @@ import numpy as np
 from monai.data import ArrayDataset, ImageDataset
 from PIL import Image
 from torchvision.transforms import ToTensor
+from torch.nn.functional import softmax
 
 
 class OcelotTissueDataset(ImageDataset):
@@ -90,6 +91,7 @@ class TissueDataset(ImageDataset):
             )
             image = torch.tensor(transformed["image"]).permute((2, 0, 1))
             seg = torch.tensor(transformed["mask"]).permute((2, 0, 1))
+        
 
         return image, seg
 
@@ -111,7 +113,9 @@ class TissueLeakingDataset(ImageDataset):
 
         image = self.to_tensor(Image.open(image_path).convert("RGB"))
         cell_seg = self.to_tensor(Image.open(cell_seg_path).convert("RGB")) * 255
-        tissue_seg = self.to_tensor(Image.open(tissue_seg_path).convert("RGB")) * 255
+        
+        # Represented as 0-1 encoding
+        tissue_seg = self.to_tensor(Image.open(tissue_seg_path).convert("P")) * 255
 
         if self.transform:
             transformed = self.transform(
@@ -126,3 +130,44 @@ class TissueLeakingDataset(ImageDataset):
         image = torch.cat((image, tissue_seg), dim=0)
 
         return image, cell_seg
+    
+
+class CellTissueDataset(ImageDataset):
+    def __init__(self, image_files, seg_files, image_tissue_files, transform=None) -> None:
+        self.image_files = image_files
+        self.seg_files = seg_files
+        self.image_tissue_files = image_tissue_files
+
+        self.to_tensor = ToTensor()
+        self.transform = transform
+
+
+    def __getitem__(self, idx):
+        
+        # Cell
+        image_path = self.image_files[idx]
+        seg_path = self.seg_files[idx]
+
+        image = self.to_tensor(Image.open(image_path).convert("RGB"))
+        seg = self.to_tensor(Image.open(seg_path).convert("RGB"))*255
+        
+        # tissue
+        image_path = self.image_tissue_files[idx]
+        image_tissue = self.to_tensor(Image.open(image_path).convert("RGB"))
+
+        # max_values, _ = image_tissue.max(0, keepdim=True)
+        image_tissue = softmax(image_tissue, 0)
+
+        if self.transform:
+            transformed = self.transform(
+                image=np.array(image.permute((1, 2, 0))),
+                mask1=np.array(seg.permute((1, 2, 0))),
+                mask2=np.array(image_tissue.permute((1, 2, 0))),
+            )
+            image = torch.tensor(transformed["image"]).permute((2, 0, 1))
+            seg = torch.tensor(transformed["mask1"]).permute((2, 0, 1))
+            image_tissue = torch.tensor(transformed["mask2"]).permute((2, 0, 1))
+
+        image = torch.cat((image, image_tissue), dim=0)
+
+        return image, seg

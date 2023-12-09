@@ -148,7 +148,7 @@ def main():
         output_stride=8,
         pretrained_backbone=True,
         dropout_rate=dropout_rate,
-        num_channels=6,
+        num_channels=4,
     )
     model.to(device)
 
