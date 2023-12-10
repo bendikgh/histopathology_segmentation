@@ -103,7 +103,7 @@ for key in total_data.keys():
     tissue_image = total_data[key]["tissue_image"]
     tissue_image = tissue_image.to(device).to(torch.float).unsqueeze(0)
 
-    prediction = model_tissue(tissue_image)
+    prediction = model_tissue(tissue_image/255)
     prediction = prediction.detach().cpu().squeeze(0)
 
     total_data[key]["tissue_annotated"] = prediction
