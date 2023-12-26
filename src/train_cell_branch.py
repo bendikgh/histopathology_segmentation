@@ -180,42 +180,9 @@ def main():
         for image_number in val_image_numbers
     ]
 
-    test_seg_files = glob(os.path.join(data_path, "annotations/test/segmented_cell/*"))
-    test_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in test_seg_files
-    ]
-    test_image_files = [
-        os.path.join(data_path, "images/test/cell", image_number + ".jpg")
-        for image_number in test_image_numbers
-    ]
-
     # Find the correct files
-    train_tissue_seg_files = glob(os.path.join(data_dir, "annotations/train/tissue/*"))
-
-    train_tissue_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in train_tissue_seg_files
-    ]
-    train_tissue_image_files = [
-        os.path.join(data_dir, "images/train/tissue", image_number + ".jpg")
-        for image_number in train_tissue_image_numbers
-    ]
-    train_tissue_predicted = [
-        os.path.join(data_path, "annotations/train/pred_tissue", image_number + ".jpg")
-        for image_number in train_tissue_image_numbers
-    ]
-
-    val_tissue_seg_files = glob(os.path.join(data_dir, "annotations/val/tissue/*"))
-    val_tissue_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in val_tissue_seg_files
-    ]
-    val_tissue_image_files = [
-        os.path.join(data_dir, "images/val/tissue", image_number + ".jpg")
-        for image_number in val_tissue_image_numbers
-    ]
-    val_tissue_predicted = [
-        os.path.join(data_path, "annotations/val/pred_tissue", image_number + ".jpg")
-        for image_number in val_tissue_image_numbers
-    ]
+    train_tissue_predicted = glob(os.path.join(data_path, "annotations/train/pred_tissue/*"))
+    val_tissue_predicted = glob(os.path.join(data_path, "annotations/val/pred_tissue/*"))
 
     # Create dataset and dataloader
     transforms = A.Compose(

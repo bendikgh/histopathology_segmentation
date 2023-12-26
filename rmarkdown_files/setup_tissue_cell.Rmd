@@ -93,7 +93,9 @@ model_tissue.to(device)
 ```
 
 ```{python}
-model_tissue.load_state_dict(torch.load("outputs/models/2023-12-07_22-49-54_deeplabv3plus_cell_only_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-290.pth"))
+# OBS: The comment below is a tissue model with wrong name
+# outputs/models/2023-12-07_22-49-54_deeplabv3plus_cell_only_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-290.pth
+model_tissue.load_state_dict(torch.load("outputs/models/2023-12-09_13-56-10_deeplabv3plus_tissue_branch_lr-0.0001_dropout-0.5_backbone-resnet50_epochs-100.pth"))
 ```
 
 ```{python}
@@ -106,7 +108,14 @@ for key in total_data.keys():
     prediction = model_tissue(tissue_image/255)
     prediction = prediction.detach().cpu().squeeze(0)
 
-    total_data[key]["tissue_annotated"] = prediction
+    prediction = torch.argmax(prediction, 0)
+    convert = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    prediction = convert[prediction]
+
+    plt.imshow(prediction)
+    plt.show()
+
+    # total_data[key]["tissue_annotated"] = prediction
 ```
 
 ```{python}
@@ -128,6 +137,6 @@ for (key, value) in total_data.items():
     partition = get_partition_from_file_name(key)
     image_folder = os.path.join(data_path, "annotations", partition, "pred_tissue")
 
-    img = Image.fromarray(cropped_tensor.squeeze().numpy().astype("uint8").transpose(1, 2, 0))
+    img = Image.fromarray(cropped_tensor.squeeze().numpy().transpose(1, 2, 0))
     img.save(f"{image_folder}/{key}.png")
 ```

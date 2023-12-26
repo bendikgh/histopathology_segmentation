@@ -80,47 +80,53 @@ test_image_files = [
 ```
 
 ```{python}
-train_tissue_seg_files = glob(os.path.join(data_path, "annotations/train/tissue/*"))
+# remove_elements = ["392", "217", "008", "042", "053", "570", "558"]
+
+
+
+train_tissue_predicted = glob(os.path.join(data_path, "annotations/train/pred_tissue/*"))
+
 train_tissue_image_numbers = [
-    file_name.split("/")[-1].split(".")[0] for file_name in train_tissue_seg_files
+    file_name.split("/")[-1].split(".")[0] for file_name in train_tissue_predicted
+]
+train_tissue_seg_files = [
+    os.path.join(data_path, "annotations/train/tissue", image_number + ".png")
+    for image_number in train_tissue_image_numbers
 ]
 train_tissue_image_files = [
     os.path.join(data_path, "images/train/tissue", image_number + ".jpg")
     for image_number in train_tissue_image_numbers
 ]
-train_tissue_predicted = [
-    os.path.join(data_path, "annotations/train/pred_tissue", image_number + ".jpg")
-    for image_number in train_tissue_image_numbers
-]
 
 
-val_tissue_seg_files = glob(os.path.join(data_path, "annotations/val/tissue/*"))
+val_tissue_predicted = glob(os.path.join(data_path, "annotations/val/pred_tissue/*"))
+
 val_tissue_image_numbers = [
-    file_name.split("/")[-1].split(".")[0] for file_name in val_tissue_seg_files
+    file_name.split("/")[-1].split(".")[0] for file_name in val_tissue_predicted
+]
+val_tissue_seg_files = [
+    os.path.join(data_path, "annotations/val/tissue", image_number + ".png")
+    for image_number in val_tissue_image_numbers
 ]
 val_tissue_image_files = [
     os.path.join(data_path, "images/val/tissue", image_number + ".jpg")
     for image_number in val_tissue_image_numbers
 ]
-val_tissue_predicted = [
-    os.path.join(data_path, "annotations/val/pred_tissue", image_number + ".jpg")
-    for image_number in val_tissue_image_numbers
-]
 
+test_tissue_predicted = glob(os.path.join(data_path, "annotations/test/pred_tissue/*"))
 
-
-test_tissue_seg_files = glob(os.path.join(data_path, "annotations/test/tissue/*"))
 test_tissue_image_numbers = [
-    file_name.split("/")[-1].split(".")[0] for file_name in test_tissue_seg_files
+    file_name.split("/")[-1].split(".")[0] for file_name in test_tissue_predicted
+]
+test_tissue_seg_files = [
+    os.path.join(data_path, "annotations/test/tissue", image_number + ".png")
+    for image_number in test_tissue_image_numbers
 ]
 test_tissue_image_files = [
     os.path.join(data_path, "images/test/tissue", image_number + ".jpg")
     for image_number in test_tissue_image_numbers
 ]
-test_tissue_predicted = [
-    os.path.join(data_path, "annotations/test/pred_tissue", image_number + ".jpg")
-    for image_number in test_tissue_image_numbers
-]
+
 ```
 
 ```{python}
@@ -149,13 +155,13 @@ test_tissue_dataloader = DataLoader(dataset=test_tissue_dataset)
 ```
 
 ```{python}
-lst_image_seg = [(image, seg) for image, seg in iter(train_tissue_dataloader)]
-# image, seg = next(iter(train_tissue_dataloader))
+# lst_image_seg = [(image, seg) for image, seg in iter(train_tissue_dataloader)]
+image, seg = next(iter(train_tissue_dataloader))
 
 ```
 
 ```{python}
-image, seg = lst_image_seg[3]
+# image, seg = lst_image_seg[3]
 ```
 
 ```{python}
@@ -254,7 +260,7 @@ print(f"Dice score on validation set: {val_dice_score}")
 
 ```{python}
 model_tissue.eval()
-image, seg = lst_image_seg[194]
+# image, seg = lst_image_seg[6]
 image, seg = image.to(device)[0].unsqueeze(0), seg.to(device)[0].unsqueeze(0)
 with torch.no_grad():
     prediction = model_tissue(image).cpu()
@@ -368,6 +374,17 @@ test_cell_tissue_dataloader = DataLoader(dataset=test_cell_tissue_dataset)
 
 ```{python}
 images, labels = next(iter(train_cell_tissue_dataloader))
+
+```
+
+```{python}
+# images, labels = next(iter(train_cell_tissue_dataloader))
+
+# lst_image_seg = [(image, seg) for image, seg in iter(train_cell_tissue_dataloader)]
+```
+
+```{python}
+# images, labels = lst_image_seg[2]
 ```
 
 ```{python}
@@ -381,7 +398,18 @@ label_image = labels[0]
 ```
 
 ```{python}
-print(tissue_images)
+# print(tissue_images)
+
+tissue_images = torch.argmax(tissue_images, 0)
+print(tissue_images.unique())
+```
+
+```{python}
+
+convert = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+tissue_images = convert[tissue_images]
+
+print((tissue_images == 0).sum()/(tissue_images == 1).sum())
 ```
 
 ```{python}
@@ -397,7 +425,7 @@ plt.imshow(cell_images.permute(1, 2, 0))
 
 plt.subplot(1, 3, 2)
 plt.title("tissue image")
-plt.imshow(tissue_images.permute(1, 2, 0))
+plt.imshow(tissue_images)
 plt.axis("off")
 
 plt.subplot(1, 3, 3)
@@ -451,10 +479,24 @@ print(training_losses)
 print(validation_losses)
 
 ```{python}
-model_cell.load_state_dict(torch.load("outputs/models/2023-12-08_11-54-15_deeplabv3plus_tissue-cell_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-170.pth"))
-test_dice_score = calculate_dice_score(test_tissue_dataloader, model_tissue, device)
-val_dice_score = calculate_dice_score(val_tissue_dataloader, model_tissue, device)
+# outputs/models/2023-12-08_11-54-15_deeplabv3plus_tissue-cell_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-170.pth
+model_cell.load_state_dict(torch.load("outputs/models/2023-12-12_10-35-57_deeplabv3plus_tissue-cell_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-100.pth"))
+test_dice_score = calculate_dice_score(test_cell_tissue_dataloader, model_cell, device)
+val_dice_score = calculate_dice_score(val_cell_tissue_dataloader, model_cell, device)
 print("lr=0.0001, dropout=0.3, backbone=resnet50 (Baseline)")
 print(f"Dice score on test set: {test_dice_score}")
 print(f"Dice score on validation set: {val_dice_score}")
+
+# baseline: 0.3 e-4
+# Dice score on test set: 0.58343505859375
+# Dice score on validation set: 0.6106350421905518
+
+# Dropout: 0.5
+# Dice score on test set: 0.581584095954895
+# Dice score on validation set: 0.6039111018180847
+
+# LR: e-5
+# Dice score on test set: 0.5805562138557434
+# Dice score on validation set: 0.6140695810317993
+
 ```
