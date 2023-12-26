@@ -88,7 +88,7 @@ def get_metadata(path: str):
     return data
 
 
-def read_data(data_folder_path: str) -> dict:
+def read_data(data_folder_path: str, fetch_images=True) -> dict:
     """Function for reading the OCELOT data from given file path.
     Stores the result in a dictionary.
     """
@@ -140,17 +140,36 @@ def read_data(data_folder_path: str) -> dict:
         cell_image_tensor = get_image_tensor_from_path(cell_image_path)
 
         data = {}
-        data[f_name] = {
-            "tissue_annotated": tissue_annotated_tensor,
-            "cell_annotated": cell_annotated_tensor,
-            "tissue_image": tissue_image_tensor,
-            "cell_image": cell_image_tensor,
-            "cell_mpp": metadata["sample_pairs"][f_name]["cell"]["resized_mpp_x"],
-            "tissue_mpp": metadata["sample_pairs"][f_name]["tissue"]["resized_mpp_x"],
-            "slide_mpp": metadata["sample_pairs"][f_name]["mpp_x"],
-            "x_offset": metadata["sample_pairs"][f_name]["patch_x_offset"],
-            "y_offset": metadata["sample_pairs"][f_name]["patch_y_offset"],
-        }
+
+        if fetch_images:
+            data[f_name] = {
+                "tissue_annotated": tissue_annotated_tensor,
+                "cell_annotated": cell_annotated_tensor,
+                "tissue_image": tissue_image_tensor,
+                "cell_image": cell_image_tensor,
+                "cell_mpp": metadata["sample_pairs"][f_name]["cell"]["resized_mpp_x"],
+                "tissue_mpp": metadata["sample_pairs"][f_name]["tissue"][
+                    "resized_mpp_x"
+                ],
+                "slide_mpp": metadata["sample_pairs"][f_name]["mpp_x"],
+                "x_offset": metadata["sample_pairs"][f_name]["patch_x_offset"],
+                "y_offset": metadata["sample_pairs"][f_name]["patch_y_offset"],
+            }
+        else:
+            data[f_name] = {
+                "tissue_annotated": tissue_annotation_path,
+                "cell_annotated": cell_csv_path,
+                "tissue_image": tissue_image_path,
+                "cell_image": cell_image_path,
+                "cell_mpp": metadata["sample_pairs"][f_name]["cell"]["resized_mpp_x"],
+                "tissue_mpp": metadata["sample_pairs"][f_name]["tissue"][
+                    "resized_mpp_x"
+                ],
+                "slide_mpp": metadata["sample_pairs"][f_name]["mpp_x"],
+                "x_offset": metadata["sample_pairs"][f_name]["patch_x_offset"],
+                "y_offset": metadata["sample_pairs"][f_name]["patch_y_offset"],
+            }
+
         if partition_folder == "train":
             train_data.update(data)
         elif partition_folder == "val":
@@ -173,12 +192,12 @@ def create_cell_segmentation_image(
     image = np.zeros((image_size, image_size, 3), dtype="uint8")
 
     for x, y, label in annotated_data:
-        if label == 1: # Background
+        if label == 1:  # Background
             # Create a temporary single-channel image for drawing
             tmp = image[:, :, 2].copy()
             cv2.circle(tmp, (x.item(), y.item()), pixel_radius, 1, -1)
             image[:, :, 2] = tmp
-        elif label == 2: # Tumor
+        elif label == 2:  # Tumor
             tmp = image[:, :, 1].copy()
             cv2.circle(tmp, (x.item(), y.item()), pixel_radius, 1, -1)
             image[:, :, 1] = tmp

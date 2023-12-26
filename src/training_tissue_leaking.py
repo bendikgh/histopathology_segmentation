@@ -21,6 +21,7 @@ def main():
     default_backbone_model = "resnet34"
     default_dropout_rate = 0.3
     default_learning_rate = 1e-4
+    default_pretrained = True
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -43,6 +44,9 @@ def main():
         "--backbone", type=str, default=default_backbone_model, help="Backbone model"
     )
     parser.add_argument(
+        "--pretrained", type=int, default=default_pretrained, help="Pretrained backbone"
+    )
+    parser.add_argument(
         "--dropout", type=float, default=default_dropout_rate, help="Dropout rate"
     )
     parser.add_argument(
@@ -61,6 +65,7 @@ def main():
     backbone_model = args.backbone
     dropout_rate = args.dropout
     learning_rate = args.learning_rate
+    pretrained = args.pretrained
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
@@ -72,6 +77,7 @@ def main():
     print(f"Learning rate: {learning_rate}")
     print(f"Checkpoint interval: {checkpoint_interval}")
     print(f"Device: {device}")
+    print(f"Pretrained: {pretrained}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Find the correct files
@@ -146,7 +152,7 @@ def main():
         backbone_name=backbone_model,
         num_classes=3,
         output_stride=8,
-        pretrained_backbone=True,
+        pretrained_backbone=pretrained,
         dropout_rate=dropout_rate,
         num_channels=4,
     )

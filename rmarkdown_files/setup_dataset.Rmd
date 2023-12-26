@@ -54,7 +54,7 @@ annotation_path = os.path.join(data_path, "annotations")
 
 ```{python}
 annotation_path = os.path.join(data_path, "annotations")
-create_segmented_data(data=total_data, annotation_path=annotation_path)
+# create_segmented_data(data=total_data, annotation_path=annotation_path)
 ```
 
 # Test if the data is correct
@@ -120,4 +120,26 @@ plt.subplot(1, 2, 2)
 plt.imshow(train_img*255)
 plt.axis("off")
 plt.show()
+```
+
+## Test read data with fetch_images set to false
+
+```{python}
+on_idun = True
+
+if on_idun:
+  data_path = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+else: 
+  data_path = "ocelot_data/"
+train_data, val_data, test_data = read_data(data_path, fetch_images=False)
+total_data = {}
+total_data.update(train_data)
+total_data.update(val_data)
+total_data.update(test_data)
+annotation_path = os.path.join(data_path, "annotations")
+```
+
+```{python}
+print(total_data["001"]["cell_annotated"])
+print(total_data["001"]["tissue_image"])
 ```
