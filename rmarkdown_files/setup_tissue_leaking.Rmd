@@ -44,6 +44,7 @@ if on_idun:
   data_path = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
 else: 
   data_path = "ocelot_data/"
+
 train_data, val_data, test_data = read_data(data_path)
 total_data = {}
 total_data.update(train_data)

@@ -53,8 +53,9 @@ annotation_path = os.path.join(data_path, "annotations")
 ```
 
 ```{python}
+data_path = "ocelot_data/"
 annotation_path = os.path.join(data_path, "annotations")
-# create_segmented_data(data=total_data, annotation_path=annotation_path)
+create_segmented_data(data=total_data, annotation_path=annotation_path)
 ```
 
 # Test if the data is correct

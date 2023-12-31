@@ -118,8 +118,14 @@ def read_data(data_folder_path: str, fetch_images=True) -> dict:
         cell_csv_path = (
             os.path.join(annotation_path, partition_folder, "cell", f_name) + ".csv"
         )
+        segmented_cell_path = (
+            os.path.join(annotation_path, partition_folder, "segmented_cell", f_name) + ".png"
+        )
         tissue_annotation_path = (
             os.path.join(annotation_path, partition_folder, "tissue", f_name) + ".png"
+        )
+        tissue_cropped_annotation_path = (
+            os.path.join(annotation_path, partition_folder, "cropped_tissue", f_name) + ".png"
         )
         tissue_image_path = (
             os.path.join(image_path, partition_folder, "tissue", f_name) + ".jpg"
@@ -136,15 +142,19 @@ def read_data(data_folder_path: str, fetch_images=True) -> dict:
 
         cell_annotated_tensor = get_annotated_cell_data(cell_csv_path)
         tissue_annotated_tensor = get_image_tensor_from_path(tissue_annotation_path)
+        tissue_cropped_annotated_tensor = get_image_tensor_from_path(tissue_cropped_annotation_path)
         tissue_image_tensor = get_image_tensor_from_path(tissue_image_path)
         cell_image_tensor = get_image_tensor_from_path(cell_image_path)
+        segmneted_cell_tensor = get_image_tensor_from_path(segmented_cell_path)
 
         data = {}
 
         if fetch_images:
             data[f_name] = {
                 "tissue_annotated": tissue_annotated_tensor,
+                "tissue_cropped_annotated": tissue_cropped_annotated_tensor,
                 "cell_annotated": cell_annotated_tensor,
+                "segmented_cell": segmneted_cell_tensor,
                 "tissue_image": tissue_image_tensor,
                 "cell_image": cell_image_tensor,
                 "cell_mpp": metadata["sample_pairs"][f_name]["cell"]["resized_mpp_x"],
@@ -158,7 +168,9 @@ def read_data(data_folder_path: str, fetch_images=True) -> dict:
         else:
             data[f_name] = {
                 "tissue_annotated": tissue_annotation_path,
+                "tissue_cropped_annotated": tissue_cropped_annotation_path,
                 "cell_annotated": cell_csv_path,
+                "segmented_cell": segmented_cell_path,
                 "tissue_image": tissue_image_path,
                 "cell_image": cell_image_path,
                 "cell_mpp": metadata["sample_pairs"][f_name]["cell"]["resized_mpp_x"],

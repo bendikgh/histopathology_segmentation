@@ -203,8 +203,8 @@ model = _segm_resnet(
     dropout_rate=dropout_rate,
     num_channels=4
 )
-model.to(device)
-model.load_state_dict(torch.load("outputs/models/2023-12-07_17-04-08_deeplabv3plus_tissue_leaking_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-300.pth"))
+model.to(device) 
+model.load_state_dict(torch.load("outputs/models/2023-12-27_22-44-29_deeplabv3plus_tissue_leaking_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-200.pth"))
 model.eval()
 
 test_dice_score = calculate_dice_score(test_dataloader, model, device)
@@ -229,6 +229,20 @@ print(f"Dice score on validation set: {val_dice_score}")
 # 300 epochs:
 # Dice score on test set: 0.6164279580116272
 # Dice score on validation set: 0.6312710642814636
+
+
+# 250 without pretrain:
+# Dice score on test set: 0.5942952632904053
+# Dice score on validation set: 0.611300528049469
+
+# 300 without pretrain:
+# Dice score on test set: 0.5951597094535828
+# Dice score on validation set: 0.6107892990112305
+
+# 300 without pretrain and with resnet34
+# Dice score on test set: 0.6059926152229309
+# Dice score on validation set: 0.6229147911071777
+
 
 ```
 
