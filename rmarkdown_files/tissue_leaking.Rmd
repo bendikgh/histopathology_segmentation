@@ -169,7 +169,7 @@ plt.axis("off")
 ```
 
 ```{python}
-backbone = "resnet34"
+backbone = "resnet50"
 dropout_rate = 0.3
 model = _segm_resnet(
     name="deeplabv3plus",

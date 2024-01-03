@@ -78,7 +78,7 @@ print(total_data["001"]["tissue_image"])
 ```{python}
 # 204 looks good. The tissue is cropped correct and the cancer cells is within the cancer tissue area
 
-sample_nr = "218"
+sample_nr = "204"
 
 train_input_img = [train_data[sample_nr]["cell_image"]]
 train_cell_seg = [train_data[sample_nr]["segmented_cell"]]
@@ -143,4 +143,10 @@ plt.title("Input image")
 plt.axis("off")
 plt.tight_layout()
 plt.show()
+```
+
+```{python}
+print(tissue_croped_image)
+print(train_tissue_tensor)
+print(seg)
 ```

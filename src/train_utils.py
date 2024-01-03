@@ -14,7 +14,6 @@ def plot_losses(training_losses, val_losses, save_path: str):
     plt.savefig(save_path)
     plt.close()
 
-
 def run_training(
     model,
     train_dataloader,
@@ -22,11 +21,28 @@ def run_training(
     loss_function,
     device,
     break_after_one_iteration: bool = False,
+    warmup_iters = 0,
+    base_lr = 10**-3,
+    decay_rate = 1,
+    iteration = 0
 ):
     model.train()
     training_loss = 0
+
     for images, masks in tqdm(train_dataloader):
         images, masks = images.to(device), masks.to(device)
+
+        if iteration < warmup_iters:
+            # Warmup phase
+            lr = base_lr * float(iteration) / warmup_iters
+        else:
+            # Exponential decay phase
+            lr = base_lr * (decay_rate ** (iteration - warmup_iters))
+        
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+        
+        iteration += 1
 
         optimizer.zero_grad()
         outputs = model(images)
@@ -35,6 +51,7 @@ def run_training(
         optimizer.step()
 
         training_loss += loss.item()
+        
         if break_after_one_iteration:
             print("Breaking after one iteration")
             break
@@ -43,7 +60,6 @@ def run_training(
         training_loss /= len(train_dataloader)
 
     return training_loss
-
 
 def run_validation(
     model,
@@ -84,12 +100,16 @@ def train(
     dropout_rate: float = 0.5,
     backbone: str = "resnet50",
     model_name: str = "cell_only",
+    warmup_iters: int = 0,
+    base_lr: float = 0,
+    decay_rate: float = 1
 ):
     learning_rate = optimizer.param_groups[0]["lr"]
     start = time.time()
     current_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
     training_losses = []
     val_losses = []
+    
     for epoch in range(num_epochs):
         training_loss = run_training(
             model=model,
@@ -98,6 +118,10 @@ def train(
             loss_function=loss_function,
             device=device,
             break_after_one_iteration=break_after_one_iteration,
+            base_lr=base_lr,
+            warmup_iters=warmup_iters,
+            decay_rate=decay_rate,
+            iteration=epoch*len(train_dataloader)
         )
         training_losses.append(training_loss)
 

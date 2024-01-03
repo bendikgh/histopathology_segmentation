@@ -9,13 +9,49 @@ class _SimpleSegmentationModel(nn.Module):
         super(_SimpleSegmentationModel, self).__init__()
         self.backbone = backbone
         self.classifier = classifier
+        self.conv_adapter = nn.Conv2d(2049, 2048, kernel_size=1) # Resnet50
+        # self.conv_adapter = nn.Conv2d(513, 512, kernel_size=1) # Resnet34
+        
+    # def forward(self, x):
+    #     input_shape = x.shape[-2:]
+    #     features = self.backbone(x)
+    #     x = self.classifier(features)
+    #     x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=False)
+    #     return x
         
     def forward(self, x):
         input_shape = x.shape[-2:]
-        features = self.backbone(x)
-        x = self.classifier(features)
+
+        # Splitting the input into image and extra channel
+        image = x[:, :3, :, :]  # Assuming the first three channels are the image
+        extra_channel = x[:, 3:, :, :]  # The fourth channel
+
+        # Process the image through the backbone
+        image_features = self.backbone(image)
+        fused_features = self.fuse_features(image_features, extra_channel)
+
+        # Pass the fused features through the classifier
+        x = self.classifier(fused_features)
         x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=False)
         return x
+
+    def fuse_features(self, image_features, extra_features):
+        # Assuming you want to fuse with the high-level features ('out')
+        high_level_features = image_features['out']
+
+        # Resize extra_features to match the size of high_level_features
+        extra_features_resized = F.interpolate(extra_features, size=high_level_features.shape[-2:], mode='bilinear', align_corners=False)
+
+        # Fuse the features
+        fused_out = torch.cat([high_level_features, extra_features_resized], dim=1)
+        fused_out = self.conv_adapter(fused_out)
+
+        # Return the modified OrderedDict
+        fused_features = OrderedDict([
+            ('low_level', image_features['low_level']),  # unmodified low-level features
+            ('out', fused_out)  # fused high-level features
+        ])
+        return fused_features
 
 
 class IntermediateLayerGetter(nn.ModuleDict):

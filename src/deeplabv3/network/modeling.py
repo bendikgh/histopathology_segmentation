@@ -50,10 +50,10 @@ def _segm_resnet(name, backbone_name, num_classes, output_stride, pretrained_bac
         replace_stride_with_dilation=replace_stride_with_dilation,
         dropout_rate=dropout_rate
     )
-    if num_channels != 3:
-        backbone.conv1 = nn.Conv2d(
-            num_channels, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False
-        )
+    # if num_channels != 3:
+    #     backbone.conv1 = nn.Conv2d(
+    #         num_channels, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False
+    #     )
     inplanes = 2048
     low_level_planes = 256
 

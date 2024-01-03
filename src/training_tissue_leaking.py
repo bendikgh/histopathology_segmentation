@@ -22,6 +22,8 @@ def main():
     default_dropout_rate = 0.3
     default_learning_rate = 1e-4
     default_pretrained = True
+    default_warmup_epochs = 2
+    default_decay_rate = 0.99
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -55,6 +57,12 @@ def main():
         default=default_learning_rate,
         help="Learning rate",
     )
+    parser.add_argument(
+        "--warmup-epochs", type=int, default=default_warmup_epochs, help="Warmup epochs"
+    )
+    parser.add_argument(
+        "--decay-rate", type=float, default=default_decay_rate, help="Decay rate"
+    )
 
     args = parser.parse_args()
 
@@ -66,6 +74,8 @@ def main():
     dropout_rate = args.dropout
     learning_rate = args.learning_rate
     pretrained = args.pretrained
+    warmup_epochs = args.warmup_epochs
+    decay_rate = args.decay_rate
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
@@ -78,6 +88,8 @@ def main():
     print(f"Checkpoint interval: {checkpoint_interval}")
     print(f"Device: {device}")
     print(f"Pretrained: {pretrained}")
+    print(f"Warmup epochs: {warmup_epochs}")
+    print(f"Decay rate: {decay_rate}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Find the correct files
@@ -174,6 +186,9 @@ def main():
         dropout_rate=dropout_rate,
         backbone=backbone_model,
         model_name="tissue_leaking",
+        base_lr=learning_rate,
+        warmup_iters=warmup_epochs*len(train_dataloader),
+        decay_rate=decay_rate
     )
 
 

@@ -138,12 +138,15 @@ def make_prediction_map(outputs):
         segmented_image = create_cell_segmentation_image(
             annotated_data=all_cells_with_values, 
             cell_mpp=0.2,
-            radius=1.7
+            # radius=1.7
         )
 
         maps.append(segmented_image)
 
     return torch.tensor(maps).permute(0, 3, 1, 2)
+
+
+
 
 def calculate_dice_score(dataloader, model, device): 
 
@@ -152,36 +155,17 @@ def calculate_dice_score(dataloader, model, device):
 
     model.eval()
     for (images, masks) in dataloader: 
-        images, masks = images.to(device), masks.to(device)
+        images = images.to(device)
         with torch.no_grad(): 
             outputs = model(images)
         
         outputs_cpu = outputs.cpu()
         outputs_cpu = post_pred(outputs_cpu)
 
-        # outputs_cpu_peak = make_prediction_map(outputs)
-        # masks_cpu = masks.cpu()
+        outputs = outputs_cpu #.to(device)
 
-        """
-        plt.figure(figsize=(16, 8))
-        plt.subplot(1, 3, 1)
-        plt.imshow((outputs_cpu[0].squeeze().permute(1, 2, 0)*255).to(torch.uint8))
-        plt.title("predictions")
-        plt.axis("off")
-
-        plt.subplot(1, 3, 2)
-        plt.imshow(outputs_cpu_peak[0].squeeze().permute(1, 2, 0)*255)
-        plt.title("predictions peak")
-        plt.axis("off")
-
-        plt.subplot(1, 3, 3)
-        plt.imshow(masks_cpu[0].squeeze().permute(1, 2, 0))
-        plt.title("ground truth")
-        plt.axis("off")
-        plt.show()
-        """
-
-        outputs = outputs_cpu.to(device)
+        # outputs = make_prediction_map(outputs)
+        # outputs = outputs.to(device)
 
         dice_metric(outputs, masks)
 
@@ -189,6 +173,26 @@ def calculate_dice_score(dataloader, model, device):
     dice_metric.reset()
 
     return dice_score
+
+
+"""
+plt.figure(figsize=(16, 8))
+plt.subplot(1, 3, 1)
+plt.imshow((outputs_cpu[0].squeeze().permute(1, 2, 0)*255).to(torch.uint8))
+plt.title("predictions")
+plt.axis("off")
+
+plt.subplot(1, 3, 2)
+plt.imshow(outputs_cpu_peak[0].squeeze().permute(1, 2, 0)*255)
+plt.title("predictions peak")
+plt.axis("off")
+
+plt.subplot(1, 3, 3)
+plt.imshow(masks_cpu[0].squeeze().permute(1, 2, 0))
+plt.title("ground truth")
+plt.axis("off")
+plt.show()
+"""
 ```
 
 ```{python}
@@ -204,7 +208,7 @@ model = _segm_resnet(
     num_channels=4
 )
 model.to(device) 
-model.load_state_dict(torch.load("outputs/models/2023-12-27_22-44-29_deeplabv3plus_tissue_leaking_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-200.pth"))
+model.load_state_dict(torch.load("outputs/models/2024-01-03_15-47-23_deeplabv3plus_tissue_leaking_lr-0.0001_dropout-0.5_backbone-resnet50_epochs-110.pth"))
 model.eval()
 
 test_dice_score = calculate_dice_score(test_dataloader, model, device)
@@ -242,6 +246,12 @@ print(f"Dice score on validation set: {val_dice_score}")
 # 300 without pretrain and with resnet34
 # Dice score on test set: 0.6059926152229309
 # Dice score on validation set: 0.6229147911071777
+
+
+## Pretraied backbone for images. Images and tissue fed to deeplabv3
+# 100 epochs resnet50
+# Dice score on test set: 0.6108450293540955
+# Dice score on validation set: 0.6313456892967224
 
 
 ```
@@ -298,8 +308,8 @@ all_cells_with_values[:, 1] = all_cells[:, 0]
 
 all_cells_with_values[:, 2] = mask[all_cells[:, 0], all_cells[:, 1]]
 
-print(all_cells_with_values)
-print(all_cells_with_values[:, :2] == all_cells)
+# print(all_cells_with_values)
+# print(all_cells_with_values[:, :2] == all_cells)
 ```
 
 ```{python}
