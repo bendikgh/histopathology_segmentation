@@ -21,10 +21,9 @@ def run_training(
     loss_function,
     device,
     break_after_one_iteration: bool = False,
-    warmup_iters = 0,
+    warmup_epochs = 0,
     base_lr = 10**-3,
-    decay_rate = 1,
-    iteration = 0
+    epoch = 0
 ):
     model.train()
     training_loss = 0
@@ -32,17 +31,12 @@ def run_training(
     for images, masks in tqdm(train_dataloader):
         images, masks = images.to(device), masks.to(device)
 
-        if iteration < warmup_iters:
+        if epoch <= warmup_epochs:
             # Warmup phase
-            lr = base_lr * float(iteration) / warmup_iters
-        else:
-            # Exponential decay phase
-            lr = base_lr * (decay_rate ** (iteration - warmup_iters))
+            lr = base_lr * float(epoch) / warmup_epochs
         
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = lr
-        
-        iteration += 1
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = lr
 
         optimizer.zero_grad()
         outputs = model(images)
@@ -100,9 +94,9 @@ def train(
     dropout_rate: float = 0.5,
     backbone: str = "resnet50",
     model_name: str = "cell_only",
-    warmup_iters: int = 0,
+    warmup_epochs: int = 0,
     base_lr: float = 0,
-    decay_rate: float = 1
+    lr_scheduler = None
 ):
     learning_rate = optimizer.param_groups[0]["lr"]
     start = time.time()
@@ -119,10 +113,13 @@ def train(
             device=device,
             break_after_one_iteration=break_after_one_iteration,
             base_lr=base_lr,
-            warmup_iters=warmup_iters,
-            decay_rate=decay_rate,
-            iteration=epoch*len(train_dataloader)
+            warmup_epochs=warmup_epochs,
+            epoch=epoch
         )
+
+        if lr_scheduler and epoch > warmup_epochs:
+            lr_scheduler.step()
+
         training_losses.append(training_loss)
 
         val_loss = run_validation(
