@@ -121,11 +121,14 @@ def make_prediction_map(outputs):
         # plt.imshow(argmaxed.cpu()*255)
         # plt.show()
         
+
+        # Run peak_local_max individually
         cells, argmaxed = torch.max(softmax(output.cpu(), 0), axis=0)
         mask = argmaxed.cpu().numpy().squeeze()
+        
         cells = cells.numpy()
 
-        all_cells = peak_local_max(cells, min_distance=20, labels=np.logical_or(mask==1, mask==2))
+        all_cells = peak_local_max(cells, min_distance=10, labels=np.logical_or(mask==1, mask==2)) #np.logical_or(mask==1, mask==2)
 
         all_cells_with_values = np.empty((all_cells.shape[0], 3), dtype=all_cells.dtype)
         
@@ -151,7 +154,7 @@ def make_prediction_map(outputs):
 def calculate_dice_score(dataloader, model, device): 
 
     dice_metric = DiceMetric(include_background=True, reduction="mean")
-    post_pred = Compose([AsDiscrete(argmax=True, dim=1, to_onehot=3)])
+    # post_pred = Compose([AsDiscrete(argmax=True, dim=1, to_onehot=3)])
 
     model.eval()
     for (images, masks) in dataloader: 
@@ -160,40 +163,114 @@ def calculate_dice_score(dataloader, model, device):
             outputs = model(images)
         
         outputs_cpu = outputs.cpu()
-        outputs_cpu = post_pred(outputs_cpu)
+        # outputs_cpu = post_pred(outputs_cpu)
 
         outputs = outputs_cpu #.to(device)
 
-        # outputs = make_prediction_map(outputs)
+        outputs = make_prediction_map(outputs)
         # outputs = outputs.to(device)
 
         dice_metric(outputs, masks)
+
+        # plt.figure(figsize=(16, 8))
+        # plt.subplot(1, 3, 1)
+        # plt.imshow((outputs_cpu[0].squeeze().permute(1, 2, 0)*255).to(torch.uint8))
+        # plt.title("predictions")
+        # plt.axis("off")
+
+        # plt.subplot(1, 3, 2)
+        # plt.imshow(outputs[0].squeeze().permute(1, 2, 0)*255)
+        # plt.title("predictions peak")
+        # plt.axis("off")
+
+        # plt.subplot(1, 3, 3)
+        # plt.imshow(masks[0].squeeze().permute(1, 2, 0))
+        # plt.title("ground truth")
+        # plt.axis("off")
+        # plt.show()
+
+        
+        # plt.figure(figsize=(16, 8))
+        # plt.subplot(1, 3, 1)
+        # plt.imshow((outputs_cpu[1].squeeze().permute(1, 2, 0)*255).to(torch.uint8))
+        # plt.title("predictions")
+        # plt.axis("off")
+
+        # plt.subplot(1, 3, 2)
+        # plt.imshow(outputs[1].squeeze().permute(1, 2, 0)*255)
+        # plt.title("predictions peak")
+        # plt.axis("off")
+
+        # plt.subplot(1, 3, 3)
+        # plt.imshow(masks[1].squeeze().permute(1, 2, 0))
+        # plt.title("ground truth")
+        # plt.axis("off")
+        # plt.show()
 
     dice_score = dice_metric.aggregate().item()
     dice_metric.reset()
 
     return dice_score
-
-
-"""
-plt.figure(figsize=(16, 8))
-plt.subplot(1, 3, 1)
-plt.imshow((outputs_cpu[0].squeeze().permute(1, 2, 0)*255).to(torch.uint8))
-plt.title("predictions")
-plt.axis("off")
-
-plt.subplot(1, 3, 2)
-plt.imshow(outputs_cpu_peak[0].squeeze().permute(1, 2, 0)*255)
-plt.title("predictions peak")
-plt.axis("off")
-
-plt.subplot(1, 3, 3)
-plt.imshow(masks_cpu[0].squeeze().permute(1, 2, 0))
-plt.title("ground truth")
-plt.axis("off")
-plt.show()
-"""
 ```
+
+import numpy as np
+import torch
+from skimage.feature import peak_local_max
+
+def calculate_dice_score(dataloader, model, device):
+    model.eval()
+    total_dice_scores = []
+    pixel_radius = int(1.4 / 0.2)  # Adjust pixel radius as needed
+    search_radius = 8*pixel_radius
+
+    for (images, masks) in dataloader:
+        images = images.to(device)
+        with torch.no_grad():
+            outputs = model(images)
+
+        outputs_cpu = outputs.cpu()
+        for i in range(outputs_cpu.shape[0]):
+            output = outputs_cpu[i]
+            mask = masks[i]
+            _, ground_truth = torch.max(mask, axis=0)
+
+            softmaxed = torch.softmax(output, dim=0)
+            cells, argmaxed = torch.max(softmaxed, axis=0)
+            argmaxed = argmaxed.cpu().numpy()
+            cells = cells.cpu().numpy()
+
+            peak_points_pred = peak_local_max(cells, min_distance=20, labels=np.logical_or(argmaxed == 1, argmaxed == 2), threshold_abs=0.01)
+
+            correct_classified_points = 0
+            for pred_point in peak_points_pred:
+                pred_class = argmaxed[pred_point[0], pred_point[1]]
+                
+                # Spatial check within a radius
+                correct_classified_points_tmp = correct_classified_points
+                for dx in range(-search_radius, search_radius + 1):
+                    if correct_classified_points > correct_classified_points_tmp:
+                        break
+                    for dy in range(-search_radius, search_radius + 1):
+                        x, y = pred_point[0] + dx, pred_point[1] + dy
+                        if 0 <= x < ground_truth.shape[0] and 0 <= y < ground_truth.shape[1]:
+                            gt_class = ground_truth[x, y].item()
+                            if pred_class == gt_class and (dx**2 + dy**2) <= search_radius**2:
+                                correct_classified_points += 1
+                                break  # Stop checking other points in the radius for this pred_point
+
+            num_gt_cells = (np.logical_or(ground_truth==1, ground_truth==2)).sum().item() // (np.pi * pixel_radius**2) 
+            num_pred_cells = len(peak_points_pred)
+
+            if num_gt_cells + num_pred_cells > 0:
+                dice_score = (2.0 * correct_classified_points) / (num_gt_cells + num_pred_cells)
+                total_dice_scores.append(dice_score)
+            else:
+                total_dice_scores.append(1)  # Both empty, perfect match
+
+    average_dice_score = np.mean(total_dice_scores) if total_dice_scores else 0
+
+    return average_dice_score
+
 
 ```{python}
 backbone = "resnet50"
@@ -254,6 +331,9 @@ print(f"Dice score on validation set: {val_dice_score}")
 # Dice score on validation set: 0.6313456892967224
 
 
+# Search radius: 48
+# Dice score on test set: 0.6523898229055771
+# Dice score on validation set: 0.6066405512355199
 ```
 
 ```{python}
