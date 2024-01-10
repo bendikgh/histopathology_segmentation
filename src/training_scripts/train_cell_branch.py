@@ -11,14 +11,14 @@ from torch.optim import Adam
 from torch.nn.functional import softmax
 
 from deeplabv3.network.modeling import _segm_resnet
-from train_utils import train
+from src.utils.utils_train import train
 
 from torchvision.transforms import ToTensor
 from PIL import Image
 import numpy as np
 
 # Function for crop and scale tissue image
-from utils import crop_and_upscale_tissue, get_metadata
+from src.utils.utils import crop_and_upscale_tissue, get_metadata
 from dataset import CellTissueDataset
 
 

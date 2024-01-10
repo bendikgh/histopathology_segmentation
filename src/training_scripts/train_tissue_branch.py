@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torch.optim import Adam
 
 from deeplabv3.network.modeling import _segm_resnet
-from train_utils import train
+from src.utils.utils_train import train
 from dataset import TissueDataset
 
 

@@ -11,6 +11,7 @@ from PIL import Image
 from torchvision.transforms import PILToTensor
 
 
+
 def crop_and_upscale_tissue(
     tissue_tensor, offset_tensor, scaling_value, image_size=1024
 ):
