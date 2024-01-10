@@ -23,7 +23,7 @@ class _SimpleSegmentationModel(nn.Module):
         input_shape = x.shape[-2:]
 
         # Splitting the input into image and extra channel
-        image = x[:, :3, :, :]  # Assuming the first three channels are the image
+        image = x[:, :3, :, :]  # The first three channels are the image
         extra_channel = x[:, 3:, :, :]  # The fourth channel
 
         # Process the image through the backbone
@@ -36,7 +36,7 @@ class _SimpleSegmentationModel(nn.Module):
         return x
 
     def fuse_features(self, image_features, extra_features):
-        # Assuming you want to fuse with the high-level features ('out')
+        
         high_level_features = image_features['out']
 
         # Resize extra_features to match the size of high_level_features

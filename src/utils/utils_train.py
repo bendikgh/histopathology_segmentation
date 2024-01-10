@@ -21,22 +21,12 @@ def run_training(
     loss_function,
     device,
     break_after_one_iteration: bool = False,
-    warmup_epochs = 0,
-    base_lr = 10**-3,
-    epoch = 0
 ):
     model.train()
     training_loss = 0
 
     for images, masks in tqdm(train_dataloader):
         images, masks = images.to(device), masks.to(device)
-
-        if epoch <= warmup_epochs:
-            # Warmup phase
-            lr = base_lr * float(epoch) / warmup_epochs
-        
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = lr
 
         optimizer.zero_grad()
         outputs = model(images)
@@ -94,9 +84,9 @@ def train(
     dropout_rate: float = 0.5,
     backbone: str = "resnet50",
     model_name: str = "cell_only",
-    warmup_epochs: int = 0,
-    base_lr: float = 0,
-    lr_scheduler = None
+    warmup_scheduler = None,
+    lr_scheduler = None,
+    warmup_epochs: int = 0
 ):
     learning_rate = optimizer.param_groups[0]["lr"]
     start = time.time()
@@ -105,22 +95,25 @@ def train(
     val_losses = []
     
     for epoch in range(num_epochs):
+
+        lr = optimizer.param_groups[0]["lr"]
+        
         training_loss = run_training(
             model=model,
             train_dataloader=train_dataloader,
             optimizer=optimizer,
             loss_function=loss_function,
             device=device,
-            break_after_one_iteration=break_after_one_iteration,
-            base_lr=base_lr,
-            warmup_epochs=warmup_epochs,
-            epoch=epoch
+            break_after_one_iteration=break_after_one_iteration 
         )
 
+        training_losses.append(training_loss)
+
+        if warmup_scheduler and epoch <= warmup_epochs:
+            warmup_scheduler.step()
+            
         if lr_scheduler and epoch > warmup_epochs:
             lr_scheduler.step()
-
-        training_losses.append(training_loss)
 
         val_loss = run_validation(
             model=model,
@@ -156,6 +149,6 @@ def train(
             )
 
         print(
-            f"Epoch {epoch + 1}/{num_epochs} - Training loss: {training_loss:.4f} - Validation loss: {val_loss:.4f}"
+            f"Epoch {epoch + 1}/{num_epochs} - Learning rate: {lr:.6f}  - Training loss: {training_loss:.4f} - Validation loss: {val_loss:.4f}"
         )
     return training_losses, val_losses

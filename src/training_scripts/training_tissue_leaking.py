@@ -173,6 +173,7 @@ def main():
     loss_function = DiceLoss(softmax=True)
     optimizer = Adam(model.parameters(), lr=learning_rate)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay_rate)
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, total_iters=warmup_epochs)
 
     train(
         num_epochs=num_epochs,
@@ -187,9 +188,9 @@ def main():
         dropout_rate=dropout_rate,
         backbone=backbone_model,
         model_name="tissue_leaking",
-        base_lr=learning_rate,
-        warmup_epochs=warmup_epochs,
-        lr_scheduler=scheduler
+        lr_scheduler=scheduler,
+        warmup_scheduler=warmup_scheduler,
+        warmup_epochs=warmup_epochs
     )
 
 
