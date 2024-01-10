@@ -3,6 +3,8 @@ __pycache__/
 .DS_Store
 samples/*
 my_env/*
+slurm_scripts/*
+images_for_report/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
