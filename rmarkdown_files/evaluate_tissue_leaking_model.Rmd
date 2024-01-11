@@ -108,7 +108,7 @@ from monai.transforms import Compose, AsDiscrete
 import torch.nn.functional as F
 from skimage.feature import peak_local_max
 
-from src.utils import create_cell_segmentation_image
+from src.utils.utils import create_cell_segmentation_image
 
 def make_prediction_map(outputs):
     #post_pred = Compose([AsDiscrete(argmax=True, dim=0)])
@@ -149,7 +149,68 @@ def make_prediction_map(outputs):
     return torch.tensor(maps).permute(0, 3, 1, 2)
 
 
+def combine_image_tensors(tensor1, tensor2):
+    """
+    Combines two image tensors with specific rules for red, green, and blue pixels.
 
+    For each pixel:
+    - The pixel is red if both corresponding pixels in tensor1 and tensor2 are red.
+    - If the pixel in tensor1 is not red, it takes the value of tensor1.
+    - If the pixel in tensor1 is red, it takes the value of tensor2.
+
+    Parameters:
+    tensor1 (numpy.ndarray): The first image tensor with shape (channels, height, width).
+    tensor2 (numpy.ndarray): The second image tensor with shape (channels, height, width).
+
+    Returns:
+    numpy.ndarray: A new image tensor formed by combining tensor1 and tensor2.
+    """
+
+    if tensor1.shape != tensor2.shape:
+        raise ValueError("The dimensions of the two tensors must be the same")
+
+    combined_tensor = torch.zeros_like(tensor1)
+
+    for i in range(tensor1.shape[1]):
+        for j in range(tensor1.shape[2]):
+            if torch.all(tensor1[:, i, j] == torch.tensor([1, 0, 0])) and torch.all(tensor2[:, i, j] == torch.tensor([1, 0, 0])):
+                # Both pixels are red
+                combined_tensor[:, i, j] = torch.tensor([1, 0, 0])
+            elif not torch.all(tensor1[:, i, j] == torch.tensor([1, 0, 0])):
+                # Pixel in tensor1 is not red
+                combined_tensor[:, i, j] = tensor1[:, i, j]
+            else:
+                # Pixel in tensor1 is red, use pixel from tensor2
+                combined_tensor[:, i, j] = tensor2[:, i, j]
+
+    return combined_tensor
+
+
+def translate_green_blue_to_different_colors(tensor, color_for_green, color_for_blue):
+    """
+    Translates green and blue pixels in the image tensor to two specified different colors.
+
+    Parameters:
+    tensor (numpy.ndarray): Image tensor with shape (channels, height, width).
+    color_for_green (list or tuple): The new color to replace green pixels, represented as [R, G, B].
+    color_for_blue (list or tuple): The new color to replace blue pixels, represented as [R, G, B].
+
+    Returns:
+    numpy.ndarray: Modified image tensor.
+    """
+
+    modified_tensor = torch.clone(tensor)
+
+    for i in range(tensor.shape[1]):
+        for j in range(tensor.shape[2]):
+            # Check if the pixel is green
+            if torch.all(tensor[:, i, j] == torch.tensor([0, 1, 0])):
+                modified_tensor[:, i, j] = color_for_green
+            # Check if the pixel is blue
+            elif torch.all(tensor[:, i, j] == torch.tensor([0, 0, 1])):
+                modified_tensor[:, i, j] = color_for_blue
+
+    return modified_tensor
 
 def calculate_dice_score(dataloader, model, device): 
 
@@ -172,29 +233,54 @@ def calculate_dice_score(dataloader, model, device):
 
         dice_metric(outputs, masks)
 
+
+        mask = translate_green_blue_to_different_colors(masks[0].squeeze(), torch.tensor([1, 1, 0]), torch.tensor([1, 0, 1]))
+        
+        combination_tensor = combine_image_tensors(mask, outputs[0].squeeze())
+
         # Plotting tissue image
         tissue_image = images[0][3].cpu()
 
-        plt.figure(figsize=(16, 8))
-        plt.subplot(1, 4, 1)
+        plot_over_image = combine_image_tensors(combination_tensor, images[0][:3].cpu())
+
+        plt.figure(figsize=(24, 12))
+
+        # Adjust the subplot parameters to minimize white space
+        plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.2, hspace=0.2)
+
+
+        plt.subplot(3, 2, 1)
         plt.imshow((tissue_image*255).to(torch.uint8))
         plt.title("Tissue classification")
         plt.axis("off")
 
-        plt.subplot(1, 4, 2)
+        plt.subplot(3, 2, 2)
         plt.imshow((outputs_cpu[0].squeeze().permute(1, 2, 0)*255).to(torch.uint8))
         plt.title("Predictions")
         plt.axis("off")
 
-        plt.subplot(1, 4, 3)
+        plt.subplot(3, 2, 3)
         plt.imshow(outputs[0].squeeze().permute(1, 2, 0)*255)
         plt.title("predictions peak")
         plt.axis("off")
 
-        plt.subplot(1, 4, 4)
-        plt.imshow(masks[0].squeeze().permute(1, 2, 0))
-        plt.title("ground truth")
+        plt.subplot(3, 2, 4)
+        plt.imshow(torch.tensor(combination_tensor).permute(1, 2, 0))
+        plt.title("ground truth in combination with predicton")
         plt.axis("off")
+
+        plt.subplot(3, 2, 5)
+        plt.imshow(torch.tensor(plot_over_image).permute(1, 2, 0))
+        plt.title("ground truth in combination with predicton")
+        plt.axis("off")
+
+        plt.subplot(3, 2, 6)
+        plt.imshow(mask.permute(1, 2, 0))
+        plt.title("ground truth in combination with predicton")
+        plt.axis("off")
+
+        plt.tight_layout()
+
         plt.show()
         
         # plt.figure(figsize=(16, 8))
@@ -228,7 +314,7 @@ def calculate_dice_score(dataloader, model, device):
     model.eval()
     total_dice_scores = []
     pixel_radius = int(1.4 / 0.2)
-    # search_radius = 8*pixel_radius
+    search_radius = 8*pixel_radius
 
     for (images, masks) in dataloader:
         images = images.to(device)
@@ -257,17 +343,17 @@ def calculate_dice_score(dataloader, model, device):
                     correct_classified_points += 1
 
                 ## Spatial check within a radius
-                # correct_classified_points_tmp = correct_classified_points
-                # for dx in range(-search_radius, search_radius + 1):
-                #     if correct_classified_points > correct_classified_points_tmp:
-                #         break
-                #     for dy in range(-search_radius, search_radius + 1):
-                #         x, y = pred_point[0] + dx, pred_point[1] + dy
-                #         if 0 <= x < ground_truth.shape[0] and 0 <= y < ground_truth.shape[1]:
-                #             gt_class = ground_truth[x, y].item()
-                #             if pred_class == gt_class and (dx**2 + dy**2) <= search_radius**2:
-                #                 correct_classified_points += 1
-                #                 break  # Stop checking other points in the radius for this pred_point
+                correct_classified_points_tmp = correct_classified_points
+                for dx in range(-search_radius, search_radius + 1):
+                    if correct_classified_points > correct_classified_points_tmp:
+                        break
+                    for dy in range(-search_radius, search_radius + 1):
+                        x, y = pred_point[0] + dx, pred_point[1] + dy
+                        if 0 <= x < ground_truth.shape[0] and 0 <= y < ground_truth.shape[1]:
+                            gt_class = ground_truth[x, y].item()
+                            if pred_class == gt_class and (dx**2 + dy**2) <= search_radius**2:
+                                correct_classified_points += 1
+                                break  # Stop checking other points in the radius for this pred_point
 
             num_gt_cells = (np.logical_or(ground_truth==1, ground_truth==2)).sum().item() // (np.pi * pixel_radius**2) 
             num_pred_cells = len(peak_points_pred)
