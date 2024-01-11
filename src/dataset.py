@@ -8,9 +8,6 @@ from torch.nn.functional import softmax
 
 
 class OcelotTissueDataset(ImageDataset):
-    @classmethod
-    def decode_target(cls, target):
-        return target.argmax(1)
 
     def __init__(self, image_files, seg_files, device=None):
         super().__init__(image_files, seg_files)
