@@ -3,13 +3,15 @@ import os
 import torch
 import albumentations as A
 
+print(os.getcwd())
+
 from glob import glob
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 
+from utils.utils_train import train
 from deeplabv3.network.modeling import _segm_resnet
-from src.utils.utils_train import train
 from dataset import TissueLeakingDataset
 
 

@@ -109,10 +109,10 @@ def train(
 
         training_losses.append(training_loss)
 
-        if warmup_scheduler and epoch <= warmup_epochs:
+        if warmup_scheduler and epoch < warmup_epochs:
             warmup_scheduler.step()
             
-        if lr_scheduler and epoch > warmup_epochs:
+        if lr_scheduler and epoch >= warmup_epochs:
             lr_scheduler.step()
 
         val_loss = run_validation(

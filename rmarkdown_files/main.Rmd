@@ -1,0 +1,63 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.15.2
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+```{python}
+# Fixing automatic autoreload
+# %load_ext autoreload
+# %autoreload 2
+```
+
+```{python}
+import os 
+
+# Making sure we are running the code from the root directory
+current_directory = os.getcwd()
+if current_directory.endswith("notebooks"):
+    os.chdir("..")
+    print("Changed directory to:", os.getcwd())
+else:
+    print("Directory was already correct, so did not change.")
+```
+
+```{python}
+import matplotlib.pyplot as plt
+from torchvision import transforms
+from PIL import Image
+
+os.listdir(".")
+```
+
+```{python}
+data_path = "./data/images/train"
+tissue_path = data_path + "/tissue"
+cell_path = data_path + "/cell"
+
+tissue_image_names = sorted(os.listdir(tissue_path))
+tissue_image_paths = [tissue_path + "/" + image_name for image_name in tissue_image_names]
+
+cell_image_names = sorted(os.listdir(cell_path))
+cell_image_paths = [cell_path + "/" + image_name for image_name in cell_image_names]
+image_paths = list(zip(tissue_image_paths, cell_image_paths))
+
+image = Image.open(image_paths[0][0]).convert("RGB")
+image2 = Image.open(image_paths[0][1]).convert("RGB")
+```
+
+```{python}
+plt.subplot(121)
+plt.imshow(image)
+plt.subplot(122)
+plt.imshow(image2)
+plt.dr
+```

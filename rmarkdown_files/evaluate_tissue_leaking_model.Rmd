@@ -186,14 +186,14 @@ def combine_image_tensors(tensor1, tensor2):
     return combined_tensor
 
 
-def translate_green_blue_to_different_colors(tensor, color_for_green, color_for_blue):
+def translate_color(tensor, color_to_translate, translated_color):
     """
-    Translates green and blue pixels in the image tensor to two specified different colors.
+    Translates a color in the image tensor to another color.
 
     Parameters:
     tensor (numpy.ndarray): Image tensor with shape (channels, height, width).
-    color_for_green (list or tuple): The new color to replace green pixels, represented as [R, G, B].
-    color_for_blue (list or tuple): The new color to replace blue pixels, represented as [R, G, B].
+    color_to_translate: Color to be translated.
+    translated_color: new color after translation.
 
     Returns:
     numpy.ndarray: Modified image tensor.
@@ -204,11 +204,8 @@ def translate_green_blue_to_different_colors(tensor, color_for_green, color_for_
     for i in range(tensor.shape[1]):
         for j in range(tensor.shape[2]):
             # Check if the pixel is green
-            if torch.all(tensor[:, i, j] == torch.tensor([0, 1, 0])):
-                modified_tensor[:, i, j] = color_for_green
-            # Check if the pixel is blue
-            elif torch.all(tensor[:, i, j] == torch.tensor([0, 0, 1])):
-                modified_tensor[:, i, j] = color_for_blue
+            if torch.all(tensor[:, i, j] == torch.tensor(color_to_translate)):
+                modified_tensor[:, i, j] = torch.tensor(translated_color)
 
     return modified_tensor
 
@@ -231,10 +228,15 @@ def calculate_dice_score(dataloader, model, device):
         outputs = make_prediction_map(outputs)
         # outputs = outputs.to(device)
 
-        dice_metric(outputs, masks)
+        dice_score = dice_metric(outputs, masks)
 
 
-        mask = translate_green_blue_to_different_colors(masks[0].squeeze(), torch.tensor([1, 1, 0]), torch.tensor([1, 0, 1]))
+        mask = translate_color(masks[0].squeeze(), [0, 1, 0], [1, 1, 0])
+        mask = translate_color(mask, [0, 0, 1], [1, 0, 1])
+        # mask = translate_color(mask, [1, 0, 0], [1, 1, 1])
+
+        # Cancer: green, yellow
+        # Regular: Blue, purple
         
         combination_tensor = combine_image_tensors(mask, outputs[0].squeeze())
 
@@ -245,9 +247,8 @@ def calculate_dice_score(dataloader, model, device):
 
         plt.figure(figsize=(24, 12))
 
-        # Adjust the subplot parameters to minimize white space
-        plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.2, hspace=0.2)
-
+        # Uncomment and adjust the subplot parameters to minimize white space
+        plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.05, hspace=0.05)
 
         plt.subplot(3, 2, 1)
         plt.imshow((tissue_image*255).to(torch.uint8))
@@ -271,17 +272,17 @@ def calculate_dice_score(dataloader, model, device):
 
         plt.subplot(3, 2, 5)
         plt.imshow(torch.tensor(plot_over_image).permute(1, 2, 0))
-        plt.title("ground truth in combination with predicton")
+        plt.title("ground truth in combination with predicton over image")
         plt.axis("off")
 
         plt.subplot(3, 2, 6)
         plt.imshow(mask.permute(1, 2, 0))
-        plt.title("ground truth in combination with predicton")
+        plt.title("ground truth")
         plt.axis("off")
 
-        plt.tight_layout()
-
         plt.show()
+
+        print("Dice score:", dice_score)
         
         # plt.figure(figsize=(16, 8))
         # plt.subplot(1, 3, 1)
@@ -306,6 +307,7 @@ def calculate_dice_score(dataloader, model, device):
     return dice_score
 ```
 
+```{python}
 import numpy as np
 import torch
 from skimage.feature import peak_local_max
@@ -313,8 +315,8 @@ from skimage.feature import peak_local_max
 def calculate_dice_score(dataloader, model, device):
     model.eval()
     total_dice_scores = []
-    pixel_radius = int(1.4 / 0.2)
-    search_radius = 8*pixel_radius
+    pixel_radius = 1.4 / 0.2
+    search_radius = int(3 / 0.2)
 
     for (images, masks) in dataloader:
         images = images.to(device)
@@ -334,32 +336,39 @@ def calculate_dice_score(dataloader, model, device):
 
             peak_points_pred = peak_local_max(cells, min_distance=20, labels=np.logical_or(argmaxed == 1, argmaxed == 2), threshold_abs=0.01)
 
-            correct_classified_points = 0
+            TP = 0
+            FP = 0
             for pred_point in peak_points_pred:
                 pred_class = argmaxed[pred_point[0], pred_point[1]]
-                gt_cell = ground_truth[pred_point[0], pred_point[1]]
+                # gt_cell = ground_truth[pred_point[0], pred_point[1]]
 
-                if pred_class == gt_cell:
-                    correct_classified_points += 1
+                # if pred_class == gt_cell:
+                #     TP += 1
 
                 ## Spatial check within a radius
-                correct_classified_points_tmp = correct_classified_points
+                TP_tmp = TP
                 for dx in range(-search_radius, search_radius + 1):
-                    if correct_classified_points > correct_classified_points_tmp:
+                    if TP > TP_tmp:
                         break
                     for dy in range(-search_radius, search_radius + 1):
                         x, y = pred_point[0] + dx, pred_point[1] + dy
                         if 0 <= x < ground_truth.shape[0] and 0 <= y < ground_truth.shape[1]:
                             gt_class = ground_truth[x, y].item()
                             if pred_class == gt_class and (dx**2 + dy**2) <= search_radius**2:
-                                correct_classified_points += 1
+                                TP += 1
                                 break  # Stop checking other points in the radius for this pred_point
 
+                if TP == TP_tmp:
+                    FP += 1
+
             num_gt_cells = (np.logical_or(ground_truth==1, ground_truth==2)).sum().item() // (np.pi * pixel_radius**2) 
+            
             num_pred_cells = len(peak_points_pred)
 
+            FN = num_gt_cells - (TP + FP)
+
             if num_gt_cells + num_pred_cells > 0:
-                dice_score = (2.0 * correct_classified_points) / (num_gt_cells + num_pred_cells)
+                dice_score = (2.0 * TP) / (2*TP + FP + FN)
                 total_dice_scores.append(dice_score)
             else:
                 total_dice_scores.append(1)  # Both empty, perfect match
@@ -368,6 +377,109 @@ def calculate_dice_score(dataloader, model, device):
 
     return average_dice_score
 
+```
+
+```{python}
+def calculate_f1_score(
+    model, dataloader, device, micron_radius: float = 3.0, mpp: float = 0.2
+):
+    """These are the steps for calculating the F1 score, as given in the paper:
+
+    - True positive: If a detected cell is within a valid distance (3 microns) of a
+      target cell, then it is considered a TP
+    - False positive: If a detected cell does not fulfill the requirements for a
+      TP, then it is considered a FP
+    - False Negative: If an annotated cell is not detected, then it is counted as a
+      False Negative
+
+    """
+    model.eval()
+    f1_scores = []
+    pixel_radius = micron_radius / mpp
+    dataset = dataloader.dataset
+    batch_size = dataloader.batch_size
+
+    for batch_idx, (image_batch, mask_batch) in enumerate(dataloader):
+        image_batch = image_batch.to(device)
+        with torch.no_grad():
+            output_batch = model(image_batch)
+
+        for idx in range(output_batch.shape[0]):
+            output = output_batch[idx]
+            # mask = mask_batch[idx].permute(1, 2, 0)
+
+            image_no = batch_idx * batch_size + idx
+            cell_annotation_list = dataset.get_cell_annotation_tensor(image_no)
+
+            # Preparing output for peak_local_max
+            softmaxed = torch.softmax(output, dim=0)
+            cells, argmaxed = torch.max(softmaxed, axis=0)
+            argmaxed = argmaxed.cpu().numpy()
+            cells = cells.cpu().numpy()
+            peak_points_pred = peak_local_max(
+                cells,
+                min_distance=20,
+                labels=np.logical_or(argmaxed == 1, argmaxed == 2),
+                threshold_abs=0.01,
+            )
+
+            
+            ## For plotting the predictions and the ground truth on top
+            
+            # output = make_prediction_map(output_batch)[0]*255
+            
+            # # display results
+            # fig, ax = plt.subplots(1, 1, figsize=(8, 3), sharex=True, sharey=True)
+
+            # ax.imshow(output.permute(1, 2, 0))
+            # ax.autoscale(False)
+            # ax.plot(peak_points_pred[:, 1], peak_points_pred[:, 0], 'o', color='black', markersize=0.5)
+            # ax.axis('off')
+            # ax.set_title('Peak local max')
+
+            # fig.tight_layout()
+
+            # plt.show()
+
+
+            # We want to compare the masks to the outputs to calculate TP, FP and FN
+            # First, we have to find the points from the outputs using peak_local_max
+            TP = 0
+            FP = 0
+            TP_tmp = 0
+            for y, x in peak_points_pred:
+                # We check a circle around the point to see if there is a cell in the mask
+                # If there is, we count it as a TP
+                cell_type = argmaxed[y, x]
+                TP_tmp = TP
+                for cell in cell_annotation_list[
+                    cell_annotation_list[:, 2] != cell_type
+                ]:
+                    distance_squared = (x - cell[0]) ** 2 + (y - cell[1]) ** 2
+                    if distance_squared <= pixel_radius**2:
+                        TP += 1
+                        break
+                # print(argmaxed[x, y])
+                # print(np.unique(argmaxed))
+                # print(mask.shape)
+                # print(mask[x, y])
+                if TP_tmp == TP:
+                  FP += 1
+          
+            num_cells = len(cell_annotation_list)
+            FN = num_cells - (TP + FP)
+            if FN < 0:
+                FN = 0
+            dice_score = (2.0 * TP) / (2*TP + FP + FN)
+            f1_scores.append(dice_score)
+
+            # print(TP, FP, FN)
+
+            # if len(f1_scores) == 2:
+            #     return f1_scores
+  
+    return torch.mean(torch.tensor(f1_scores))
+```
 
 ```{python}
 backbone = "resnet50"
@@ -382,14 +494,30 @@ model = _segm_resnet(
     num_channels=4
 )
 model.to(device) 
-model.load_state_dict(torch.load("outputs/models/2024-01-03_15-47-23_deeplabv3plus_tissue_leaking_lr-0.0001_dropout-0.5_backbone-resnet50_epochs-110.pth"))
+model.load_state_dict(torch.load("outputs/models/2024-01-15_14-32-57_deeplabv3plus_tissue_leaking_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-300.pth"))
 model.eval()
+```
 
-test_dice_score = calculate_dice_score(test_dataloader, model, device)
-val_dice_score = calculate_dice_score(val_dataloader, model, device)
-print("Tissue Leaking model, lr=0.0001, dropout=0.3, backbone=resnet34")
+```{python}
+test_dice_score = calculate_f1_score(model, test_dataloader, device)
+val_dice_score = calculate_f1_score(model, val_dataloader, device)
+
 print(f"Dice score on test set: {test_dice_score}")
 print(f"Dice score on validation set: {val_dice_score}")
+
+# Dice score on test set: 0.7220074534416199
+# Dice score on validation set: 0.6804498434066772
+```
+
+```{python}
+test_dice_score = calculate_dice_score(test_dataloader, model, device)
+# val_dice_score = calculate_dice_score(val_dataloader, model, device)
+
+test_dice_score = calculate_f1_score(model, test_dataloader, device, micron_radius=10)
+
+print("Tissue Leaking model, lr=0.0001, dropout=0.3, backbone=resnet34")
+print(f"Dice score on test set: {test_dice_score}")
+# print(f"Dice score on validation set: {val_dice_score}")
 
 
 # 100 epochs:
