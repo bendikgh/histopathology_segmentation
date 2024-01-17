@@ -9,8 +9,9 @@ class _SimpleSegmentationModel(nn.Module):
         super(_SimpleSegmentationModel, self).__init__()
         self.backbone = backbone
         self.classifier = classifier
-        self.conv_adapter = nn.Conv2d(2049, 2048, kernel_size=1) # Resnet50
-        # self.conv_adapter = nn.Conv2d(513, 512, kernel_size=1) # Resnet34
+        
+        backbone_output_channels = backbone.layer4[-1].conv3.out_channels
+        self.conv_adapter = nn.Conv2d(2*backbone_output_channels, backbone_output_channels, kernel_size=1)
         
     # def forward(self, x):
     #     input_shape = x.shape[-2:]
@@ -24,26 +25,37 @@ class _SimpleSegmentationModel(nn.Module):
 
         # Splitting the input into image and extra channel
         image = x[:, :3, :, :]  # The first three channels are the image
-        extra_channel = x[:, 3:, :, :]  # The fourth channel
+        extra_channel = x[:, 3:, :, :]  # The fourth channel (grayscale)
+
+        # Convert grayscale extra channel to RGB
+        extra_channel_rgb = torch.cat([extra_channel, extra_channel, extra_channel], dim=1)
 
         # Process the image through the backbone
         image_features = self.backbone(image)
-        fused_features = self.fuse_features(image_features, extra_channel)
+
+        # Process the extra RGB channel through the backbone
+        extra_channel_features = self.backbone(extra_channel_rgb)
+
+        # Fuse the features
+        fused_features = self.fuse_features(image_features, extra_channel_features)
 
         # Pass the fused features through the classifier
         x = self.classifier(fused_features)
+        
         x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=False)
         return x
 
     def fuse_features(self, image_features, extra_features):
         
         high_level_features = image_features['out']
+        extra_high_level_features = extra_features['out']
 
-        # Resize extra_features to match the size of high_level_features
-        extra_features_resized = F.interpolate(extra_features, size=high_level_features.shape[-2:], mode='bilinear', align_corners=False)
+        # Resize extra_high_level_features to match the size of high_level_features
+        # extra_features_resized = F.interpolate(extra_high_level_features, size=high_level_features.shape[-2:], mode='bilinear', align_corners=False)
 
         # Fuse the features
-        fused_out = torch.cat([high_level_features, extra_features_resized], dim=1)
+        fused_out = torch.cat([high_level_features, extra_high_level_features], dim=1)
+        
         fused_out = self.conv_adapter(fused_out)
 
         # Return the modified OrderedDict
@@ -52,7 +64,6 @@ class _SimpleSegmentationModel(nn.Module):
             ('out', fused_out)  # fused high-level features
         ])
         return fused_features
-
 
 class IntermediateLayerGetter(nn.ModuleDict):
     """
