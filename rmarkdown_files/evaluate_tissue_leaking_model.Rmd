@@ -128,7 +128,7 @@ def make_prediction_map(outputs):
         
         cells = cells.numpy()
 
-        all_cells = peak_local_max(cells, min_distance=10, labels=np.logical_or(mask==1, mask==2)) #np.logical_or(mask==1, mask==2)
+        all_cells = peak_local_max(cells, min_distance=20, labels=np.logical_or(mask==1, mask==2)) #np.logical_or(mask==1, mask==2)
 
         all_cells_with_values = np.empty((all_cells.shape[0], 3), dtype=all_cells.dtype)
         
@@ -424,7 +424,7 @@ def calculate_f1_score(
             )
 
             
-            ## For plotting the predictions and the ground truth on top
+            # # For plotting the predictions and the ground truth on top
             
             # output = make_prediction_map(output_batch)[0]*255
             
@@ -433,7 +433,7 @@ def calculate_f1_score(
 
             # ax.imshow(output.permute(1, 2, 0))
             # ax.autoscale(False)
-            # ax.plot(peak_points_pred[:, 1], peak_points_pred[:, 0], 'o', color='black', markersize=0.5)
+            # ax.plot(cell_annotation_list[:, 0], cell_annotation_list[:, 1], 'o', color='black', markersize=0.5)
             # ax.axis('off')
             # ax.set_title('Peak local max')
 
@@ -447,29 +447,40 @@ def calculate_f1_score(
             TP = 0
             FP = 0
             TP_tmp = 0
+            FP_tmp = 0
+            
             for y, x in peak_points_pred:
                 # We check a circle around the point to see if there is a cell in the mask
                 # If there is, we count it as a TP
                 cell_type = argmaxed[y, x]
+                
                 TP_tmp = TP
-                for cell in cell_annotation_list[
-                    cell_annotation_list[:, 2] != cell_type
-                ]:
+                FP_tmp = FP
+
+                # for i, cell in enumerate(cell_annotation_list[
+                #     cell_annotation_list[:, 2] != cell_type # Important with unequal because cancer coded differently
+                # ]):
+                for i, cell in enumerate(cell_annotation_list):
                     distance_squared = (x - cell[0]) ** 2 + (y - cell[1]) ** 2
                     if distance_squared <= pixel_radius**2:
-                        TP += 1
+                        if cell[2] != cell_type: # Important with unequal because cancer coded differently
+                          TP += 1
+                        else:
+                          FP += 1
+                        # Removing the found cell
+                        mask = torch.arange(cell_annotation_list.size(0)) != i
+                        cell_annotation_list = cell_annotation_list[mask]
                         break
+                    
                 # print(argmaxed[x, y])
                 # print(np.unique(argmaxed))
                 # print(mask.shape)
                 # print(mask[x, y])
-                if TP_tmp == TP:
+                if TP_tmp == TP and FP_tmp == FP:
                   FP += 1
           
-            num_cells = len(cell_annotation_list)
-            FN = num_cells - (TP + FP)
-            if FN < 0:
-                FN = 0
+            FN = len(cell_annotation_list)
+                
             dice_score = (2.0 * TP) / (2*TP + FP + FN)
             f1_scores.append(dice_score)
 
@@ -494,7 +505,8 @@ model = _segm_resnet(
     num_channels=4
 )
 model.to(device) 
-model.load_state_dict(torch.load("outputs/models/2024-01-15_14-32-57_deeplabv3plus_tissue_leaking_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-300.pth"))
+model.load_state_dict(torch.load("outputs/models/2023-12-07_17-04-08_deeplabv3plus_tissue_leaking_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-300.pth"))
+# model.load_state_dict(torch.load("outputs/models/2024-01-15_14-32-57_deeplabv3plus_tissue_leaking_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-300.pth"))
 model.eval()
 ```
 
@@ -505,8 +517,7 @@ val_dice_score = calculate_f1_score(model, val_dataloader, device)
 print(f"Dice score on test set: {test_dice_score}")
 print(f"Dice score on validation set: {val_dice_score}")
 
-# Dice score on test set: 0.7220074534416199
-# Dice score on validation set: 0.6804498434066772
+
 ```
 
 ```{python}
