@@ -10,17 +10,29 @@ class _SimpleSegmentationModel(nn.Module):
         self.backbone = backbone
         self.classifier = classifier
         
+    def forward(self, x):
+        input_shape = x.shape[-2:]
+        features = self.backbone(x)
+        x = self.classifier(features)
+        x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=False)
+        return x
+
+class _TissueCellSegmentationModel(nn.Module):
+    def __init__(self, backbone, classifier):
+        super(_TissueCellSegmentationModel, self).__init__()
+
+        # Removes gradients because this is gonna be used for both tissue and cell
+        for param in backbone.parameters():
+            param.requires_grad = False
+        
+        self.backbone = backbone
+        self.classifier = classifier
+        
         backbone_output_channels = backbone.layer4[-1].conv3.out_channels
         self.conv_adapter = nn.Conv2d(2*backbone_output_channels, backbone_output_channels, kernel_size=1)
         
-    # def forward(self, x):
-    #     input_shape = x.shape[-2:]
-    #     features = self.backbone(x)
-    #     x = self.classifier(features)
-    #     x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=False)
-    #     return x
-        
     def forward(self, x):
+
         input_shape = x.shape[-2:]
 
         # Splitting the input into image and extra channel
@@ -29,7 +41,7 @@ class _SimpleSegmentationModel(nn.Module):
 
         # Convert grayscale extra channel to RGB
         extra_channel_rgb = torch.cat([extra_channel, extra_channel, extra_channel], dim=1)
-
+        
         # Process the image through the backbone
         image_features = self.backbone(image)
 
@@ -49,10 +61,7 @@ class _SimpleSegmentationModel(nn.Module):
         
         high_level_features = image_features['out']
         extra_high_level_features = extra_features['out']
-
-        # Resize extra_high_level_features to match the size of high_level_features
-        # extra_features_resized = F.interpolate(extra_high_level_features, size=high_level_features.shape[-2:], mode='bilinear', align_corners=False)
-
+        
         # Fuse the features
         fused_out = torch.cat([high_level_features, extra_high_level_features], dim=1)
         

@@ -2,10 +2,10 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from .utils import _SimpleSegmentationModel
+from .utils import _SimpleSegmentationModel, _TissueCellSegmentationModel
 
 
-__all__ = ["DeepLabV3"]
+__all__ = ["DeepLabV3", "DeepLabV3_TissueCellSegmentation"]
 
 
 class DeepLabV3(_SimpleSegmentationModel):
@@ -23,7 +23,9 @@ class DeepLabV3(_SimpleSegmentationModel):
             the backbone and returns a dense prediction.
         aux_classifier (nn.Module, optional): auxiliary classifier used during training
     """
+    pass
 
+class DeepLabV3_TissueCellSegmentation(_TissueCellSegmentationModel):
     pass
 
 

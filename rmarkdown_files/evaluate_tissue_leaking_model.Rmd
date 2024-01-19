@@ -502,11 +502,12 @@ model = _segm_resnet(
     output_stride=8,
     pretrained_backbone=True,
     dropout_rate=dropout_rate,
-    num_channels=4
+    num_channels=4,
+    input_tissue_v3=True
 )
 model.to(device) 
-model.load_state_dict(torch.load("outputs/models/2023-12-07_17-04-08_deeplabv3plus_tissue_leaking_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-300.pth"))
-# model.load_state_dict(torch.load("outputs/models/2024-01-15_14-32-57_deeplabv3plus_tissue_leaking_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-300.pth"))
+# model.load_state_dict(torch.load("outputs/models/2023-12-07_17-04-08_deeplabv3plus_tissue_leaking_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-300.pth"))
+model.load_state_dict(torch.load("outputs/models/2024-01-15_14-32-57_deeplabv3plus_tissue_leaking_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-300.pth"))
 model.eval()
 ```
 
@@ -516,6 +517,20 @@ val_dice_score = calculate_f1_score(model, val_dataloader, device)
 
 print(f"Dice score on test set: {test_dice_score}")
 print(f"Dice score on validation set: {val_dice_score}")
+
+# Tissue fed in ad the fourth dimension to resnet
+# outputs/models/2023-12-07_17-04-08_deeplabv3plus_tissue_leaking_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-300.pth
+# Dice score on test set: 0.725593626499176
+# Dice score on validation set: 0.7120229601860046
+
+
+# Tissue fed deeplabv3. Both tissue and cell info is encoded with resnet. ResNet not freezed
+# outputs/models/2024-01-15_14-32-57_deeplabv3plus_tissue_leaking_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-300.pth
+# Dice score on test set: 0.6813595294952393
+# Dice score on validation set: 0.6469401717185974
+
+
+
 
 
 ```
