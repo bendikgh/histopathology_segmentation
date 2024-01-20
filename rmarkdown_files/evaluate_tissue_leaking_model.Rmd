@@ -409,7 +409,7 @@ def calculate_f1_score(
             # mask = mask_batch[idx].permute(1, 2, 0)
 
             image_no = batch_idx * batch_size + idx
-            cell_annotation_list = dataset.get_cell_annotation_tensor(image_no)
+            cell_annotation_list = dataset.get_cell_annotation_list(image_no)
 
             # Preparing output for peak_local_max
             softmaxed = torch.softmax(output, dim=0)
@@ -423,71 +423,42 @@ def calculate_f1_score(
                 threshold_abs=0.01,
             )
 
-            
             # # For plotting the predictions and the ground truth on top
-            
             # output = make_prediction_map(output_batch)[0]*255
-            
             # # display results
             # fig, ax = plt.subplots(1, 1, figsize=(8, 3), sharex=True, sharey=True)
-
             # ax.imshow(output.permute(1, 2, 0))
             # ax.autoscale(False)
             # ax.plot(cell_annotation_list[:, 0], cell_annotation_list[:, 1], 'o', color='black', markersize=0.5)
             # ax.axis('off')
             # ax.set_title('Peak local max')
-
             # fig.tight_layout()
-
             # plt.show()
 
-
-            # We want to compare the masks to the outputs to calculate TP, FP and FN
-            # First, we have to find the points from the outputs using peak_local_max
             TP = 0
             FP = 0
-            TP_tmp = 0
-            FP_tmp = 0
-            
             for y, x in peak_points_pred:
                 # We check a circle around the point to see if there is a cell in the mask
                 # If there is, we count it as a TP
                 cell_type = argmaxed[y, x]
-                
-                TP_tmp = TP
-                FP_tmp = FP
+                TP_old = TP # To check if TP changes
 
-                # for i, cell in enumerate(cell_annotation_list[
-                #     cell_annotation_list[:, 2] != cell_type # Important with unequal because cancer coded differently
-                # ]):
                 for i, cell in enumerate(cell_annotation_list):
                     distance_squared = (x - cell[0]) ** 2 + (y - cell[1]) ** 2
                     if distance_squared <= pixel_radius**2:
                         if cell[2] != cell_type: # Important with unequal because cancer coded differently
                           TP += 1
-                        else:
-                          FP += 1
-                        # Removing the found cell
-                        mask = torch.arange(cell_annotation_list.size(0)) != i
-                        cell_annotation_list = cell_annotation_list[mask]
+                        cell_annotation_list = np.delete(cell_annotation_list, i, axis=0)
                         break
                     
-                # print(argmaxed[x, y])
-                # print(np.unique(argmaxed))
-                # print(mask.shape)
-                # print(mask[x, y])
-                if TP_tmp == TP and FP_tmp == FP:
+                # If we did not find an annotated cell matching this one, then 
+                # we count it as a FP
+                if TP_old == TP:
                   FP += 1
           
             FN = len(cell_annotation_list)
-                
             dice_score = (2.0 * TP) / (2*TP + FP + FN)
             f1_scores.append(dice_score)
-
-            # print(TP, FP, FN)
-
-            # if len(f1_scores) == 2:
-            #     return f1_scores
   
     return torch.mean(torch.tensor(f1_scores))
 ```
@@ -503,11 +474,11 @@ model = _segm_resnet(
     pretrained_backbone=True,
     dropout_rate=dropout_rate,
     num_channels=4,
-    input_tissue_v3=True
+    input_tissue_v3=False
 )
 model.to(device) 
 # model.load_state_dict(torch.load("outputs/models/2023-12-07_17-04-08_deeplabv3plus_tissue_leaking_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-300.pth"))
-model.load_state_dict(torch.load("outputs/models/2024-01-15_14-32-57_deeplabv3plus_tissue_leaking_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-300.pth"))
+model.load_state_dict(torch.load("outputs/models/2024-01-19_13-32-33_deeplabv3plus_tissue_leaking_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-90.pth"))
 model.eval()
 ```
 
@@ -523,16 +494,14 @@ print(f"Dice score on validation set: {val_dice_score}")
 # Dice score on test set: 0.725593626499176
 # Dice score on validation set: 0.7120229601860046
 
-
 # Tissue fed deeplabv3. Both tissue and cell info is encoded with resnet. ResNet not freezed
 # outputs/models/2024-01-15_14-32-57_deeplabv3plus_tissue_leaking_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-300.pth
 # Dice score on test set: 0.6813595294952393
 # Dice score on validation set: 0.6469401717185974
 
-
-
-
-
+# With last model
+# Dice score on test set: 0.7375425696372986
+# Dice score on validation set: 0.7248657941818237
 ```
 
 ```{python}
