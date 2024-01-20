@@ -20,7 +20,7 @@ def main():
     default_batch_size = 2
     default_data_dir = "ocelot_data"
     default_checkpoint_interval = 5
-    default_backbone_model = "resnet34"
+    default_backbone_model = "resnet50"
     default_dropout_rate = 0.3
     default_learning_rate = 1e-4
     default_pretrained = True
@@ -88,10 +88,10 @@ def main():
     print(f"Dropout rate: {dropout_rate}")
     print(f"Learning rate: {learning_rate}")
     print(f"Checkpoint interval: {checkpoint_interval}")
-    print(f"Device: {device}")
     print(f"Pretrained: {pretrained}")
     print(f"Warmup epochs: {warmup_epochs}")
     print(f"Decay rate: {decay_rate}")
+    print(f"Device: {device}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Find the correct files
@@ -165,10 +165,10 @@ def main():
         name="deeplabv3plus",
         backbone_name=backbone_model,
         num_classes=3,
+        num_channels=4,
         output_stride=8,
         pretrained_backbone=pretrained,
         dropout_rate=dropout_rate,
-        num_channels=4,
     )
     model.to(device)
 

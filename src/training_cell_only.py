@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torch.optim import Adam
 
 from deeplabv3.network.modeling import _segm_resnet
-from src.utils.utils_train import train
+from utils.utils_train import train
 from dataset import CellOnlyDataset
 
 
@@ -21,6 +21,9 @@ def main():
     default_backbone_model = "resnet50"
     default_dropout_rate = 0.3
     default_learning_rate = 1e-4
+    default_pretrained = True
+    default_warmup_epochs = 2
+    default_decay_rate = 0.99
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -51,6 +54,15 @@ def main():
         default=default_learning_rate,
         help="Learning rate",
     )
+    parser.add_argument(
+        "--pretrained", type=int, default=default_pretrained, help="Pretrained backbone"
+    )
+    parser.add_argument(
+        "--warmup-epochs", type=int, default=default_warmup_epochs, help="Warmup epochs"
+    )
+    parser.add_argument(
+        "--decay-rate", type=float, default=default_decay_rate, help="Decay rate"
+    )
 
     args = parser.parse_args()
 
@@ -61,6 +73,9 @@ def main():
     backbone_model = args.backbone
     dropout_rate = args.dropout
     learning_rate = args.learning_rate
+    pretrained = args.pretrained
+    warmup_epochs = args.warmup_epochs
+    decay_rate = args.decay_rate
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
@@ -71,6 +86,9 @@ def main():
     print(f"Dropout rate: {dropout_rate}")
     print(f"Learning rate: {learning_rate}")
     print(f"Checkpoint interval: {checkpoint_interval}")
+    print(f"Pretrained: {pretrained}")
+    print(f"Warmup epochs: {warmup_epochs}")
+    print(f"Decay rate: {decay_rate}")
     print(f"Device: {device}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
@@ -96,38 +114,41 @@ def main():
     # Create dataset and dataloader
     transforms = A.Compose(
         [
-            A.GaussianBlur(blur_limit=(3, 7), p=0.5),  # You can adjust the blur limit
+            A.GaussianBlur(blur_limit=(3, 7), p=0.5), 
             A.GaussNoise(
                 var_limit=(0.1, 0.3), p=0.5
-            ),  # Adjust var_limit for noise intensity
+            ),  
             A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
             A.HorizontalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
         ]
     )
     train_dataset = CellOnlyDataset(
-        image_files=train_image_files, seg_files=train_seg_files
+        image_files=train_image_files, seg_files=train_seg_files, transform=transforms
     )
     val_dataset = CellOnlyDataset(image_files=val_image_files, seg_files=val_seg_files)
 
     train_dataloader = DataLoader(
         dataset=train_dataset, batch_size=batch_size, shuffle=True, drop_last=True
     )
-    val_dataloader = DataLoader(dataset=val_dataset, batch_size=batch_size)
+    val_dataloader = DataLoader(dataset=val_dataset, batch_size=batch_size, drop_last=True)
 
     # Create model and optimizer
     model = _segm_resnet(
         name="deeplabv3plus",
         backbone_name=backbone_model,
         num_classes=3,
+        num_channels=3,
         output_stride=8,
-        pretrained_backbone=True,
+        pretrained_backbone=pretrained,
         dropout_rate=dropout_rate,
     )
     model.to(device)
 
     loss_function = DiceLoss(softmax=True)
     optimizer = Adam(model.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay_rate)
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, total_iters=warmup_epochs)
 
     train(
         num_epochs=num_epochs,
@@ -141,6 +162,10 @@ def main():
         break_after_one_iteration=False,
         dropout_rate=dropout_rate,
         backbone=backbone_model,
+        model_name="cell_only",
+        lr_scheduler=scheduler,
+        warmup_scheduler=warmup_scheduler,
+        warmup_epochs=warmup_epochs,
     )
 
 

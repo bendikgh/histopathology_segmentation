@@ -1,8 +1,7 @@
 import torch
 import numpy as np
-import pandas as pd
 
-from monai.data import ArrayDataset, ImageDataset
+from monai.data import ImageDataset
 from PIL import Image
 from torchvision.transforms import ToTensor
 from torch.nn.functional import softmax
@@ -134,11 +133,8 @@ class TissueLeakingDataset(ImageDataset):
     #     token = "segmented_cell"
     #     token_index = path.find(token)
     #     path = path[:token_index] + "cell" + path[token_index + len(token):] + ".csv"
-
     #     cell_annotation_list = pd.read_csv(path, header=None)
-        
     #     cell_annotation_tensor = torch.tensor(cell_annotation_list.values)
-        
     #     return cell_annotation_tensor
     
     def get_cell_annotation_list(self, idx):
