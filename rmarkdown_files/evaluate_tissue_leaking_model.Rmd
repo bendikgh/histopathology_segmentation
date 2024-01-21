@@ -406,7 +406,6 @@ def calculate_f1_score(
 
         for idx in range(output_batch.shape[0]):
             output = output_batch[idx]
-            # mask = mask_batch[idx].permute(1, 2, 0)
 
             image_no = batch_idx * batch_size + idx
             cell_annotation_list = dataset.get_cell_annotation_list(image_no)

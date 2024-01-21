@@ -34,9 +34,11 @@ else:
 import torch
 import matplotlib.pyplot as plt 
 import seaborn as sns
+import numpy as np
 
 from glob import glob
 from torch.utils.data import DataLoader
+from skimage.feature import peak_local_max
 
 from src.deeplabv3.network.modeling import _segm_resnet
 from src.dataset import CellOnlyDataset
@@ -91,15 +93,114 @@ test_dataloader = DataLoader(dataset=test_dataset)
 ```
 
 ```{python}
+backbone_model = "resnet50"
+dropout_rate = 0.3
+pretrained_backbone = True
 model = _segm_resnet(
-    name="deeplabv3plus",
-    backbone_name="resnet50",
-    num_classes=3,
-    output_stride=8,
-    pretrained_backbone=True,
-)
+        name="deeplabv3plus",
+        backbone_name=backbone_model,
+        num_classes=3,
+        num_channels=3,
+        output_stride=8,
+        pretrained_backbone=True,
+        dropout_rate=dropout_rate,
+    )
+model.load_state_dict(torch.load("outputs/models/2024-01-20_19-50-43_deeplabv3plus_cell_only_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-100.pth"))
 model.to(device)
 print() # To avoid cell output
+```
+
+```{python}
+def calculate_f1_score(
+    model, dataloader, device, micron_radius: float = 3.0, mpp: float = 0.2
+):
+    """These are the steps for calculating the F1 score, as given in the paper:
+
+    - True positive: If a detected cell is within a valid distance (3 microns) of a
+      target cell, then it is considered a TP
+    - False positive: If a detected cell does not fulfill the requirements for a
+      TP, then it is considered a FP
+    - False Negative: If an annotated cell is not detected, then it is counted as a
+      False Negative
+
+    """
+    model.eval()
+    f1_scores = []
+    pixel_radius = micron_radius / mpp
+    dataset = dataloader.dataset
+    batch_size = dataloader.batch_size
+
+    for batch_idx, (image_batch, mask_batch) in enumerate(dataloader):
+        image_batch = image_batch.to(device)
+        with torch.no_grad():
+            output_batch = model(image_batch)
+
+        for idx in range(output_batch.shape[0]):
+            output = output_batch[idx]
+
+            image_no = batch_idx * batch_size + idx
+            cell_annotation_list = dataset.get_cell_annotation_list(image_no)
+
+            # Preparing output for peak_local_max
+            softmaxed = torch.softmax(output, dim=0)
+            cells, argmaxed = torch.max(softmaxed, axis=0)
+            argmaxed = argmaxed.cpu().numpy()
+            cells = cells.cpu().numpy()
+            peak_points_pred = peak_local_max(
+                cells,
+                min_distance=20,
+                labels=np.logical_or(argmaxed == 1, argmaxed == 2),
+                threshold_abs=0.01,
+            )
+
+            # # For plotting the predictions and the ground truth on top
+            # output = make_prediction_map(output_batch)[0]*255
+            # # display results
+            # fig, ax = plt.subplots(1, 1, figsize=(8, 3), sharex=True, sharey=True)
+            # ax.imshow(output.permute(1, 2, 0))
+            # ax.autoscale(False)
+            # ax.plot(cell_annotation_list[:, 0], cell_annotation_list[:, 1], 'o', color='black', markersize=0.5)
+            # ax.axis('off')
+            # ax.set_title('Peak local max')
+            # fig.tight_layout()
+            # plt.show()
+
+            TP = 0
+            FP = 0
+            for y, x in peak_points_pred:
+                # We check a circle around the point to see if there is a cell in the mask
+                # If there is, we count it as a TP
+                cell_type = argmaxed[y, x]
+                TP_old = TP # To check if TP changes
+
+                for i, cell in enumerate(cell_annotation_list):
+                    distance_squared = (x - cell[0]) ** 2 + (y - cell[1]) ** 2
+                    if distance_squared <= pixel_radius**2:
+                        if cell[2] != cell_type: # Important with unequal because cancer coded differently
+                          TP += 1
+                        
+                        # Removing the current element to count FNs later
+                        cell_annotation_list = np.delete(cell_annotation_list, i, axis=0)
+                        break
+                    
+                # If we did not find an annotated cell matching this one, then 
+                # we count it as a FP
+                if TP_old == TP:
+                  FP += 1
+          
+            FN = len(cell_annotation_list)
+            dice_score = (2.0 * TP) / (2*TP + FP + FN)
+            f1_scores.append(dice_score)
+  
+    return torch.mean(torch.tensor(f1_scores))
+```
+
+```{python}
+test_dice_score = calculate_f1_score(model, test_dataloader, device)
+val_dice_score = calculate_f1_score(model, val_dataloader, device)
+
+print(f"Dice score on test set: {test_dice_score}")
+print(f"Dice score on validation set: {val_dice_score}")
 ```
 
 ```{python}
