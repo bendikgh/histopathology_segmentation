@@ -5,6 +5,7 @@ from monai.data import ImageDataset
 from PIL import Image
 from torchvision.transforms import ToTensor
 from torch.nn.functional import softmax
+from monai.transforms import Compose, AsDiscrete
 
 
 class OcelotTissueDataset(ImageDataset):
@@ -59,6 +60,12 @@ class CellOnlyDataset(ImageDataset):
             seg = torch.tensor(transformed["mask"]).permute((2, 0, 1))
 
         return image, seg
+    
+    def get_cell_annotation_list(self, idx):
+        """Returns a list of cell annotations for a given image index """
+        path = self.image_files[idx]
+        cell_annotation_path = "annotations".join(path.split("images")).replace("jpg", "csv") 
+        return np.loadtxt(cell_annotation_path, delimiter=",", dtype=np.int32, ndmin=2)
 
 
 class TissueDataset(ImageDataset):
@@ -67,6 +74,7 @@ class TissueDataset(ImageDataset):
         self.seg_files = seg_files
         self.to_tensor = ToTensor()
         self.transform = transform
+        self.translator = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
     def __getitem__(self, idx):
         image_path = self.image_files[idx]
@@ -75,11 +83,12 @@ class TissueDataset(ImageDataset):
         image = self.to_tensor(Image.open(image_path).convert("RGB"))
         seg_image = self.to_tensor(Image.open(seg_path)) * 255
 
-        seg = torch.zeros(3, 1024, 1024)
-        unique_values = [1.0, 2.0, 255.0]
+        # Setting values to 0, 1, 2, instead of 1, 2, 255
+        seg_image[seg_image == 255.0] = 3
+        seg_image -=  1
 
-        for channel, value in enumerate(unique_values):
-            seg[channel] = seg_image == value
+        # One-hot encoding 
+        seg = self.translator[seg_image.int()].squeeze().permute((2, 0, 1))
 
         if self.transform:
             transformed = self.transform(
