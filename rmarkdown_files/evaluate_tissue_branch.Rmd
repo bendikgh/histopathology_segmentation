@@ -39,7 +39,7 @@ from torch.optim import Adam
 
 from src.deeplabv3.network.modeling import _segm_resnet
 from src.dataset import TissueDataset, CellTissueDataset
-from src.train_utils import train
+# from src.utils.train_utils import train
 ```
 
 ```{python}

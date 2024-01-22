@@ -442,13 +442,18 @@ def calculate_f1_score(
                 cell_type = argmaxed[y, x]
                 TP_old = TP # To check if TP changes
 
-                for i, cell in enumerate(cell_annotation_list):
-                    distance_squared = (x - cell[0]) ** 2 + (y - cell[1]) ** 2
-                    if distance_squared <= pixel_radius**2:
-                        if cell[2] != cell_type: # Important with unequal because cancer coded differently
-                          TP += 1
-                        cell_annotation_list = np.delete(cell_annotation_list, i, axis=0)
-                        break
+                min_distance_squared = (pixel_radius+1)**2
+                min_distance_cell = -1
+
+                # Calculate distance vector to cell_annotation_list
+                if cell_annotation_list.shape[0] > 0:
+                  distance_squared = (x-cell_annotation_list[:, 0])**2 + (y-cell_annotation_list[:, 1])**2
+                  min_distance_squared, min_distance_cell = np.min(distance_squared), np.argmin(distance_squared)
+
+                if min_distance_squared < pixel_radius**2:
+                  if cell_annotation_list[min_distance_cell][2] != cell_type:
+                     TP += 1
+                  cell_annotation_list = np.delete(cell_annotation_list, min_distance_cell, axis=0)                  
                     
                 # If we did not find an annotated cell matching this one, then 
                 # we count it as a FP

@@ -192,3 +192,9 @@ class CellTissueDataset(ImageDataset):
         image = torch.cat((image, image_tissue), dim=0)
 
         return image, seg
+    
+    def get_cell_annotation_list(self, idx):
+        """Returns a list of cell annotations for a given image index """
+        path = self.image_files[idx]
+        cell_annotation_path = "annotations".join(path.split("images")).replace("jpg", "csv") 
+        return np.loadtxt(cell_annotation_path, delimiter=",", dtype=np.int32, ndmin=2)
