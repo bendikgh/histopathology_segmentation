@@ -20,16 +20,12 @@ class _SimpleSegmentationModel(nn.Module):
 class _TissueCellSegmentationModel(nn.Module):
     def __init__(self, backbone, classifier):
         super(_TissueCellSegmentationModel, self).__init__()
-
-        # Removes gradients because this is gonna be used for both tissue and cell
-        for param in backbone.parameters():
-            param.requires_grad = False
         
         self.backbone = backbone
         self.classifier = classifier
         
         backbone_output_channels = backbone.layer4[-1].conv3.out_channels
-        self.conv_adapter = nn.Conv2d(2*backbone_output_channels, backbone_output_channels, kernel_size=1)
+        self.conv_adapter = nn.Conv2d(2 * backbone_output_channels, backbone_output_channels, kernel_size=5, padding=2)
         
     def forward(self, x):
 
