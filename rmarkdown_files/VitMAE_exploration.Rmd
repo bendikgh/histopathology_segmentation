@@ -26,6 +26,21 @@ else:
 
 ## Load ViTMAE
 
+
+python scripts/run_mae.py \
+    --dataset_name "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data" \
+    --train_dir "images/train/cell/*" \
+    --output_dir "/cluster/home/bendikgh/master_project/outputs/ViTMAE" \
+    --remove_unused_columns False \
+    --label_names pixel_values \
+    --do_train \
+    --do_eval \
+    --overwrite_output_dir \
+    --image_processor_name "/cluster/home/bendikgh/master_project/config/preprocessor_config.json" \
+    --config_name "/cluster/home/bendikgh/master_project/config/ViT_config" \
+    --num_train_epochs 300
+
+
 ```{python}
 from transformers import ViTMAEConfig, ViTMAEModel, AutoImageProcessor
 ```
@@ -42,8 +57,7 @@ configuration = model.config
 ```
 
 ```{python}
-# extract the encoder
-encoder = model.encoder
+configuration.to_json_file("config/ViT_config")
 ```
 
 ## Make datasets and dataloaders for tissue

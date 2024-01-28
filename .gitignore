@@ -5,6 +5,7 @@ samples/*
 my_env/*
 slurm_scripts/*
 images_for_report/*
+.vscode/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
