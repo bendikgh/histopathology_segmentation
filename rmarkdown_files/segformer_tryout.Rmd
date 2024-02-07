@@ -1,0 +1,141 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.15.2
+  kernelspec:
+    display_name: master_project
+    language: python
+    name: python3
+---
+
+```{python}
+# Fixing automatic autoreload
+# %load_ext autoreload
+# %autoreload 2
+```
+
+```{python}
+import os 
+
+# Making sure we are running the code from the root directory
+current_directory = os.getcwd()
+if current_directory.endswith("notebooks"):
+    os.chdir("..")
+    print("Changed directory to:", os.getcwd())
+else:
+    print("Directory was already correct, so did not change.")
+```
+
+```{python}
+import torch
+import matplotlib.pyplot as plt 
+import seaborn as sns
+import numpy as np
+
+from glob import glob
+from torch.utils.data import DataLoader
+from skimage.feature import peak_local_max
+
+from src.deeplabv3.network.modeling import _segm_resnet
+from src.dataset import CellOnlyDataset
+
+sns.set_theme()
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Device: {device}")
+```
+
+```{python}
+from PIL import Image
+from torch.utils.data import Dataset
+from torchvision.transforms import Compose, ToTensor
+from torchvision.transforms import ColorJitter
+from transformers import SegformerImageProcessor
+```
+
+## Data preprocessing
+
+```{python}
+data_dir = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+train_seg_files = glob(os.path.join(data_dir, "annotations/train/segmented_cell/*"))
+train_image_numbers = [
+    file_name.split("/")[-1].split(".")[0] for file_name in train_seg_files
+]
+train_image_files = [
+    os.path.join(data_dir, "images/train/cell", image_number + ".jpg")
+    for image_number in train_image_numbers
+]
+
+val_seg_files = glob(os.path.join(data_dir, "annotations/val/segmented_cell/*"))
+val_image_numbers = [
+    file_name.split("/")[-1].split(".")[0] for file_name in val_seg_files
+]
+val_image_files = [
+    os.path.join(data_dir, "images/val/cell", image_number + ".jpg")
+    for image_number in val_image_numbers
+]
+
+test_seg_files = glob(os.path.join(data_dir, "annotations/test/segmented_cell/*"))
+test_image_numbers = [
+    file_name.split("/")[-1].split(".")[0] for file_name in test_seg_files
+]
+test_image_files = [
+    os.path.join(data_dir, "images/test/cell", image_number + ".jpg")
+    for image_number in test_image_numbers
+]
+```
+
+```{python}
+class SegformerDataset(Dataset):
+    def __init__(self, image_files, seg_files, transform=None):
+        self.image_files = image_files
+        self.seg_files = seg_files
+        self.to_tensor = ToTensor()
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.image_files)
+
+    def __getitem__(self, idx):
+        # Cell
+        image_path = self.image_files[idx]
+        seg_path = self.seg_files[idx]
+
+        image = self.to_tensor(Image.open(image_path).convert("RGB"))*255
+        label = self.to_tensor(Image.open(seg_path).convert("RGB"))*255
+
+        if self.transform:
+            transformed = self.transform({'pixel_values': image, 'label': label})
+            image, label = transformed['pixel_values'], transformed['labels']
+
+        return image, label
+
+# Initialize the processor and jitter transform
+processor = SegformerImageProcessor()
+jitter = ColorJitter(brightness=0.25, contrast=0.25, saturation=0.25, hue=0.1)
+
+# Define transforms
+def train_transforms(batch):
+    images = jitter(batch["pixel_values"])
+    labels = batch["label"]
+    inputs = processor(images, labels)
+    return inputs
+
+train_dataset = SegformerDataset(train_image_files, train_seg_files, transform=train_transforms)
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+
+```
+
+```{python}
+for i, batch in enumerate(train_loader):
+    print(i)
+    if i > 5: 
+        break
+
+
+# https://huggingface.co/blog/fine-tune-segformer#use-a-dataset-from-the-hub
+```
