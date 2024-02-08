@@ -38,6 +38,7 @@ import numpy as np
 
 from glob import glob
 from torch.utils.data import DataLoader
+from torch import nn
 from skimage.feature import peak_local_max
 
 from src.deeplabv3.network.modeling import _segm_resnet
@@ -125,7 +126,7 @@ def train_transforms(image, label):
     return inputs
 
 train_dataset = SegformerDataset(train_image_files, train_seg_files, transform=train_transforms)
-train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True)
 
 ```
 
@@ -152,17 +153,15 @@ from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss
 from transformers import get_linear_schedule_with_warmup
 
-# Training loop
-num_epochs = 3  # Set the number of epochs
-
-# Setup the optimizer
+num_epochs = 3 
 optimizer = AdamW(model.parameters(), lr=5e-5)
 
 # Setup the learning rate scheduler
 num_training_steps = len(train_loader) * num_epochs
-scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=num_training_steps)
+scheduler = get_linear_schedule_with_warmup(
+    optimizer, num_warmup_steps=0, num_training_steps=num_training_steps
+)
 
-# Define the loss function
 loss_fn = CrossEntropyLoss()
 
 # Move the model to the appropriate device
@@ -183,8 +182,14 @@ for epoch in range(num_epochs):
         # Forward pass
         outputs = model(images).logits
 
+        outputs = nn.functional.interpolate(
+            outputs,
+            size=labels.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+        )
+
         # Compute loss
-        # For CrossEntropyLoss, labels need to be of type Long and might need to be squeezed if they contain an extra dimension
         loss = loss_fn(outputs, labels)
 
         # Backward pass
@@ -201,5 +206,4 @@ for epoch in range(num_epochs):
         print(loss.item())
 
     print(f"Epoch {epoch+1}/{num_epochs}, Loss: {total_loss/len(train_loader)}")
-
 ```
