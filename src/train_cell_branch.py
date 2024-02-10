@@ -273,7 +273,7 @@ def main():
         dropout_rate=dropout_rate,
         backbone=backbone_model,
         model_name="tissue-cell",
-        lr_scheduler=scheduler,
+        scheduler=scheduler,
         warmup_scheduler=warmup_scheduler,
         warmup_epochs=warmup_epochs
     )

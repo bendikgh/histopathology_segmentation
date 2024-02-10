@@ -32,31 +32,23 @@ else:
 
 ```{python}
 import torch
-import matplotlib.pyplot as plt 
+import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+import torch.nn as nn
 
 from glob import glob
 from torch.utils.data import DataLoader
-from torch import nn
 from skimage.feature import peak_local_max
+from torch.nn.functional import softmax, interpolate
+from torchsummary import summary
 
-from src.deeplabv3.network.modeling import _segm_resnet
-from src.dataset import CellOnlyDataset
-from transformers import SegformerForSemanticSegmentation
+from transformers import SegformerForSemanticSegmentation, SegformerConfig, SegformerImageProcessor
 
 sns.set_theme()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {device}")
-```
-
-```{python}
-from PIL import Image
-from torch.utils.data import Dataset
-from torchvision.transforms import Compose, ToTensor
-from torchvision.transforms import ColorJitter
-from transformers import SegformerImageProcessor
 ```
 
 ## Data preprocessing
@@ -92,118 +84,218 @@ test_image_files = [
 ```
 
 ```{python}
-class SegformerDataset(Dataset):
-    def __init__(self, image_files, seg_files, transform=None):
-        self.image_files = image_files
-        self.seg_files = seg_files
-        self.to_tensor = ToTensor()
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.image_files)
-
-    def __getitem__(self, idx):
-        # Cell
-        image_path = self.image_files[idx]
-        seg_path = self.seg_files[idx]
-
-        image = self.to_tensor(Image.open(image_path).convert("RGB"))*255
-        label = self.to_tensor(Image.open(seg_path).convert("RGB"))*255
-
-        if self.transform:
-            transformed = self.transform(image, label)
-            image, label = torch.tensor(transformed['pixel_values']).squeeze(0), torch.tensor(transformed['labels']).squeeze(0)
-
-        return image, label
+from src.dataset import SegformerDataset
 
 # Initialize the processor and jitter transform
-processor = SegformerImageProcessor(return_tensors="pt")
-jitter = ColorJitter(brightness=0.25, contrast=0.25, saturation=0.25, hue=0.1)
+image_processor = SegformerImageProcessor(do_resize=False)
+# jitter = ColorJitter(brightness=0.25, contrast=0.25, saturation=0.25, hue=0.1)
 
-# Define transforms
-def train_transforms(image, label):
-    inputs = processor(image, label)
-    return inputs
-
-train_dataset = SegformerDataset(train_image_files, train_seg_files, transform=train_transforms)
+train_dataset = SegformerDataset(
+    train_image_files, train_seg_files, transform=image_processor.preprocess
+)
 train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True)
 
+val_dataset = SegformerDataset(
+    val_image_files, val_seg_files, transform=image_processor.preprocess
+)
+val_loader = DataLoader(val_dataset, batch_size=2)
+
+test_dataset = SegformerDataset(
+    test_image_files, test_seg_files, transform=image_processor.preprocess
+)
+test_loader = DataLoader(test_dataset, batch_size=2)
 ```
 
 ```{python}
-for i, batch in enumerate(train_loader):
-    print(i)
-    if i > 5: 
-        break
+configuration = SegformerConfig(
+  num_labels=3,
+  num_channels=3,
+)
+model = SegformerForSemanticSegmentation(
+  configuration
+)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
 
+total_params = sum(p.numel() for p in model.parameters())
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+print(f"Total Parameters: {total_params}")
+print(f"Trainable Parameters: {trainable_params}")
 # https://huggingface.co/blog/fine-tune-segformer#use-a-dataset-from-the-hub
 ```
 
 ```{python}
-## Smallest segformer model
-pretrained_model_name = "nvidia/mit-b0" 
-model = SegformerForSemanticSegmentation.from_pretrained(
-    pretrained_model_name
+from torch.optim import AdamW
+from monai.losses import DiceLoss
+from transformers import get_polynomial_decay_schedule_with_warmup
+from src.utils.utils_train import (
+    run_training_segformer,
+    run_validation_segformer,
+    train,
+)
+from datetime import datetime
+
+num_epochs = 5
+optimizer = AdamW(model.parameters(), lr=5e-5)
+scheduler = get_polynomial_decay_schedule_with_warmup(
+    optimizer, num_warmup_steps=2, num_training_steps=num_epochs, power=1
+)
+loss_fn = DiceLoss(softmax=True, to_onehot_y=True)
+current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+save_name = f"segformer_tryout_{current_time}"
+
+train(
+    num_epochs=num_epochs,
+    train_dataloader=train_loader,
+    val_dataloader=val_loader,
+    model=model,
+    loss_function=loss_fn,
+    optimizer=optimizer,
+    device=device,
+    save_name=save_name,
+    checkpoint_interval=5,
+    break_after_one_iteration=False,
+    scheduler=scheduler,
+    training_func=run_training_segformer,
+    validation_function=run_validation_segformer,
 )
 ```
 
 ```{python}
-from torch.optim import AdamW
-from torch.nn import CrossEntropyLoss
-from transformers import get_linear_schedule_with_warmup
+image_batch, label_batch = next(iter(val_loader))
+print(image_batch.shape)
+```
 
-num_epochs = 3 
-optimizer = AdamW(model.parameters(), lr=5e-5)
+```{python}
+outputs = model(pixel_values=image_batch.to(device))
+probabilities = softmax(outputs.logits, dim=1)
+```
 
-# Setup the learning rate scheduler
-num_training_steps = len(train_loader) * num_epochs
-scheduler = get_linear_schedule_with_warmup(
-    optimizer, num_warmup_steps=0, num_training_steps=num_training_steps
-)
+```{python}
+print(image_batch.shape)
+print(outputs.logits.shape)
 
-loss_fn = CrossEntropyLoss()
+argmaxed = probabilities[0].argmax(dim=0).detach().cpu()
+print(argmaxed.shape)
+print(argmaxed.unique())
+```
 
-# Move the model to the appropriate device
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.to(device)
+```{python}
+plt.imshow(argmaxed.numpy())
+plt.show()
+plt.imshow(val_dataset.get_image(0).permute(1, 2, 0).to(torch.uint8))
+plt.show()
+```
 
-for epoch in range(num_epochs):
-    model.train()
-    total_loss = 0
+```{python}
+def calculate_f1_score_segformer(
+    model, dataloader, device, micron_radius: float = 3.0, mpp: float = 0.2
+):
+    """These are the steps for calculating the F1 score, as given in the paper:
 
-    for images, labels in train_loader:
-        # Move batch to device
-        images = images.to(device)
-        labels = labels.to(device)
+    - True positive: If a detected cell is within a valid distance (3 microns) of a
+      target cell, then it is considered a TP
+    - False positive: If a detected cell does not fulfill the requirements for a
+      TP, then it is considered a FP
+    - False Negative: If an annotated cell is not detected, then it is counted as a
+      False Negative
 
-        labels = labels.argmax(dim=1)
+    """
+    model.eval()
+    f1_scores = []
+    pixel_radius = micron_radius / mpp
+    dataset = dataloader.dataset
+    batch_size = dataloader.batch_size
 
-        # Forward pass
-        outputs = model(images).logits
+    for batch_idx, (image_batch, mask_batch) in enumerate(dataloader):
+        image_batch = image_batch.to(device)
+        with torch.no_grad():
+            output_batch = model(image_batch).logits
 
-        outputs = nn.functional.interpolate(
-            outputs,
-            size=labels.shape[-2:],
-            mode="bilinear",
-            align_corners=False,
-        )
+        for idx in range(output_batch.shape[0]):
+            output = output_batch[idx]
+            output = interpolate(
+                output.unsqueeze(0),
+                size=mask_batch.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+            output = output.squeeze(
+                0
+            )  # Remove the extra batch dimension that interpolate adds
 
-        # Compute loss
-        loss = loss_fn(outputs, labels)
+            image_no = batch_idx * batch_size + idx
+            cell_annotation_list = dataset.get_cell_annotation_list(image_no)
 
-        # Backward pass
-        loss.backward()
+            # Preparing output for peak_local_max
+            softmaxed = torch.softmax(output, dim=0)
+            cells, argmaxed = torch.max(softmaxed, axis=0)
+            argmaxed = argmaxed.cpu().numpy()
+            cells = cells.cpu().numpy()
+            peak_points_pred = peak_local_max(
+                cells,
+                min_distance=20,
+                labels=np.logical_or(argmaxed == 1, argmaxed == 2),
+                threshold_abs=0.01,
+            )
 
-        # Update parameters and scheduler
-        optimizer.step()
-        scheduler.step()
+            # # For plotting the predictions and the ground truth on top
+            # output = make_prediction_map(output_batch)[0]*255
+            # # display results
+            # fig, ax = plt.subplots(1, 1, figsize=(8, 3), sharex=True, sharey=True)
+            # ax.imshow(output.permute(1, 2, 0))
+            # ax.autoscale(False)
+            # ax.plot(cell_annotation_list[:, 0], cell_annotation_list[:, 1], 'o', color='black', markersize=0.5)
+            # ax.axis('off')
+            # ax.set_title('Peak local max')
+            # fig.tight_layout()
+            # plt.show()
 
-        # Zero the gradients
-        optimizer.zero_grad()
+            TP = 0
+            FP = 0
+            for y, x in peak_points_pred:
+                # We check a circle around the point to see if there is a cell in the mask
+                # If there is, we count it as a TP
+                cell_type = argmaxed[y, x]
+                TP_old = TP  # To check if TP changes
 
-        total_loss += loss.item()
-        print(loss.item())
+                min_distance_squared = (pixel_radius + 1) ** 2
+                min_distance_cell = -1
 
-    print(f"Epoch {epoch+1}/{num_epochs}, Loss: {total_loss/len(train_loader)}")
+                # Calculate distance vector to cell_annotation_list
+                if cell_annotation_list.shape[0] > 0:
+                    distance_squared = (x - cell_annotation_list[:, 0]) ** 2 + (
+                        y - cell_annotation_list[:, 1]
+                    ) ** 2
+                    min_distance_squared, min_distance_cell = np.min(
+                        distance_squared
+                    ), np.argmin(distance_squared)
+
+                if min_distance_squared < pixel_radius**2:
+                    if cell_annotation_list[min_distance_cell][2] != cell_type:
+                        TP += 1
+                    cell_annotation_list = np.delete(
+                        cell_annotation_list, min_distance_cell, axis=0
+                    )
+
+                # If we did not find an annotated cell matching this one, then
+                # we count it as a FP
+                if TP_old == TP:
+                    FP += 1
+
+            FN = len(cell_annotation_list)
+            f1_score = (2.0 * TP) / (2 * TP + FP + FN)
+            f1_scores.append(f1_score)
+
+    return torch.mean(torch.tensor(f1_scores))
+```
+
+```{python}
+# train_f1_score = calculate_f1_score(model, train_loader, device)
+# print(f"train f1 score: {train_f1_score}")
+val_f1_score = calculate_f1_score_segformer(model, val_loader, device)
+print(f"val f1 score: {val_f1_score}")
+test_f1_score = calculate_f1_score_segformer(model, test_loader, device)
+print(f"test f1 score: {test_f1_score}")
 ```

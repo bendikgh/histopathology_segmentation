@@ -1,6 +1,7 @@
 import time
 import torch
 import matplotlib.pyplot as plt
+from torch.nn.functional import interpolate
 from tqdm import tqdm
 
 
@@ -13,6 +14,72 @@ def plot_losses(training_losses, val_losses, save_path: str):
     plt.legend()
     plt.savefig(save_path)
     plt.close()
+
+def run_training_segformer(
+        model, 
+        train_dataloader,
+        optimizer,
+        loss_function,
+        device,
+        break_after_one_iteration: bool = False,
+): 
+    model.train()
+    training_loss = 0
+
+    for images, labels in tqdm(train_dataloader):
+        images, labels = images.to(device), labels.to(device)  
+        labels = labels.argmax(dim=1)
+
+        optimizer.zero_grad()
+        outputs = model(images).logits
+        outputs = interpolate(
+            outputs,
+            size=labels.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+        )
+        loss = loss_function(outputs, labels.unsqueeze(1))
+
+        loss.backward()
+        optimizer.step()
+        training_loss += loss.item()
+        
+        if break_after_one_iteration:
+            print("Breaking after one iteration")
+            break
+    if not break_after_one_iteration:
+        training_loss /= len(train_dataloader)
+    return training_loss
+
+def run_validation_segformer(
+        model,
+        val_dataloader,
+        loss_function,
+        device,
+        break_after_one_iteration: bool = False,
+):
+    model.eval()
+    val_loss = 0
+    with torch.no_grad():
+        for images, labels in tqdm(val_dataloader):
+            images, labels = images.to(device), labels.to(device)
+            labels = labels.argmax(dim=1)
+            outputs = model(images).logits
+            outputs = interpolate(
+                outputs,
+                size=labels.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+            loss = loss_function(outputs, labels.unsqueeze(1))
+
+            val_loss += loss.item()
+            if break_after_one_iteration:
+                print("Breaking after one iteration")
+                break
+    if not break_after_one_iteration:
+        val_loss /= len(val_dataloader)
+    return val_loss
 
 def run_training(
     model,
@@ -79,26 +146,19 @@ def train(
     loss_function,
     optimizer,
     device,
+    save_name: str,
     checkpoint_interval: int = 5,
     break_after_one_iteration: bool = False,
-    dropout_rate: float = 0.5,
-    backbone: str = "resnet50",
-    model_name: str = "cell_only",
-    warmup_scheduler = None,
-    lr_scheduler = None,
-    warmup_epochs: int = 0
+    scheduler = None,
+    training_func = run_training,
+    validation_function = run_validation,
 ):
-    learning_rate = optimizer.param_groups[0]["lr"]
     start = time.time()
-    current_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
     training_losses = []
     val_losses = []
     
     for epoch in range(num_epochs):
-
-        lr = optimizer.param_groups[0]["lr"]
-        
-        training_loss = run_training(
+        training_loss = training_func(
             model=model,
             train_dataloader=train_dataloader,
             optimizer=optimizer,
@@ -106,16 +166,12 @@ def train(
             device=device,
             break_after_one_iteration=break_after_one_iteration 
         )
-
         training_losses.append(training_loss)
-
-        if warmup_scheduler and epoch < warmup_epochs:
-            warmup_scheduler.step()
             
-        if lr_scheduler and epoch >= warmup_epochs:
-            lr_scheduler.step()
+        if scheduler:
+            scheduler.step()
 
-        val_loss = run_validation(
+        val_loss = validation_function(
             model=model,
             val_dataloader=val_dataloader,
             loss_function=loss_function,
@@ -128,15 +184,15 @@ def train(
         if (epoch + 1) % checkpoint_interval == 0 or (epoch + 1) == num_epochs:
             torch.save(
                 model.state_dict(),
-                f"outputs/models/{current_time}_deeplabv3plus_{model_name}_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone}_epochs-{epoch + 1}.pth",
+                f"outputs/models/{save_name}_epochs-{epoch + 1}.pth",
             )
             plot_losses(
                 training_losses,
                 val_losses,
-                save_path=f"outputs/plots/{current_time}_deeplabv3plus_{model_name}_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone}.png",
+                save_path=f"outputs/plots/{save_name}.png",
             )
             with open(
-                f"outputs/logs/{current_time}_deeplabv3plus_{model_name}_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone}.txt",
+                f"outputs/logs/{save_name}.txt",
                 "w",
             ) as file:
                 file.write(
@@ -148,6 +204,7 @@ def train(
                 f"Saved model and logs, and plotted results after {epoch + 1} epochs!"
             )
 
+        lr = optimizer.param_groups[0]["lr"]
         print(
             f"Epoch {epoch + 1}/{num_epochs} - Learning rate: {lr:.6f}  - Training loss: {training_loss:.4f} - Validation loss: {val_loss:.4f}"
         )

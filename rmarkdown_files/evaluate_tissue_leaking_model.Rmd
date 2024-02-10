@@ -482,15 +482,20 @@ model = _segm_resnet(
 )
 model.to(device) 
 # model.load_state_dict(torch.load("outputs/models/2023-12-07_17-04-08_deeplabv3plus_tissue_leaking_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-300.pth"))
-model.load_state_dict(torch.load("outputs/models/2024-01-19_13-32-33_deeplabv3plus_tissue_leaking_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-90.pth"))
+# model.load_state_dict(torch.load("outputs/models/2024-01-19_13-32-33_deeplabv3plus_tissue_leaking_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-90.pth"))
 model.eval()
+
+total_params = sum(p.numel() for p in model.parameters())
+trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+print(f"Total Parameters: {total_params}")
+print(f"Trainable Parameters: {trainable_params}")
 ```
 
 ```{python}
 test_dice_score = calculate_f1_score(model, test_dataloader, device)
-val_dice_score = calculate_f1_score(model, val_dataloader, device)
-
 print(f"Dice score on test set: {test_dice_score}")
+val_dice_score = calculate_f1_score(model, val_dataloader, device)
 print(f"Dice score on validation set: {val_dice_score}")
 
 # Tissue fed in ad the fourth dimension to resnet

@@ -2,10 +2,11 @@ import torch
 import numpy as np
 
 from monai.data import ImageDataset
+from monai.transforms import Compose, AsDiscrete
 from PIL import Image
 from torchvision.transforms import ToTensor
 from torch.nn.functional import softmax
-from monai.transforms import Compose, AsDiscrete
+from torch.utils.data import Dataset
 
 
 class OcelotTissueDataset(ImageDataset):
@@ -192,6 +193,40 @@ class CellTissueDataset(ImageDataset):
         image = torch.cat((image, image_tissue), dim=0)
 
         return image, seg
+    
+    def get_cell_annotation_list(self, idx):
+        """Returns a list of cell annotations for a given image index """
+        path = self.image_files[idx]
+        cell_annotation_path = "annotations".join(path.split("images")).replace("jpg", "csv") 
+        return np.loadtxt(cell_annotation_path, delimiter=",", dtype=np.int32, ndmin=2)
+
+
+class SegformerDataset(Dataset):
+    def __init__(self, image_files, seg_files, transform=None):
+        self.image_files = image_files
+        self.seg_files = seg_files
+        self.to_tensor = ToTensor()
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.image_files)
+
+    def __getitem__(self, idx):
+        # Cell
+        image_path = self.image_files[idx]
+        seg_path = self.seg_files[idx]
+
+        image = self.to_tensor(Image.open(image_path).convert("RGB"))*255
+        label = self.to_tensor(Image.open(seg_path).convert("RGB"))*255
+
+        if self.transform:
+            transformed = self.transform(image, label, return_tensors="pt")
+            image, label = torch.tensor(transformed['pixel_values']).squeeze(0), torch.tensor(transformed['labels']).squeeze(0)
+
+        return image, label
+
+    def get_image(self, idx): 
+        return self.to_tensor(Image.open(self.image_files[idx]).convert("RGB"))*255
     
     def get_cell_annotation_list(self, idx):
         """Returns a list of cell annotations for a given image index """

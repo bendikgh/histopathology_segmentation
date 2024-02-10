@@ -1,0 +1,220 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.15.2
+  kernelspec:
+    display_name: master_project
+    language: python
+    name: python3
+---
+
+```{python}
+# Fixing automatic autoreload
+# %load_ext autoreload
+# %autoreload 2
+```
+
+```{python}
+import os 
+
+# Making sure we are running the code from the root directory
+current_directory = os.getcwd()
+if current_directory.endswith("notebooks"):
+    os.chdir("..")
+    print("Changed directory to:", os.getcwd())
+else:
+    print("Directory was already correct, so did not change.")
+```
+
+```{python}
+import torch
+import matplotlib.pyplot as plt 
+import seaborn as sns
+import numpy as np
+
+from glob import glob
+from torch.utils.data import DataLoader
+from skimage.feature import peak_local_max
+from torch.nn.functional import softmax
+
+from src.deeplabv3.network.modeling import _segm_resnet
+from src.dataset import CellOnlyDataset
+from transformers import SegformerForSemanticSegmentation, SegformerConfig
+
+sns.set_theme()
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Device: {device}")
+```
+
+```{python}
+from PIL import Image
+from torch.utils.data import Dataset
+from torchvision.transforms import Compose, ToTensor
+from torchvision.transforms import ColorJitter
+from transformers import SegformerImageProcessor
+```
+
+## Data preprocessing
+
+```{python}
+data_dir = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+train_seg_files = glob(os.path.join(data_dir, "annotations/train/segmented_cell/*"))
+train_image_numbers = [
+    file_name.split("/")[-1].split(".")[0] for file_name in train_seg_files
+]
+train_image_files = [
+    os.path.join(data_dir, "images/train/cell", image_number + ".jpg")
+    for image_number in train_image_numbers
+]
+
+val_seg_files = glob(os.path.join(data_dir, "annotations/val/segmented_cell/*"))
+val_image_numbers = [
+    file_name.split("/")[-1].split(".")[0] for file_name in val_seg_files
+]
+val_image_files = [
+    os.path.join(data_dir, "images/val/cell", image_number + ".jpg")
+    for image_number in val_image_numbers
+]
+
+test_seg_files = glob(os.path.join(data_dir, "annotations/test/segmented_cell/*"))
+test_image_numbers = [
+    file_name.split("/")[-1].split(".")[0] for file_name in test_seg_files
+]
+test_image_files = [
+    os.path.join(data_dir, "images/test/cell", image_number + ".jpg")
+    for image_number in test_image_numbers
+]
+```
+
+```{python}
+class SegformerDataset(Dataset):
+    def __init__(self, image_files, seg_files, transform=None):
+        self.image_files = image_files
+        self.seg_files = seg_files
+        self.to_tensor = ToTensor()
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.image_files)
+
+    def __getitem__(self, idx):
+        # Cell
+        image_path = self.image_files[idx]
+        seg_path = self.seg_files[idx]
+
+        image = self.to_tensor(Image.open(image_path).convert("RGB"))*255
+        label = self.to_tensor(Image.open(seg_path).convert("RGB"))*255
+
+        if self.transform:
+            transformed = self.transform(image, label, return_tensors="pt")
+            image, label = torch.tensor(transformed['pixel_values']).squeeze(0), torch.tensor(transformed['labels']).squeeze(0)
+
+        return image, label
+
+    def get_image(self, idx): 
+        return self.to_tensor(Image.open(self.image_files[idx]).convert("RGB"))*255
+
+# Initialize the processor and jitter transform
+image_processor = SegformerImageProcessor(do_resize=False) # return_tensors="pt") # return_tensors="pt")
+# jitter = ColorJitter(brightness=0.25, contrast=0.25, saturation=0.25, hue=0.1)
+
+train_dataset = SegformerDataset(train_image_files, train_seg_files, transform=image_processor.preprocess)
+train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True)
+
+```
+
+```{python}
+## Smallest segformer model
+# pretrained_model_name = "nvidia/mit-b0" 
+configuration = SegformerConfig(
+  num_labels=3,
+  num_channels=3,
+)
+model = SegformerForSemanticSegmentation(
+  configuration
+)
+```
+
+```{python}
+image_batch, label_batch = next(iter(train_loader))
+print(image_batch.shape)
+```
+
+```{python}
+outputs = model(pixel_values=image_batch)
+probabilities = softmax(outputs.logits, dim=1)
+```
+
+```{python}
+print(image_batch.shape)
+print(outputs.logits.shape)
+```
+
+```{python}
+plt.imshow(probabilities[0].permute(1, 2, 0).detach().cpu().numpy())
+plt.show()
+plt.imshow(train_dataset.get_image(0).permute(1, 2, 0).to(torch.uint8))
+plt.show()
+```
+
+```{python}
+from torch.optim import AdamW
+from torch.nn import CrossEntropyLoss
+from transformers import get_linear_schedule_with_warmup
+
+# Training loop
+num_epochs = 3  # Set the number of epochs
+
+# Setup the optimizer
+optimizer = AdamW(model.parameters(), lr=5e-5)
+
+# Setup the learning rate scheduler
+num_training_steps = len(train_loader) * num_epochs
+scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0, num_training_steps=num_training_steps)
+
+# Define the loss function
+loss_fn = CrossEntropyLoss()
+
+# Move the model to the appropriate device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
+
+for epoch in range(num_epochs):
+    model.train()
+    total_loss = 0
+
+    for images, labels in train_loader:
+        # Move batch to device
+        images = images.to(device)
+        labels = labels.to(device)
+
+        labels = labels.argmax(dim=1)
+
+        # Forward pass
+        outputs = model(images).logits
+
+        # Compute loss
+        # For CrossEntropyLoss, labels need to be of type Long and might need to be squeezed if they contain an extra dimension
+        loss = loss_fn(outputs, labels)
+
+        # Backward pass
+        loss.backward()
+
+        # Update parameters and scheduler
+        optimizer.step()
+        scheduler.step()
+
+        # Zero the gradients
+        optimizer.zero_grad()
+
+        total_loss += loss.item()
+        print(loss.item())
+
+    print(f"Epoch {epoch+1}/{num_epochs}, Loss: {total_loss/len(train_loader)}")
+
+```
