@@ -8,7 +8,11 @@ print(os.getcwd())
 from glob import glob
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
-from torch.optim import Adam
+from torch.optim import AdamW
+from datetime import datetime
+from transformers import (
+    get_polynomial_decay_schedule_with_warmup,
+)
 
 from utils.utils_train import train
 from deeplabv3.network.modeling import _segm_resnet
@@ -25,7 +29,6 @@ def main():
     default_learning_rate = 1e-4
     default_pretrained = True
     default_warmup_epochs = 2
-    default_decay_rate = 0.99
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -62,9 +65,6 @@ def main():
     parser.add_argument(
         "--warmup-epochs", type=int, default=default_warmup_epochs, help="Warmup epochs"
     )
-    parser.add_argument(
-        "--decay-rate", type=float, default=default_decay_rate, help="Decay rate"
-    )
 
     args = parser.parse_args()
 
@@ -77,7 +77,6 @@ def main():
     learning_rate = args.learning_rate
     pretrained = args.pretrained
     warmup_epochs = args.warmup_epochs
-    decay_rate = args.decay_rate
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
@@ -90,7 +89,6 @@ def main():
     print(f"Checkpoint interval: {checkpoint_interval}")
     print(f"Pretrained: {pretrained}")
     print(f"Warmup epochs: {warmup_epochs}")
-    print(f"Decay rate: {decay_rate}")
     print(f"Device: {device}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
@@ -173,9 +171,15 @@ def main():
     model.to(device)
 
     loss_function = DiceLoss(softmax=True)
-    optimizer = Adam(model.parameters(), lr=learning_rate)
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay_rate)
-    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=0.1, total_iters=warmup_epochs)
+    optimizer = AdamW(model.parameters(), lr=learning_rate)
+    scheduler = get_polynomial_decay_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=warmup_epochs,
+        num_training_steps=num_epochs,
+        power=1,
+    )
+    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_name = f"{current_time}_deeplabv3plus_tissue_leaking_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone_model}"
 
     train(
         num_epochs=num_epochs,
@@ -185,14 +189,10 @@ def main():
         loss_function=loss_function,
         optimizer=optimizer,
         device=device,
+        save_name=save_name,
         checkpoint_interval=checkpoint_interval,
         break_after_one_iteration=False,
-        dropout_rate=dropout_rate,
-        backbone=backbone_model,
-        model_name="tissue_leaking",
         scheduler=scheduler,
-        warmup_scheduler=warmup_scheduler,
-        warmup_epochs=warmup_epochs
     )
 
 

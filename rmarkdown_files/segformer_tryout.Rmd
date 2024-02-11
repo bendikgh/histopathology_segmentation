@@ -36,6 +36,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import torch.nn as nn
+import albumentations as A
 
 from glob import glob
 from torch.utils.data import DataLoader
@@ -84,26 +85,57 @@ test_image_files = [
 ```
 
 ```{python}
+transforms = A.Compose(
+    [
+        A.GaussianBlur(blur_limit=(3, 7), p=0.5),
+        A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
+        A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
+        A.HorizontalFlip(p=0.5),
+        A.RandomRotate90(p=0.5),
+    ]
+)
+image_processor = SegformerImageProcessor(do_resize=False, do_rescale=False)
+```
+
+```{python}
 from src.dataset import SegformerDataset
 
 # Initialize the processor and jitter transform
-image_processor = SegformerImageProcessor(do_resize=False)
 # jitter = ColorJitter(brightness=0.25, contrast=0.25, saturation=0.25, hue=0.1)
 
 train_dataset = SegformerDataset(
-    train_image_files, train_seg_files, transform=image_processor.preprocess
+    train_image_files,
+    train_seg_files,
+    transform=transforms,
+    preprocessor=image_processor.preprocess,
 )
 train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True)
 
 val_dataset = SegformerDataset(
-    val_image_files, val_seg_files, transform=image_processor.preprocess
+    val_image_files,
+    val_seg_files,
+    preprocessor=image_processor.preprocess,
 )
 val_loader = DataLoader(val_dataset, batch_size=2)
 
 test_dataset = SegformerDataset(
-    test_image_files, test_seg_files, transform=image_processor.preprocess
+    test_image_files,
+    test_seg_files,
+    preprocessor=image_processor.preprocess,
 )
 test_loader = DataLoader(test_dataset, batch_size=2)
+```
+
+```{python}
+it = iter(train_loader)
+image_batch, label_batch = next(it)
+image_batch, label_batch = image_batch.squeeze(), label_batch.squeeze()
+
+print(image_batch.shape)
+print(image_batch.unique())
+
+# plt.imshow(image_batch.permute(1, 2, 0).to(torch.uint8))
+# plt.show()
 ```
 
 ```{python}
@@ -145,21 +177,21 @@ loss_fn = DiceLoss(softmax=True, to_onehot_y=True)
 current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 save_name = f"segformer_tryout_{current_time}"
 
-train(
-    num_epochs=num_epochs,
-    train_dataloader=train_loader,
-    val_dataloader=val_loader,
-    model=model,
-    loss_function=loss_fn,
-    optimizer=optimizer,
-    device=device,
-    save_name=save_name,
-    checkpoint_interval=5,
-    break_after_one_iteration=False,
-    scheduler=scheduler,
-    training_func=run_training_segformer,
-    validation_function=run_validation_segformer,
-)
+# train(
+#     num_epochs=num_epochs,
+#     train_dataloader=train_loader,
+#     val_dataloader=val_loader,
+#     model=model,
+#     loss_function=loss_fn,
+#     optimizer=optimizer,
+#     device=device,
+#     save_name=save_name,
+#     checkpoint_interval=5,
+#     break_after_one_iteration=False,
+#     scheduler=scheduler,
+#     training_func=run_training_segformer,
+#     validation_function=run_validation_segformer,
+# )
 ```
 
 ```{python}
@@ -289,6 +321,20 @@ def calculate_f1_score_segformer(
             f1_scores.append(f1_score)
 
     return torch.mean(torch.tensor(f1_scores))
+```
+
+```{python}
+configuration = SegformerConfig(
+  num_labels=3,
+  num_channels=3,
+)
+model = SegformerForSemanticSegmentation(
+  configuration
+)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.load_state_dict(torch.load("outputs/models/segformer_tryout_20240211_133248_epochs-5.pth"))
+model.to(device)
+print()
 ```
 
 ```{python}
