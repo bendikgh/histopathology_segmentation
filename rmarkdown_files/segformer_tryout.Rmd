@@ -35,16 +35,28 @@ import torch
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
-import torch.nn as nn
 import albumentations as A
 
+from datetime import datetime
+from monai.losses import DiceLoss
 from glob import glob
 from torch.utils.data import DataLoader
+from torch.optim import AdamW
 from skimage.feature import peak_local_max
 from torch.nn.functional import softmax, interpolate
-from torchsummary import summary
+from transformers import (
+    SegformerForSemanticSegmentation,
+    SegformerConfig,
+    SegformerImageProcessor,
+    get_polynomial_decay_schedule_with_warmup,
+)
 
-from transformers import SegformerForSemanticSegmentation, SegformerConfig, SegformerImageProcessor
+from src.utils.utils_train import (
+    run_training_segformer,
+    run_validation_segformer,
+    train,
+)
+from src.dataset import SegformerDataset
 
 sns.set_theme()
 
@@ -98,11 +110,6 @@ image_processor = SegformerImageProcessor(do_resize=False, do_rescale=False)
 ```
 
 ```{python}
-from src.dataset import SegformerDataset
-
-# Initialize the processor and jitter transform
-# jitter = ColorJitter(brightness=0.25, contrast=0.25, saturation=0.25, hue=0.1)
-
 train_dataset = SegformerDataset(
     train_image_files,
     train_seg_files,
@@ -133,9 +140,6 @@ image_batch, label_batch = image_batch.squeeze(), label_batch.squeeze()
 
 print(image_batch.shape)
 print(image_batch.unique())
-
-# plt.imshow(image_batch.permute(1, 2, 0).to(torch.uint8))
-# plt.show()
 ```
 
 ```{python}
@@ -154,20 +158,9 @@ trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 print(f"Total Parameters: {total_params}")
 print(f"Trainable Parameters: {trainable_params}")
-# https://huggingface.co/blog/fine-tune-segformer#use-a-dataset-from-the-hub
 ```
 
 ```{python}
-from torch.optim import AdamW
-from monai.losses import DiceLoss
-from transformers import get_polynomial_decay_schedule_with_warmup
-from src.utils.utils_train import (
-    run_training_segformer,
-    run_validation_segformer,
-    train,
-)
-from datetime import datetime
-
 num_epochs = 5
 optimizer = AdamW(model.parameters(), lr=5e-5)
 scheduler = get_polynomial_decay_schedule_with_warmup(
@@ -177,21 +170,21 @@ loss_fn = DiceLoss(softmax=True, to_onehot_y=True)
 current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 save_name = f"segformer_tryout_{current_time}"
 
-# train(
-#     num_epochs=num_epochs,
-#     train_dataloader=train_loader,
-#     val_dataloader=val_loader,
-#     model=model,
-#     loss_function=loss_fn,
-#     optimizer=optimizer,
-#     device=device,
-#     save_name=save_name,
-#     checkpoint_interval=5,
-#     break_after_one_iteration=False,
-#     scheduler=scheduler,
-#     training_func=run_training_segformer,
-#     validation_function=run_validation_segformer,
-# )
+train(
+    num_epochs=num_epochs,
+    train_dataloader=train_loader,
+    val_dataloader=val_loader,
+    model=model,
+    loss_function=loss_fn,
+    optimizer=optimizer,
+    device=device,
+    save_name=save_name,
+    checkpoint_interval=5,
+    break_after_one_iteration=True,
+    scheduler=scheduler,
+    training_func=run_training_segformer,
+    validation_function=run_validation_segformer,
+)
 ```
 
 ```{python}
@@ -332,14 +325,12 @@ model = SegformerForSemanticSegmentation(
   configuration
 )
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.load_state_dict(torch.load("outputs/models/segformer_tryout_20240211_133248_epochs-5.pth"))
+# model.load_state_dict(torch.load("outputs/models/segformer_tryout_20240211_133248_epochs-5.pth"))
 model.to(device)
 print()
 ```
 
 ```{python}
-# train_f1_score = calculate_f1_score(model, train_loader, device)
-# print(f"train f1 score: {train_f1_score}")
 val_f1_score = calculate_f1_score_segformer(model, val_loader, device)
 print(f"val f1 score: {val_f1_score}")
 test_f1_score = calculate_f1_score_segformer(model, test_loader, device)
