@@ -14,7 +14,7 @@ from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
 
-from utils.utils_train import train
+from src.utils.training import train
 from deeplabv3.network.modeling import _segm_resnet
 from dataset import TissueLeakingDataset
 

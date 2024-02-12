@@ -17,7 +17,7 @@ from torch.optim import AdamW
 from dataset import SegformerDataset
 from datetime import datetime
 
-from utils.utils_train import (
+from src.utils.training import (
     run_training_segformer,
     run_validation_segformer,
     train,

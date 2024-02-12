@@ -13,7 +13,7 @@ from transformers import (
 )
 
 from deeplabv3.network.modeling import _segm_resnet
-from utils.utils_train import train
+from src.utils.training import train
 from dataset import CellOnlyDataset
 
 

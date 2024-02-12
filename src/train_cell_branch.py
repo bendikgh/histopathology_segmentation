@@ -13,7 +13,7 @@ from transformers import (
 )
 
 from deeplabv3.network.modeling import _segm_resnet
-from utils.utils_train import train
+from src.utils.training import train
 
 
 # Function for crop and scale tissue image
@@ -172,7 +172,7 @@ def main():
         power=1,
     )
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_name = f"{current_time}_deeplabv3plus_tissue_branch_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone_model}"
+    save_name = f"{current_time}_deeplabv3plus_cell_branch_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone_model}"
 
     train(
         num_epochs=num_epochs,
