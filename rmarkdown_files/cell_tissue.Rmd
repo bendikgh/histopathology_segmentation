@@ -34,15 +34,19 @@ else:
 import torch
 import albumentations as A
 import matplotlib.pyplot as plt
+import numpy as np
 
 from glob import glob
 from monai.data import DataLoader
 from monai.losses import DiceLoss
+from monai.metrics import DiceMetric
+from monai.transforms import Compose, AsDiscrete
+from skimage.feature import peak_local_max
 from torch.optim import Adam
 
 from src.deeplabv3.network.modeling import _segm_resnet
 from src.dataset import TissueDataset, CellTissueDataset
-# from src.train_utils import train
+from src.utils.utils import crop_and_upscale_tissue, get_metadata
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"device: {device}")
@@ -81,8 +85,6 @@ test_image_files = [
 
 ```{python}
 # remove_elements = ["392", "217", "008", "042", "053", "570", "558"]
-
-
 
 train_tissue_predicted = glob(os.path.join(data_path, "annotations/train/pred_tissue/*"))
 
@@ -130,26 +132,37 @@ test_tissue_image_files = [
 ```
 
 ```{python}
-transforms = A.Compose([
-    A.GaussianBlur(blur_limit=(3, 7), p=0.5),  # You can adjust the blur limit
-    A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),  # Adjust var_limit for noise intensity
-    A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
-    A.HorizontalFlip(p=0.5),
-    A.RandomRotate90(p=0.5)
-], additional_targets = {
-    "mask1": "mask", 
-    "mask2": "mask"
-}
+transforms = A.Compose(
+    [
+        A.GaussianBlur(blur_limit=(3, 7), p=0.5),  # You can adjust the blur limit
+        A.GaussNoise(
+            var_limit=(0.1, 0.3), p=0.5
+        ),  # Adjust var_limit for noise intensity
+        A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
+        A.HorizontalFlip(p=0.5),
+        A.RandomRotate90(p=0.5),
+    ],
+    additional_targets={"mask1": "mask", "mask2": "mask"},
 )
 ```
 
 ```{python}
 # dataloader for tissue-model
-train_tissue_dataset = TissueDataset(image_files=train_tissue_image_files, seg_files=train_tissue_seg_files, transform=transforms)
-val_tissue_dataset = TissueDataset(image_files=val_tissue_image_files, seg_files=val_tissue_seg_files)
-test_tissue_dataset = TissueDataset(image_files=test_tissue_image_files, seg_files=test_tissue_seg_files)
+train_tissue_dataset = TissueDataset(
+    image_files=train_tissue_image_files,
+    seg_files=train_tissue_seg_files,
+    transform=transforms,
+)
+val_tissue_dataset = TissueDataset(
+    image_files=val_tissue_image_files, seg_files=val_tissue_seg_files
+)
+test_tissue_dataset = TissueDataset(
+    image_files=test_tissue_image_files, seg_files=test_tissue_seg_files
+)
 
-train_tissue_dataloader = DataLoader(dataset=train_tissue_dataset, batch_size=2, drop_last=True)
+train_tissue_dataloader = DataLoader(
+    dataset=train_tissue_dataset, batch_size=2, drop_last=True
+)
 val_tissue_dataloader = DataLoader(dataset=val_tissue_dataset)
 test_tissue_dataloader = DataLoader(dataset=test_tissue_dataset)
 ```
@@ -157,11 +170,6 @@ test_tissue_dataloader = DataLoader(dataset=test_tissue_dataset)
 ```{python}
 # lst_image_seg = [(image, seg) for image, seg in iter(train_tissue_dataloader)]
 image, seg = next(iter(train_tissue_dataloader))
-
-```
-
-```{python}
-# image, seg = lst_image_seg[3]
 ```
 
 ```{python}
@@ -183,6 +191,7 @@ model_tissue = _segm_resnet(
     name="deeplabv3plus",
     backbone_name=backbone,
     num_classes=3,
+    num_channels=3,
     output_stride=8,
     pretrained_backbone=True,
     dropout_rate=dropout_rate
@@ -192,11 +201,6 @@ print()
 ```
 
 ```{python}
-from monai.metrics import DiceMetric
-from monai.transforms import Compose, AsDiscrete
-from skimage.feature import peak_local_max
-import numpy as np
-
 def calculate_dice_score(dataloader, model, device): 
 
     dice_metric = DiceMetric(include_background=True, reduction="mean")
@@ -328,17 +332,7 @@ print(training_losses)
 print(validation_losses)
 
 ```{python}
-on_idun = os.getcwd().startswith("/cluster")
-
-if on_idun:
-  data_path = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
-  print("Running on IDUN")
-else: 
-  data_path = "ocelot_data/"
-  print("Running locally")
-```
-
-```{python}
+# Why load cell_only model into "model_tissue"? 
 model_tissue.load_state_dict(torch.load("outputs/models/2023-12-07_22-49-54_deeplabv3plus_cell_only_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-100.pth"))
 test_dice_score = calculate_f1_score(test_tissue_dataloader, model_tissue, device)
 val_dice_score = calculate_f1_score(val_tissue_dataloader, model_tissue, device)
@@ -373,7 +367,6 @@ print(prediction[0].size())
 
 ```{python}
 # Function for crop and scale tissue image
-from src.utils import crop_and_upscale_tissue, get_metadata
 
 def get_tissue_croped_scaled_tensor(tissue_tensor, image_file, data_path, image_size: int = 1024):
 
@@ -451,43 +444,71 @@ class CellTissueDataset(ImageDataset):
 ```{python}
 # Dataloaders for cell-model
 # model_tissue.eval()
-train_cell_tissue_dataset = CellTissueDataset(image_files=train_image_files, seg_files=train_seg_files, image_tissue_files=train_tissue_predicted, transform=transforms)
-val_cell_tissue_dataset = CellTissueDataset(image_files=val_image_files, seg_files=val_seg_files, image_tissue_files=val_tissue_predicted)
-test_cell_tissue_dataset = CellTissueDataset(image_files=test_image_files, seg_files=test_seg_files, image_tissue_files=test_tissue_predicted)
+train_cell_tissue_dataset = CellTissueDataset(
+    image_files=train_image_files,
+    seg_files=train_seg_files,
+    image_tissue_files=train_tissue_predicted,
+    transform=transforms,
+)
+val_cell_tissue_dataset = CellTissueDataset(
+    image_files=val_image_files,
+    seg_files=val_seg_files,
+    image_tissue_files=val_tissue_predicted,
+)
+test_cell_tissue_dataset = CellTissueDataset(
+    image_files=test_image_files,
+    seg_files=test_seg_files,
+    image_tissue_files=test_tissue_predicted,
+)
 
-train_cell_tissue_dataloader = DataLoader(dataset=train_cell_tissue_dataset, batch_size=2, drop_last=True)
+train_cell_tissue_dataloader = DataLoader(
+    dataset=train_cell_tissue_dataset, batch_size=2, drop_last=True
+)
 val_cell_tissue_dataloader = DataLoader(dataset=val_cell_tissue_dataset)
 test_cell_tissue_dataloader = DataLoader(dataset=test_cell_tissue_dataset)
 ```
 
 ```{python}
-images, labels = next(iter(train_cell_tissue_dataloader))
-
+it = iter(train_cell_tissue_dataloader)
+image, label = next(it)
+image, label = next(it)
+image = image[0]
+label = label[0]
 ```
 
 ```{python}
-# images, labels = next(iter(train_cell_tissue_dataloader))
+cell_image = image[:3]
+print(cell_image.size())
 
-# lst_image_seg = [(image, seg) for image, seg in iter(train_cell_tissue_dataloader)]
+tissue_image = image[3:]
+print(tissue_image.size())
 ```
 
 ```{python}
-# images, labels = lst_image_seg[2]
+plt.subplot(1, 2, 1)
+plt.imshow(cell_image.permute(1, 2, 0))
+plt.subplot(1, 2, 2)
+plt.imshow(tissue_image.permute(1, 2, 0))
+plt.tight_layout()
+plt.show()
 ```
 
 ```{python}
-cell_images = images[0, 0:3]
-print(cell_images.size())
+print("cell")
+print(cell_image.min())
+print(cell_image.max())
 
-tissue_images = images[0, 3:]
-print(tissue_images.size())
+print("tissue")
+print(tissue_image.min())
+print(tissue_image.max())
 
-label_image = labels[0]
+print("label")
+print(label.min())
+print(label.max())
+print(label.sum())
 ```
 
 ```{python}
-# print(tissue_images)
-
 tissue_images = torch.argmax(tissue_images, 0)
 print(tissue_images.unique())
 ```
