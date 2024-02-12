@@ -168,23 +168,22 @@ class CellTissueDataset(ImageDataset):
         seg = self.to_tensor(Image.open(seg_path).convert("RGB")) * 255
 
         # tissue
-        image_path = self.image_tissue_files[idx]
-        image_tissue = self.to_tensor(Image.open(image_path).convert("RGB"))
-
-        # max_values, _ = image_tissue.max(0, keepdim=True)
-        image_tissue = softmax(image_tissue, 0)
+        tissue_image_path = self.image_tissue_files[idx]
+        tissue_image = (
+            self.to_tensor(Image.open(tissue_image_path).convert("RGB")) * 255
+        )
 
         if self.transform:
             transformed = self.transform(
                 image=np.array(image.permute((1, 2, 0))),
                 mask1=np.array(seg.permute((1, 2, 0))),
-                mask2=np.array(image_tissue.permute((1, 2, 0))),
+                mask2=np.array(tissue_image.permute((1, 2, 0))),
             )
             image = torch.tensor(transformed["image"]).permute((2, 0, 1))
             seg = torch.tensor(transformed["mask1"]).permute((2, 0, 1))
-            image_tissue = torch.tensor(transformed["mask2"]).permute((2, 0, 1))
+            tissue_image = torch.tensor(transformed["mask2"]).permute((2, 0, 1))
 
-        image = torch.cat((image, image_tissue), dim=0)
+        image = torch.cat((image, tissue_image), dim=0)
 
         return image, seg
 
