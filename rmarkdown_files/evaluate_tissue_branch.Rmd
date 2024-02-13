@@ -183,13 +183,16 @@ model_tissue = _segm_resnet(
     name="deeplabv3plus",
     backbone_name=backbone,
     num_classes=3,
+    num_channels=3,
     output_stride=8,
     pretrained_backbone=True,
     dropout_rate=dropout_rate
 )
 model_tissue.to(device)
 
-model_tissue.load_state_dict(torch.load("outputs/models/2023-12-07_22-49-54_deeplabv3plus_cell_only_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-100.pth"))
+model_tissue.load_state_dict(torch.load("outputs/models/2024-02-04_15-37-29_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.1_backbone-resnet50_epochs-100.pth"))
+# model_tissue.load_state_dict(torch.load("outputs/models/2024-02-04_15-37-29_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-100.pth"))
+# model_tissue.load_state_dict(torch.load("outputs/models/2024-02-04_15-37-29_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.5_backbone-resnet50_epochs-100.pth"))
 
 test_dice_score = calculate_dice_score(test_tissue_dataloader, model_tissue, device)
 val_dice_score = calculate_dice_score(val_tissue_dataloader, model_tissue, device)
@@ -204,7 +207,7 @@ print(f"mIoU on test set: {test_miou}")
 print(f"mIoU on validation set: {val_miou}")
 
 
-model_tissue.load_state_dict(torch.load("outputs/models/2023-12-08_22-19-39_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.1_backbone-resnet50_epochs-100.pth"))
+model_tissue.load_state_dict(torch.load("outputs/models/2024-02-04_15-37-29_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-100.pth"))
 
 test_dice_score = calculate_dice_score(test_tissue_dataloader, model_tissue, device)
 val_dice_score = calculate_dice_score(val_tissue_dataloader, model_tissue, device)
@@ -218,7 +221,7 @@ print(f"Dice score on validation set: {val_dice_score}")
 print(f"mIoU on test set: {test_miou}")
 print(f"mIoU on validation set: {val_miou}")
 
-model_tissue.load_state_dict(torch.load("outputs/models/2023-12-09_13-56-10_deeplabv3plus_tissue_branch_lr-0.0001_dropout-0.5_backbone-resnet50_epochs-100.pth"))
+model_tissue.load_state_dict(torch.load("outputs/models/2024-02-04_15-37-29_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.5_backbone-resnet50_epochs-100.pth"))
 
 test_dice_score = calculate_dice_score(test_tissue_dataloader, model_tissue, device)
 val_dice_score = calculate_dice_score(val_tissue_dataloader, model_tissue, device)
@@ -231,6 +234,59 @@ print(f"Dice score on test set: {test_dice_score}")
 print(f"Dice score on validation set: {val_dice_score}")
 print(f"mIoU on test set: {test_miou}")
 print(f"mIoU on validation set: {val_miou}")
+```
+
+```{python}
+import torch
+import matplotlib.pyplot as plt
+from torchvision.utils import make_grid
+
+# Ensure the model is in evaluation mode
+model_tissue.eval()
+
+# Disable gradient computation for efficiency and to prevent changes to the model
+with torch.no_grad():
+    for i, (images, true_masks) in enumerate(test_tissue_dataloader):
+        if i >= 5:  # Only process the first five images
+            break
+
+        images = images.to(device)
+
+        # Get the model predictions
+        outputs = model_tissue(images)
+        pred_masks = torch.argmax(outputs, dim=1).cpu()
+
+        # Ensure pred_masks is of type Long for indexing
+        pred_masks = pred_masks.long()
+
+        # Convert predictions to RGB
+        convert = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        # Ensure convert is of a floating point type for RGB conversion
+        convert = convert.float()
+        pred_masks_rgb = convert[pred_masks].permute(0, 3, 1, 2)
+
+        # Move images back to CPU for plotting
+        images = images.cpu()
+
+        # Plotting
+        fig, axs = plt.subplots(nrows=1, ncols=3, figsize=(15, 5))
+
+        # Original Image
+        axs[0].imshow(images.squeeze().permute(1, 2, 0))
+        axs[0].set_title("Original Image")
+        axs[0].axis('off')
+
+        axs[1].imshow(true_masks.squeeze().float().permute(1, 2, 0))
+        axs[1].set_title("True Mask (RGB)")
+        axs[1].axis('off')
+
+        # Predicted Mask (RGB)
+        axs[2].imshow(pred_masks_rgb.squeeze().permute(1, 2, 0))
+        axs[2].set_title("Predicted Mask (RGB)")
+        axs[2].axis('off')
+
+        plt.show()
+
 ```
 
 ```{python}

@@ -13,6 +13,11 @@ jupyter:
 ---
 
 ```{python}
+# %load_ext autoreload
+# %autoreload 2
+```
+
+```{python}
 import os 
 
 # Making sure we are running the code from the root directory
@@ -42,22 +47,12 @@ python scripts/run_mae.py \
 
 
 ```{python}
-from transformers import ViTMAEConfig, ViTMAEModel, AutoImageProcessor
+from transformers import ViTMAEForPreTraining, AutoImageProcessor
 ```
 
 ```{python}
-# Initializing a ViT MAE vit-mae-base style configuration
-configuration = ViTMAEConfig(image_size=1024, patch_size=64)
-
-# Initializing a model (with random weights) from the vit-mae-base style configuration
-model = ViTMAEModel(configuration)
-
-# Accessing the model configuration
-configuration = model.config
-```
-
-```{python}
-configuration.to_json_file("config/ViT_config")
+model = ViTMAEForPreTraining.from_pretrained("/cluster/home/bendikgh/master_project/outputs/ViTMAE/checkpoint-34000")
+# image_processor = AutoImageProcessor.from_pretrained("/cluster/home/bendikgh/master_project/outputs/ViTMAE/checkpoint-34000")
 ```
 
 ## Make datasets and dataloaders for tissue
@@ -104,10 +99,6 @@ val_tissue_image_files = [
 ```
 
 ```{python}
-## TODO: Make dataset classes for MAE
-```
-
-```{python}
 batch_size = 1
 
 train_tissue_dataset = TissueDataset(
@@ -141,26 +132,114 @@ checkpoint_interval = 10,
 
 # Model doc:
 # https://huggingface.co/docs/transformers/model_doc/vit_mae#transformers.ViTMAEForPreTraining
+```
 
-model.train()
+## Try predicting images
 
-for images, _ in train_tissue_dataloader:
-    
-    mask = torch.rand(images.shape[0], 1, images.shape[2], images.shape[3]) > 0.5
-    masked_images = images * mask
-
-    # Zero the parameter gradients
-    optimizer.zero_grad()
-
-    # Forward pass
-    outputs = model(masked_images)
-
-    # Calculate loss
-    loss = loss_function(outputs, images)  # Compare with original images
-    loss.backward()
-    optimizer.step()
+```{python}
+from transformers import ViTFeatureExtractor
+import requests
+from PIL import Image
 ```
 
 ```{python}
+feature_extractor = ViTFeatureExtractor.from_pretrained("/cluster/home/bendikgh/master_project/outputs/ViTMAE/checkpoint-34000")
+image_path = "/cluster/home/bendikgh/master_project/ocelot_data/images/train/tissue/001.jpg"
+image = Image.open(image_path)
+image
+```
 
+```{python}
+pixel_values = feature_extractor(image, return_tensors="pt").pixel_values
+```
+
+```{python}
+import torch
+import numpy as np
+import matplotlib.pyplot as plt
+
+imagenet_mean = np.array(feature_extractor.image_mean)
+imagenet_std = np.array(feature_extractor.image_std)
+
+def show_image(image, title=''):
+    # image is [H, W, 3]
+    assert image.shape[2] == 3
+    plt.imshow(torch.clip((image * imagenet_std + imagenet_mean) * 255, 0, 255).int())
+    plt.title(title, fontsize=16)
+    plt.axis('off')
+    return
+
+def visualize(pixel_values, model):
+    # forward pass
+    outputs = model(pixel_values)
+    y = model.unpatchify(outputs.logits)
+    y = torch.einsum('nchw->nhwc', y).detach().cpu()
+    
+    # visualize the mask
+    mask = outputs.mask.detach()
+    mask = mask.unsqueeze(-1).repeat(1, 1, model.config.patch_size**2 *3)  # (N, H*W, p*p*3)
+    mask = model.unpatchify(mask)  # 1 is removing, 0 is keeping
+    mask = torch.einsum('nchw->nhwc', mask).detach().cpu()
+    
+    x = torch.einsum('nchw->nhwc', pixel_values)
+
+    # masked image
+    im_masked = x * (1 - mask)
+
+    # MAE reconstruction pasted with visible patches
+    im_paste = x * (1 - mask) + y * mask
+
+    # make the plt figure larger
+    plt.rcParams['figure.figsize'] = [24, 24]
+
+    plt.subplot(1, 4, 1)
+    show_image(x[0], "original")
+
+    plt.subplot(1, 4, 2)
+    show_image(im_masked[0], "masked")
+
+    plt.subplot(1, 4, 3)
+    show_image(y[0], "reconstruction")
+
+    plt.subplot(1, 4, 4)
+    show_image(im_paste[0], "reconstruction + visible")
+
+    plt.show()
+```
+
+```{python}
+visualize(pixel_values, model)
+```
+
+## Training deeplabv3 with vitmae backbone
+
+```{python}
+from src.deeplabv3.network.modeling import _segm_vitmae
+
+backbone_path = "/cluster/home/bendikgh/master_project/outputs/ViTMAE/checkpoint-34000"
+learning_rate = 1e-4
+
+model = _segm_vitmae(
+    backbone_path=backbone_path,
+    num_classes=3,
+    output_stride=8,
+)
+model.to(device)
+
+loss_function = DiceLoss(softmax=True)
+optimizer = Adam(model.parameters(), lr=learning_rate)
+
+train(
+    num_epochs=num_epochs,
+    train_dataloader=train_tissue_dataloader,
+    val_dataloader=val_tissue_dataloader,
+    model=model,
+    loss_function=loss_function,
+    optimizer=optimizer,
+    device=device,
+    checkpoint_interval=checkpoint_interval,
+    break_after_one_iteration=False,
+    backbone="ViT",
+    model_name = "tissue_branch"
+)
 ```
