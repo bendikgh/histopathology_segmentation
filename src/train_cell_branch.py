@@ -2,6 +2,7 @@ import argparse
 import os
 import torch
 import albumentations as A
+import seaborn as sns
 
 from glob import glob
 from monai.losses import DiceLoss
@@ -13,7 +14,7 @@ from transformers import (
 )
 
 from deeplabv3.network.modeling import _segm_resnet
-from src.utils.training import train
+from utils.training import train
 
 
 # Function for crop and scale tissue image
@@ -80,6 +81,7 @@ def main():
     warmup_epochs = args.warmup_epochs
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    sns.set_theme()
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -148,7 +150,9 @@ def main():
         drop_last=True,
         shuffle=True,
     )
-    val_cell_tissue_dataloader = DataLoader(dataset=val_cell_tissue_dataset)
+    val_cell_tissue_dataloader = DataLoader(
+        dataset=val_cell_tissue_dataset, batch_size=batch_size
+    )
 
     # Create model and optimizer
     model_cell = _segm_resnet(
