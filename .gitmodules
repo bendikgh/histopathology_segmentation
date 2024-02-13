@@ -1,0 +1,3 @@
+[submodule "ocelot23algo"]
+	path = ocelot23algo
+	url = git@github.com:jarlsondre/ocelot23algo.git
