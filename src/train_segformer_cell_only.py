@@ -9,6 +9,8 @@ from transformers import (
     SegformerConfig,
     SegformerImageProcessor,
     get_polynomial_decay_schedule_with_warmup,
+    AutoImageProcessor,
+    SegformerModel
 )
 from glob import glob
 from monai.losses import DiceLoss
@@ -17,7 +19,7 @@ from torch.optim import AdamW
 from dataset import SegformerDataset
 from datetime import datetime
 
-from src.utils.training import (
+from utils.training import (
     run_training_segformer,
     run_validation_segformer,
     train,
@@ -33,6 +35,7 @@ def main():
     default_checkpoint_interval = 5
     default_learning_rate = 1e-4
     default_warmup_epochs = 2
+    default_pre_trained = 0
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -60,6 +63,9 @@ def main():
     parser.add_argument(
         "--warmup-epochs", type=int, default=default_warmup_epochs, help="Warmup epochs"
     )
+    parser.add_argument(
+        "--pre-trained", type=int, default=default_pre_trained, help="Use pre-trained weights"
+    )
 
     args = parser.parse_args()
 
@@ -69,6 +75,7 @@ def main():
     checkpoint_interval = args.checkpoint_interval
     learning_rate = args.learning_rate
     warmup_epochs = args.warmup_epochs
+    pre_trained = args.pre_trained
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
@@ -110,7 +117,11 @@ def main():
             A.RandomRotate90(p=0.5),
         ]
     )
-    image_processor = SegformerImageProcessor(do_resize=False, do_rescale=False)
+
+    if pre_trained:
+        image_processor = AutoImageProcessor.from_pretrained("nvidia/mit-b3")
+    else:
+        image_processor = SegformerImageProcessor() # do_resize=False
 
     train_dataset = SegformerDataset(
         train_image_files,
@@ -127,8 +138,19 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
     # Creating model
-    configuration = SegformerConfig(num_labels=3, num_channels=3)
+    configuration = configuration = SegformerConfig(
+        num_labels=3,
+        num_channels=3,
+        depths=[3, 4, 18, 3],  # MiT-b3
+        hidden_sizes=[64, 128, 320, 512],
+        decoder_hidden_size=768,
+    )
     model = SegformerForSemanticSegmentation(configuration)
+
+    if pre_trained:
+        encoder = SegformerModel.from_pretrained("nvidia/mit-b3")
+        model.segformer = encoder
+
     model.to(device)
 
     # Setting training parameters

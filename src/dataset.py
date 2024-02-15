@@ -229,7 +229,7 @@ class SegformerDataset(Dataset):
             label = torch.tensor(transformed["mask"]).permute((2, 0, 1))
 
         if self.preprocessor:
-            preprocessed = self.preprocessor(image, label, return_tensors="pt")
+            preprocessed = self.preprocessor((255*image).to(torch.uint8), label, return_tensors="pt")
             image, label = torch.tensor(preprocessed["pixel_values"]).squeeze(
                 0
             ), torch.tensor(preprocessed["labels"]).squeeze(0)
