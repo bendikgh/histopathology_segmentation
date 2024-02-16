@@ -192,7 +192,7 @@ optimizer = Adam(model.parameters(), lr=learning_rate)
 # Training the model
 
 ```{python}
-from src.utils.utils_train import train
+from src.utils.training import train
 ```
 
 ```{python}

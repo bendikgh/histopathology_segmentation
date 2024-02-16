@@ -146,6 +146,9 @@ print(image_batch.unique())
 configuration = SegformerConfig(
   num_labels=3,
   num_channels=3,
+  depths=[3, 4, 18, 3], # MiT-b3
+  hidden_sizes=[64, 128, 320, 512], 
+  decoder_hidden_size=768
 )
 model = SegformerForSemanticSegmentation(
   configuration
@@ -161,7 +164,7 @@ print(f"Trainable Parameters: {trainable_params}")
 ```
 
 ```{python}
-num_epochs = 5
+num_epochs = 10
 optimizer = AdamW(model.parameters(), lr=5e-5)
 scheduler = get_polynomial_decay_schedule_with_warmup(
     optimizer, num_warmup_steps=2, num_training_steps=num_epochs, power=1
@@ -180,8 +183,8 @@ train(
     device=device,
     save_name=save_name,
     checkpoint_interval=5,
-    break_after_one_iteration=True,
-    scheduler=scheduler,
+    break_after_one_iteration=False,
+    scheduler=None,
     training_func=run_training_segformer,
     validation_function=run_validation_segformer,
 )
@@ -218,13 +221,13 @@ from src.utils.metrics import calculate_f1_score_segformer
 ```
 
 ```{python}
-configuration = SegformerConfig(
-  num_labels=3,
-  num_channels=3,
-)
-model = SegformerForSemanticSegmentation(
-  configuration
-)
+# configuration = SegformerConfig(
+#   num_labels=3,
+#   num_channels=3,
+# )
+# model = SegformerForSemanticSegmentation(
+#   configuration
+# )
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # model.load_state_dict(torch.load("outputs/models/segformer_tryout_20240211_133248_epochs-5.pth"))
 model.to(device)

@@ -87,10 +87,10 @@ val_dataset = CellOnlyDataset(image_files=val_image_files, seg_files=val_seg_fil
 test_dataset = CellOnlyDataset(image_files=test_image_files, seg_files=test_seg_files)
 
 train_dataloader = DataLoader(
-    dataset=train_dataset, shuffle=True
+    dataset=train_dataset, shuffle=True, batch_size=2
 )
-val_dataloader = DataLoader(dataset=val_dataset)
-test_dataloader = DataLoader(dataset=test_dataset)
+val_dataloader = DataLoader(dataset=val_dataset, batch_size=2)
+test_dataloader = DataLoader(dataset=test_dataset, batch_size=2)
 ```
 
 ```{python}
@@ -106,7 +106,7 @@ model = _segm_resnet(
         pretrained_backbone=True,
         dropout_rate=dropout_rate,
     )
-model.load_state_dict(torch.load("outputs/models/2024-01-20_19-50-43_deeplabv3plus_cell_only_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-100.pth"))
+model.load_state_dict(torch.load("outputs/models/cell_only.pth"))
 model.to(device)
 print() # To avoid cell output
 ```

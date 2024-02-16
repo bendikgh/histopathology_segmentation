@@ -91,13 +91,11 @@ model_tissue.to(device)
 ```{python}
 # OBS: The comment below is a tissue model with wrong name
 # outputs/models/2023-12-07_22-49-54_deeplabv3plus_cell_only_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-290.pth
-
-# model_tissue.load_state_dict(torch.load("outputs/models/2024-01-21_15-48-32_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-30.pth"))
-
-model_tissue.load_state_dict(torch.load("outputs/models/2024-02-04_15-37-29_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.1_backbone-resnet50_epochs-100.pth"))
+model_tissue.load_state_dict(torch.load("outputs/models/2024-01-21_15-48-32_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-30.pth"))
 ```
 
 ```{python}
+## Changing the 
 model_tissue.eval()
 for key in total_data.keys():
     tissue_image = total_data[key]["tissue_image"]

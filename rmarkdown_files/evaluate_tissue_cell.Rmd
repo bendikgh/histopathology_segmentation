@@ -140,11 +140,11 @@ tissue_cell_model = _segm_resnet(
     num_channels=6,
 )
 tissue_cell_model.to(device)
-# tissue_cell_model.load_state_dict(
-#     torch.load(
-#         "outputs/models/20240212_110625_deeplabv3plus_cell_branch_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-5.pth"
-#     )
-# )
+tissue_cell_model.load_state_dict(
+    torch.load(
+        "outputs/models/20240212_122258_deeplabv3plus_cell_branch_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-50.pth"
+    )
+)
 tissue_cell_model.eval()
 print()
 ```
