@@ -126,3 +126,5 @@ data/
 outputs/
 notebooks/
 output.*
+debug_images/
+eval_outputs/
