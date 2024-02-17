@@ -10,7 +10,7 @@ from transformers import (
     SegformerImageProcessor,
     get_polynomial_decay_schedule_with_warmup,
     AutoImageProcessor,
-    SegformerModel
+    SegformerModel,
 )
 from glob import glob
 from monai.losses import DiceLoss
@@ -31,11 +31,11 @@ sns.set_theme()
 def main():
     default_epochs = 2
     default_batch_size = 2
-    default_data_dir = "ocelot_data"
+    default_data_dir = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
     default_checkpoint_interval = 5
     default_learning_rate = 1e-4
     default_warmup_epochs = 2
-    default_pre_trained = 0
+    default_pretrained = 0
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -64,7 +64,10 @@ def main():
         "--warmup-epochs", type=int, default=default_warmup_epochs, help="Warmup epochs"
     )
     parser.add_argument(
-        "--pre-trained", type=int, default=default_pre_trained, help="Use pre-trained weights"
+        "--pretrained",
+        type=int,
+        default=default_pretrained,
+        help="Use pre-trained weights",
     )
 
     args = parser.parse_args()
@@ -75,7 +78,7 @@ def main():
     checkpoint_interval = args.checkpoint_interval
     learning_rate = args.learning_rate
     warmup_epochs = args.warmup_epochs
-    pre_trained = args.pre_trained
+    pretrained = args.pretrained
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
@@ -118,10 +121,10 @@ def main():
         ]
     )
 
-    if pre_trained:
+    if pretrained:
         image_processor = AutoImageProcessor.from_pretrained("nvidia/mit-b3")
     else:
-        image_processor = SegformerImageProcessor() # do_resize=False
+        image_processor = SegformerImageProcessor()  # do_resize=False
 
     train_dataset = SegformerDataset(
         train_image_files,
@@ -147,7 +150,7 @@ def main():
     )
     model = SegformerForSemanticSegmentation(configuration)
 
-    if pre_trained:
+    if pretrained:
         encoder = SegformerModel.from_pretrained("nvidia/mit-b3")
         model.segformer = encoder
 

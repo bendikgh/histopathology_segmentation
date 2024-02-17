@@ -20,7 +20,7 @@ from dataset import CellOnlyDataset
 def main():
     default_epochs = 2
     default_batch_size = 2
-    default_data_dir = "ocelot_data"
+    default_data_dir = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
     default_checkpoint_interval = 5
     default_backbone_model = "resnet50"
     default_dropout_rate = 0.3

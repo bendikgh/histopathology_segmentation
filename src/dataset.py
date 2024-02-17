@@ -220,6 +220,10 @@ class SegformerDataset(Dataset):
         # tensor
         label = self.to_tensor(Image.open(seg_path).convert("RGB")) * 255
 
+        # TODO: Possibly add asserts to make sure they are 255 before transforms
+        # and then another assert to check that they are between 0 and 1 before
+        # returning?
+
         if self.transform:
             transformed = self.transform(
                 image=np.array(image.permute((1, 2, 0))),
@@ -229,7 +233,9 @@ class SegformerDataset(Dataset):
             label = torch.tensor(transformed["mask"]).permute((2, 0, 1))
 
         if self.preprocessor:
-            preprocessed = self.preprocessor((255*image).to(torch.uint8), label, return_tensors="pt")
+            preprocessed = self.preprocessor(
+                (255 * image).to(torch.uint8), label, return_tensors="pt"
+            )
             image, label = torch.tensor(preprocessed["pixel_values"]).squeeze(
                 0
             ), torch.tensor(preprocessed["labels"]).squeeze(0)
