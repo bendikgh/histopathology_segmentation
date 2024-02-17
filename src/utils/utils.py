@@ -26,9 +26,6 @@ def crop_and_upscale_tissue(
     cropped = crop_func(tissue_tensor)
     resized_tensor = resize_func(cropped)
 
-    # Edit: removed uint8
-    # cropped_resized = torch.tensor(resized_tensor, dtype=torch.uint8)
-
     return resized_tensor
 
 

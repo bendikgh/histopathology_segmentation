@@ -3,8 +3,6 @@ import os
 import torch
 import albumentations as A
 
-print(os.getcwd())
-
 from glob import glob
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
@@ -17,11 +15,13 @@ from transformers import (
 from utils.training import train
 from utils.constants import IDUN_OCELOT_DATA_PATH
 from deeplabv3.network.modeling import _segm_resnet
-from dataset import TissueLeakingDataset
+
+# from dataset import TissueLeakingDataset
+from dataset import CellTissueDataset
 
 
 def main():
-    default_epochs = 2
+    default_epochs = 1
     default_batch_size = 2
     default_data_dir = IDUN_OCELOT_DATA_PATH
     default_checkpoint_interval = 5
@@ -29,7 +29,7 @@ def main():
     default_dropout_rate = 0.3
     default_learning_rate = 1e-4
     default_pretrained = True
-    default_warmup_epochs = 2
+    default_warmup_epochs = 0
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -140,16 +140,18 @@ def main():
         additional_targets={"mask1": "mask", "mask2": "mask"},
     )
 
-    train_dataset = TissueLeakingDataset(
-        input_files=train_input_img,
-        cell_seg_files=train_cell_seg,
-        tissue_seg_files=train_tissue_seg,
+    train_dataset = CellTissueDataset(
+        cell_image_files=train_input_img,
+        cell_target_files=train_cell_seg,
+        tissue_pred_files=train_tissue_seg,
         transform=transforms,
+        debug=False,
     )
-    val_dataset = TissueLeakingDataset(
-        input_files=val_input_img,
-        cell_seg_files=val_cell_seg,
-        tissue_seg_files=val_tissue_seg,
+    val_dataset = CellTissueDataset(
+        cell_image_files=val_input_img,
+        cell_target_files=val_cell_seg,
+        tissue_pred_files=val_tissue_seg,
+        debug=False,
     )
 
     train_dataloader = DataLoader(
@@ -164,7 +166,7 @@ def main():
         name="deeplabv3plus",
         backbone_name=backbone_model,
         num_classes=3,
-        num_channels=4,
+        num_channels=6,
         output_stride=8,
         pretrained_backbone=pretrained,
         dropout_rate=dropout_rate,

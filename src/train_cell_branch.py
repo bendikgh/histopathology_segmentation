@@ -16,6 +16,7 @@ from transformers import (
 from deeplabv3.network.modeling import _segm_resnet
 from utils.training import train
 from utils.constants import IDUN_OCELOT_DATA_PATH
+from utils.utils import get_cell_only_files
 
 
 # Function for crop and scale tissue image
@@ -31,7 +32,7 @@ def main():
     default_dropout_rate = 0.3
     default_learning_rate = 1e-4
     default_pretrained = True
-    default_warmup_epochs = 2
+    default_warmup_epochs = 0
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -97,52 +98,46 @@ def main():
     print(f"Device: {device}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
-    train_seg_files = glob(os.path.join(data_dir, "annotations/train/segmented_cell/*"))
-    train_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in train_seg_files
-    ]
-    train_image_files = [
-        os.path.join(data_dir, "images/train/cell", image_number + ".jpg")
-        for image_number in train_image_numbers
-    ]
+    train_cell_image_files, train_cell_target_files = get_cell_only_files(
+        data_dir=data_dir, partition="train"
+    )
+    val_cell_image_files, val_cell_target_files = get_cell_only_files(
+        data_dir=data_dir, partition="val"
+    )
 
-    val_seg_files = glob(os.path.join(data_dir, "annotations/val/segmented_cell/*"))
-    val_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in val_seg_files
-    ]
-    val_image_files = [
-        os.path.join(data_dir, "images/val/cell", image_number + ".jpg")
-        for image_number in val_image_numbers
-    ]
-
-    # Find the correct files
     train_tissue_predicted = glob(
         os.path.join(data_dir, "annotations/train/pred_tissue/*")
     )
     val_tissue_predicted = glob(os.path.join(data_dir, "annotations/val/pred_tissue/*"))
 
     # Create dataset and dataloader
-    transforms = A.Compose(
+    train_transforms = A.Compose(
         [
             A.GaussianBlur(blur_limit=(3, 7), p=0.5),
             A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
             A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
             A.HorizontalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
+            A.Normalize(),
         ],
+        additional_targets={"mask1": "mask", "mask2": "mask"},
+    )
+    val_transforms = A.Compose(
+        [A.Normalize()],
         additional_targets={"mask1": "mask", "mask2": "mask"},
     )
 
     train_cell_tissue_dataset = CellTissueDataset(
-        image_files=train_image_files,
-        seg_files=train_seg_files,
-        image_tissue_files=train_tissue_predicted,
-        transform=transforms,
+        cell_image_files=train_cell_image_files,
+        cell_target_files=train_cell_target_files,
+        tissue_pred_files=train_tissue_predicted,
+        transform=train_transforms,
     )
     val_cell_tissue_dataset = CellTissueDataset(
-        image_files=val_image_files,
-        seg_files=val_seg_files,
-        image_tissue_files=val_tissue_predicted,
+        cell_image_files=val_cell_image_files,
+        cell_target_files=val_cell_target_files,
+        tissue_pred_files=val_tissue_predicted,
+        transform=val_transforms,
     )
 
     train_cell_tissue_dataloader = DataLoader(
