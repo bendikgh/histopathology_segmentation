@@ -165,7 +165,9 @@ def main():
     )
     loss_fn = DiceLoss(softmax=True, to_onehot_y=True)
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_name = f"{current_time}_segformer_cell_only_lr-{learning_rate}"
+    save_name = (
+        f"{current_time}_segformer_cell_only_pretrained-{pretrained}_lr-{learning_rate}"
+    )
 
     train(
         num_epochs=num_epochs,
