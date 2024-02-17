@@ -13,20 +13,22 @@ from transformers import (
 )
 
 from deeplabv3.network.modeling import _segm_resnet
-from src.utils.training import train
+from utils.training import train
+from utils.utils import get_cell_only_files
+from utils.constants import IDUN_OCELOT_DATA_PATH
 from dataset import CellOnlyDataset
 
 
 def main():
     default_epochs = 2
     default_batch_size = 2
-    default_data_dir = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+    default_data_dir = IDUN_OCELOT_DATA_PATH
     default_checkpoint_interval = 5
     default_backbone_model = "resnet50"
     default_dropout_rate = 0.3
     default_learning_rate = 1e-4
     default_pretrained = True
-    default_warmup_epochs = 2
+    default_warmup_epochs = 0
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -91,23 +93,12 @@ def main():
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Find the correct files
-    train_seg_files = glob(os.path.join(data_dir, "annotations/train/segmented_cell/*"))
-    train_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in train_seg_files
-    ]
-    train_image_files = [
-        os.path.join(data_dir, "images/train/cell", image_number + ".jpg")
-        for image_number in train_image_numbers
-    ]
-
-    val_seg_files = glob(os.path.join(data_dir, "annotations/val/segmented_cell/*"))
-    val_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in val_seg_files
-    ]
-    val_image_files = [
-        os.path.join(data_dir, "images/val/cell", image_number + ".jpg")
-        for image_number in val_image_numbers
-    ]
+    train_image_files, train_seg_files = get_cell_only_files(
+        data_dir=data_dir, partition="train"
+    )
+    val_image_files, val_seg_files = get_cell_only_files(
+        data_dir=data_dir, partition="val"
+    )
 
     # Create dataset and dataloader
     transforms = A.Compose(
@@ -120,9 +111,13 @@ def main():
         ]
     )
     train_dataset = CellOnlyDataset(
-        image_files=train_image_files, seg_files=train_seg_files, transform=transforms
+        cell_image_files=train_image_files,
+        cell_target_files=train_seg_files,
+        transform=transforms,
     )
-    val_dataset = CellOnlyDataset(image_files=val_image_files, seg_files=val_seg_files)
+    val_dataset = CellOnlyDataset(
+        cell_image_files=val_image_files, cell_target_files=val_seg_files
+    )
 
     train_dataloader = DataLoader(
         dataset=train_dataset, batch_size=batch_size, shuffle=True, drop_last=True

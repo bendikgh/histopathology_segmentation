@@ -1,5 +1,4 @@
 import argparse
-import os
 import torch
 import albumentations as A
 import seaborn as sns
@@ -7,16 +6,15 @@ import seaborn as sns
 from transformers import (
     SegformerForSemanticSegmentation,
     SegformerConfig,
-    SegformerImageProcessor,
     get_polynomial_decay_schedule_with_warmup,
     AutoImageProcessor,
     SegformerModel,
 )
-from glob import glob
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
+from utils.utils import get_cell_only_files
 from torch.optim import AdamW
-from dataset import SegformerDataset
+from dataset import CellOnlyDataset
 from datetime import datetime
 
 from utils.training import (
@@ -24,6 +22,7 @@ from utils.training import (
     run_validation_segformer,
     train,
 )
+from utils.constants import IDUN_OCELOT_DATA_PATH
 
 sns.set_theme()
 
@@ -31,11 +30,11 @@ sns.set_theme()
 def main():
     default_epochs = 2
     default_batch_size = 2
-    default_data_dir = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+    default_data_dir = IDUN_OCELOT_DATA_PATH
     default_checkpoint_interval = 5
     default_learning_rate = 1e-4
-    default_warmup_epochs = 2
-    default_pretrained = 0
+    default_warmup_epochs = 0
+    default_pretrained = 1
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -92,53 +91,12 @@ def main():
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Preparing data
-    train_seg_files = glob(os.path.join(data_dir, "annotations/train/segmented_cell/*"))
-    train_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in train_seg_files
-    ]
-    train_image_files = [
-        os.path.join(data_dir, "images/train/cell", image_number + ".jpg")
-        for image_number in train_image_numbers
-    ]
-
-    val_seg_files = glob(os.path.join(data_dir, "annotations/val/segmented_cell/*"))
-    val_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in val_seg_files
-    ]
-    val_image_files = [
-        os.path.join(data_dir, "images/val/cell", image_number + ".jpg")
-        for image_number in val_image_numbers
-    ]
-
-    # Preparing datasets
-    transforms = A.Compose(
-        [
-            A.GaussianBlur(blur_limit=(3, 7), p=0.5),
-            A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
-            A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
-            A.HorizontalFlip(p=0.5),
-            A.RandomRotate90(p=0.5),
-        ]
+    train_image_files, train_seg_files = get_cell_only_files(
+        data_dir=data_dir, partition="train"
     )
-
-    if pretrained:
-        image_processor = AutoImageProcessor.from_pretrained("nvidia/mit-b3")
-    else:
-        image_processor = SegformerImageProcessor()  # do_resize=False
-
-    train_dataset = SegformerDataset(
-        train_image_files,
-        train_seg_files,
-        transform=transforms,
-        preprocessor=image_processor.preprocess,
+    val_image_files, val_seg_files = get_cell_only_files(
+        data_dir=data_dir, partition="val"
     )
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_dataset = SegformerDataset(
-        val_image_files,
-        val_seg_files,
-        preprocessor=image_processor.preprocess,
-    )
-    val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
     # Creating model
     configuration = configuration = SegformerConfig(
@@ -149,12 +107,53 @@ def main():
         decoder_hidden_size=768,
     )
     model = SegformerForSemanticSegmentation(configuration)
+    model.to(device)
 
     if pretrained:
+        # Use the pre-trained encoder but keep the same decoder
         encoder = SegformerModel.from_pretrained("nvidia/mit-b3")
+        encoder.to(device)
         model.segformer = encoder
 
-    model.to(device)
+        # Get the image dimensions from the pre-trained image processor
+        image_processor = AutoImageProcessor.from_pretrained("nvidia/mit-b3")
+        output_shape = (image_processor.size["height"], image_processor.size["width"])
+    else:
+        output_shape = (1024, 1024)
+
+    # Preparing datasets
+    train_trainsforms = A.Compose(
+        [
+            A.GaussianBlur(blur_limit=(3, 7), p=0.5),
+            A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
+            A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
+            A.HorizontalFlip(p=0.5),
+            A.RandomRotate90(p=0.5),
+            A.Resize(height=output_shape[0], width=output_shape[1]),
+            A.Normalize(),
+        ]
+    )
+    val_transforms = A.Compose(
+        [
+            A.Resize(height=output_shape[0], width=output_shape[1]),
+            A.Normalize(),
+        ]
+    )
+
+    train_dataset = CellOnlyDataset(
+        train_image_files,
+        train_seg_files,
+        transform=train_trainsforms,
+        output_shape=output_shape,
+    )
+    val_dataset = CellOnlyDataset(
+        val_image_files,
+        val_seg_files,
+        transform=val_transforms,
+        output_shape=output_shape,
+    )
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
     # Setting training parameters
     optimizer = AdamW(model.parameters(), lr=learning_rate)

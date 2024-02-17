@@ -9,7 +9,7 @@ import numpy as np
 from monai.transforms import SpatialCrop, Resize
 from PIL import Image
 from torchvision.transforms import PILToTensor
-
+from glob import glob
 
 
 def crop_and_upscale_tissue(
@@ -120,13 +120,15 @@ def read_data(data_folder_path: str, fetch_images=True) -> dict:
             os.path.join(annotation_path, partition_folder, "cell", f_name) + ".csv"
         )
         segmented_cell_path = (
-            os.path.join(annotation_path, partition_folder, "segmented_cell", f_name) + ".png"
+            os.path.join(annotation_path, partition_folder, "segmented_cell", f_name)
+            + ".png"
         )
         tissue_annotation_path = (
             os.path.join(annotation_path, partition_folder, "tissue", f_name) + ".png"
         )
         tissue_cropped_annotation_path = (
-            os.path.join(annotation_path, partition_folder, "cropped_tissue", f_name) + ".png"
+            os.path.join(annotation_path, partition_folder, "cropped_tissue", f_name)
+            + ".png"
         )
         tissue_image_path = (
             os.path.join(image_path, partition_folder, "tissue", f_name) + ".jpg"
@@ -143,7 +145,9 @@ def read_data(data_folder_path: str, fetch_images=True) -> dict:
 
         cell_annotated_tensor = get_annotated_cell_data(cell_csv_path)
         tissue_annotated_tensor = get_image_tensor_from_path(tissue_annotation_path)
-        tissue_cropped_annotated_tensor = get_image_tensor_from_path(tissue_cropped_annotation_path)
+        tissue_cropped_annotated_tensor = get_image_tensor_from_path(
+            tissue_cropped_annotation_path
+        )
         tissue_image_tensor = get_image_tensor_from_path(tissue_image_path)
         cell_image_tensor = get_image_tensor_from_path(cell_image_path)
         segmneted_cell_tensor = get_image_tensor_from_path(segmented_cell_path)
@@ -291,3 +295,21 @@ def get_tissue_crops_scaled_tensor(data, image_size: int = 1024):
 
         cell_channels_with_tissue_annotations.append(cell_tensor_tissue_annotation)
     return torch.stack(cell_channels_with_tissue_annotations)
+
+
+def get_cell_only_files(data_dir: str, partition: str):
+    valid_partitions = ["train", "val", "test"]
+    if partition not in valid_partitions:
+        raise ValueError(f"Partition must be one of {valid_partitions}")
+
+    target_files = glob(
+        os.path.join(data_dir, f"annotations/{partition}/segmented_cell/*")
+    )
+    image_numbers = [
+        file_name.split("/")[-1].split(".")[0] for file_name in target_files
+    ]
+    image_files = [
+        os.path.join(data_dir, f"images/{partition}/cell", image_number + ".jpg")
+        for image_number in image_numbers
+    ]
+    return image_files, target_files

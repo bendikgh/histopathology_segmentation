@@ -13,14 +13,15 @@ from transformers import (
 )
 
 from deeplabv3.network.modeling import _segm_resnet
-from src.utils.training import train
+from utils.training import train
+from utils.constants import IDUN_OCELOT_DATA_PATH
 from dataset import TissueDataset
 
 
 def main():
     default_epochs = 2
     default_batch_size = 2
-    default_data_dir = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+    default_data_dir = IDUN_OCELOT_DATA_PATH
     default_checkpoint_interval = 5
     default_backbone_model = "resnet50"
     default_dropout_rate = 0.3
