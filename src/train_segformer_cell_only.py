@@ -24,8 +24,6 @@ from utils.training import (
 )
 from utils.constants import IDUN_OCELOT_DATA_PATH
 
-sns.set_theme()
-
 
 def main():
     default_epochs = 2
@@ -79,6 +77,7 @@ def main():
     warmup_epochs = args.warmup_epochs
     pretrained = args.pretrained
 
+    sns.set_theme()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")

@@ -1,7 +1,7 @@
 import argparse
-import os
 import torch
 import albumentations as A
+import seaborn as sns
 
 from datetime import datetime
 from glob import glob
@@ -77,6 +77,7 @@ def main():
     learning_rate = args.learning_rate
     pretrained = args.pretrained
     warmup_epochs = args.warmup_epochs
+    sns.set_theme()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
