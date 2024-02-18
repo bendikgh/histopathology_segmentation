@@ -50,21 +50,23 @@ def _segm_resnet(name, backbone_name, num_classes, output_stride, pretrained_bac
         replace_stride_with_dilation=replace_stride_with_dilation,
         dropout_rate=dropout_rate
     )
+    
     if not input_tissue_v3 and num_channels != 3:
         # backbone.conv1 = nn.Conv2d(
         #     num_channels, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False
         # )
 
-        new_conv1 = nn.Conv2d(num_channels, 3, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
-        original_conv1 = backbone.conv1
+        input_layer = backbone.conv1
 
-        new_first_layers = nn.Sequential(
-            new_conv1,
-            # nn.ReLU(),
-            original_conv1
-        )
-
-        backbone.conv1 = new_first_layers
+        new_conv1 = nn.Conv2d(
+                num_channels, input_layer.out_channels,
+                kernel_size=input_layer.kernel_size, stride=input_layer.stride,
+                padding=input_layer.padding)
+        
+        new_conv1.weight.data[:, :3] = input_layer.weight.data
+        # new_conv1.weight.data[:] = input_layer.bias.data
+        
+        backbone.conv1 = new_conv1
 
     inplanes = 2048
     low_level_planes = 256
