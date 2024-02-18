@@ -30,7 +30,7 @@ else:
 
 ```{python}
 from PIL import Image
-from src.utils import (
+from src.utils.utils import (
     read_data, 
     get_tissue_crops_scaled_tensor,
     get_partition_from_file_name
@@ -53,36 +53,36 @@ total_data.update(test_data)
 ```
 
 ```{python}
-train_data = {k: train_data[k] for k in sorted(train_data, key=int)}
-val_data = {k: val_data[k] for k in sorted(val_data, key=int)}
-test_data = {k: test_data[k] for k in sorted(test_data, key=int)}
+# train_data = {k: train_data[k] for k in sorted(train_data, key=int)}
+# val_data = {k: val_data[k] for k in sorted(val_data, key=int)}
+# test_data = {k: test_data[k] for k in sorted(test_data, key=int)}
 total_data = {k: total_data[k] for k in sorted(total_data, key=int)}
 ```
 
 ```{python}
-train_cropped_tissue = get_tissue_crops_scaled_tensor(
-    data=train_data
-)
-val_cropped_tissue = get_tissue_crops_scaled_tensor(
-    data=val_data
-)
-test_cropped_tissue = get_tissue_crops_scaled_tensor(
-    data=test_data
-)
+# train_cropped_tissue = get_tissue_crops_scaled_tensor(
+#     data=train_data
+# )
+# val_cropped_tissue = get_tissue_crops_scaled_tensor(
+#     data=val_data
+# )
+# test_cropped_tissue = get_tissue_crops_scaled_tensor(
+#     data=test_data
+# )
 
-train_cropped_tissue = train_cropped_tissue[:, 3]
-val_cropped_tissue = val_cropped_tissue[:, 3]
-test_cropped_tissue = test_cropped_tissue[:, 3]
+# train_cropped_tissue = train_cropped_tissue[:, 3]
+# val_cropped_tissue = val_cropped_tissue[:, 3]
+# test_cropped_tissue = test_cropped_tissue[:, 3]
 ```
 
 ```{python}
-train_cropped_tissue[train_cropped_tissue == 255.] = 1.
-val_cropped_tissue[val_cropped_tissue == 255.] = 1.
-test_cropped_tissue[test_cropped_tissue == 255.] = 1.
+# train_cropped_tissue[train_cropped_tissue == 255.] = 1.
+# val_cropped_tissue[val_cropped_tissue == 255.] = 1.
+# test_cropped_tissue[test_cropped_tissue == 255.] = 1.
 
-train_cropped_tissue -= 1
-val_cropped_tissue -= 1
-test_cropped_tissue -= 1
+# train_cropped_tissue -= 1
+# val_cropped_tissue -= 1
+# test_cropped_tissue -= 1
 ```
 
 ```{python}
@@ -95,16 +95,44 @@ os.makedirs(test_folder, exist_ok=True)
 ```
 
 ```{python}
-for (key, value) in total_data.items(): 
+import torch
+import torch.nn.functional as F
+import numpy as np
+
+convert = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+
+for key, value in total_data.items():
     temp_dict = {key: value}
     cropped_tensor = get_tissue_crops_scaled_tensor(data=temp_dict)
-    cropped_tensor = cropped_tensor[:, 3]
-    cropped_tensor[cropped_tensor == 255.] = 1.
+    cropped_tensor = cropped_tensor[:, 3].squeeze()
+
+    # Setting the background to 0, the tissue to 1 and the unknown to 2
+    cropped_tensor[cropped_tensor == 255.0] = 3.0
     cropped_tensor -= 1
+    one_hot = F.one_hot(cropped_tensor.to(torch.int64), num_classes=3)
 
     partition = get_partition_from_file_name(key)
     image_folder = os.path.join(data_path, "annotations", partition, "cropped_tissue")
 
-    img = Image.fromarray(cropped_tensor.squeeze().numpy().astype("uint8"))
+    img = Image.fromarray(one_hot.numpy().astype("uint8"))
+    img.save(f"{image_folder}/{key}.png")
+
+
+# Adding missing images as empty images
+all_keys = [int(k) for k in total_data.keys()]
+all_nums = list(range(1, max(all_keys) + 1))
+missing_keys = set(all_nums) - set(all_keys)
+missing_keys -= set((586, 589, 609, 615))
+print(missing_keys)
+for key in missing_keys:
+    key = str(key)
+    # Adding leading zeros
+    if len(key) < 3:
+        key = "0" * (3 - len(key)) + key
+    print(key)
+    partition = get_partition_from_file_name(key)
+
+    image_folder = os.path.join(data_path, "annotations", partition, "cropped_tissue")
+    img = Image.fromarray(np.zeros((1024, 1024, 3)).astype("uint8"))
     img.save(f"{image_folder}/{key}.png")
 ```

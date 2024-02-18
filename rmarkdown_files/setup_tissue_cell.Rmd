@@ -37,11 +37,8 @@ from src.utils.utils import (
 )
 
 import torch
-import albumentations as A
-import matplotlib.pyplot as plt
 
 from src.deeplabv3.network.modeling import _segm_resnet
-from src.utils.utils_train import train
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"device: {device}")
@@ -95,17 +92,16 @@ model_tissue.load_state_dict(torch.load("outputs/models/2024-01-21_15-48-32_deep
 ```
 
 ```{python}
-## Changing the 
+## Changing the
 model_tissue.eval()
 for key in total_data.keys():
     tissue_image = total_data[key]["tissue_image"]
     tissue_image = tissue_image.to(device).to(torch.float).unsqueeze(0)
 
-    prediction = model_tissue(tissue_image/255)
-    prediction = prediction.detach().cpu().squeeze(0)
+    prediction = model_tissue(tissue_image / 255).squeeze(0)
 
     prediction = torch.argmax(prediction, 0)
-    convert = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    convert = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]).to(device)
     prediction = convert[prediction].permute(2, 0, 1)
 
     # plt.imshow(prediction)
@@ -126,7 +122,9 @@ os.makedirs(test_folder, exist_ok=True)
 ```{python}
 for (key, value) in total_data.items(): 
     temp_dict = {key: value}
+    temp_dict[key]["tissue_annotated"] = value["tissue_annotated"].to("cpu")
     cropped_tensor = get_tissue_crops_scaled_tensor(data=temp_dict)
+    temp_dict[key]["tissue_annotated"] = value["tissue_annotated"].to(device)
     
     cropped_tensor = cropped_tensor[:, 3:]
 
