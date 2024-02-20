@@ -31,9 +31,11 @@ else:
 ```
 
 ```{python}
-import torch
 import albumentations as A
+import cv2
 import matplotlib.pyplot as plt
+import torch
+import numpy as np
 
 from glob import glob
 from monai.data import DataLoader
@@ -41,6 +43,7 @@ from monai.data import DataLoader
 from src.deeplabv3.network.modeling import _segm_resnet
 from src.dataset import CellTissueDataset
 from src.utils.metrics import calculate_f1_score
+from torch.nn.functional import one_hot 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"device: {device}")
@@ -78,6 +81,20 @@ test_image_files = [
 ```
 
 ```{python}
+val_tissue_seg = []
+
+for img_path in val_seg_files:
+    ending = img_path.split("/")[-1].split(".")[0]
+    tissue_seg_path = glob(
+        os.path.join(data_path, "annotations/val/cropped_tissue/" + ending + "*")
+    )[0]
+    input_img_path = glob(
+        os.path.join(data_path, "images/val/cell/" + ending + "*")
+    )[0]
+    val_tissue_seg.append(tissue_seg_path)
+```
+
+```{python}
 train_tissue_predicted = glob(os.path.join(data_path, "annotations/train/pred_tissue/*"))
 val_tissue_predicted = glob(os.path.join(data_path, "annotations/val/pred_tissue/*"))
 test_tissue_predicted = glob(os.path.join(data_path, "annotations/test/pred_tissue/*"))
@@ -97,23 +114,22 @@ transforms = A.Compose(
 ```
 
 ```{python}
-batch_size = 2
+batch_size = 3
 
 train_cell_tissue_dataset = CellTissueDataset(
-    image_files=train_image_files,
-    seg_files=train_seg_files,
-    image_tissue_files=train_tissue_predicted,
-    transform=transforms,
+    cell_image_files=train_image_files,
+    cell_target_files=train_seg_files,
+    tissue_pred_files=train_tissue_predicted
 )
 val_cell_tissue_dataset = CellTissueDataset(
-    image_files=val_image_files,
-    seg_files=val_seg_files,
-    image_tissue_files=val_tissue_predicted,
+    cell_image_files=val_image_files,
+    cell_target_files=val_seg_files,
+    tissue_pred_files=val_tissue_predicted
 )
 test_cell_tissue_dataset = CellTissueDataset(
-    image_files=test_image_files,
-    seg_files=test_seg_files,
-    image_tissue_files=test_tissue_predicted,
+    cell_image_files=test_image_files,
+    cell_target_files=test_seg_files,
+    tissue_pred_files=test_tissue_predicted,
 )
 
 train_cell_tissue_dataloader = DataLoader(
@@ -124,6 +140,14 @@ val_cell_tissue_dataloader = DataLoader(
 )
 test_cell_tissue_dataloader = DataLoader(
     dataset=test_cell_tissue_dataset, batch_size=batch_size
+)
+```
+
+```{python}
+val_tissue_dataset = CellTissueDataset(
+    cell_image_files=val_image_files,
+    cell_target_files=val_seg_files,
+    tissue_pred_files=val_tissue_seg,
 )
 ```
 
@@ -142,7 +166,7 @@ tissue_cell_model = _segm_resnet(
 tissue_cell_model.to(device)
 tissue_cell_model.load_state_dict(
     torch.load(
-        "outputs/models/20240212_122258_deeplabv3plus_cell_branch_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-50.pth"
+        "outputs/models/20240216_211905_deeplabv3plus_cell_branch_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-100.pth"
     )
 )
 tissue_cell_model.eval()
@@ -150,61 +174,123 @@ print()
 ```
 
 ```{python}
-val_score = calculate_f1_score(model=tissue_cell_model, dataloader=val_cell_tissue_dataloader, device=device)
-print(f"Validation score: {val_score}")
-test_score = calculate_f1_score(model=tissue_cell_model, dataloader=test_cell_tissue_dataloader, device=device)
-print(f"Test score: {test_score}")
+backbone = "resnet50"
+dropout_rate = 0.3
+tissue_model = _segm_resnet(
+    name="deeplabv3plus",
+    backbone_name=backbone,
+    num_classes=3,
+    output_stride=8,
+    pretrained_backbone=True,
+    dropout_rate=dropout_rate,
+    num_channels=3,
+)
+tissue_model.to(device)
+tissue_model.load_state_dict(
+    torch.load(
+        "outputs/models/2024-01-21_15-48-32_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-30.pth"
+    )
+)
+tissue_model.eval()
+print()
 ```
 
 ```{python}
-it = iter(val_cell_tissue_dataloader)
-images, labels = next(it)
+# val_score = calculate_f1_score(model=tissue_cell_model, dataloader=val_cell_tissue_dataloader, device=device)
+# print(f"Validation score: {val_score}")
+# test_score = calculate_f1_score(model=tissue_cell_model, dataloader=test_cell_tissue_dataloader, device=device)
+# print(f"Test score: {test_score}")
+```
 
-image = images[0]
-label = labels[0]
+```{python}
+index = 0
 
+image, label_cell = val_cell_tissue_dataset[index]
+
+file_name = val_cell_tissue_dataset.cell_image_files[index]
+num = file_name.split("/")[-1].split(".")[0]
+
+val_tissue_image_path = os.path.join(data_path, "images", "val", "tissue", num + ".jpg")
+val_tissue_ground_truth_path = os.path.join(data_path, "annotations", "val", "tissue", num + ".png")
+
+tissue_ground_truth = torch.from_numpy(cv2.imread(val_tissue_ground_truth_path)).permute(2, 0, 1)
+tissue_ground_truth[tissue_ground_truth == 255] = 3
+tissue_ground_truth -= 1
+tissue_ground_truth = tissue_ground_truth[0].to(torch.long)
+
+
+tissue_ground_truth = one_hot(tissue_ground_truth, num_classes=3)
 cell_image = image[:3]
-tissue_image = image[3:]
+tissue_pred_cropped = image[3:]
+```
 
+```{python}
 print(cell_image.shape)
-print(tissue_image.shape)
-print(label.shape)
+print(tissue_pred_cropped.shape)
+print(label_cell.shape)
+print(tissue_ground_truth.shape)
 ```
 
 ```{python}
-outputs = tissue_cell_model(images.to(device))
-output = outputs[0]
-print(output.shape)
+converter = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+
+tissue_image_input = cv2.imread(val_tissue_image_path).astype(np.float32)
+tissue_image_input = torch.from_numpy(tissue_image_input).permute(2, 0, 1).to(device)
+
+outputs_tissue_model = tissue_model(tissue_image_input.unsqueeze(0)/255)
+tissue_prediction = outputs_tissue_model[0].detach().cpu()
+tissue_prediction = tissue_prediction.argmax(0)
+
+tissue_prediction = converter[tissue_prediction]
+print(tissue_prediction.shape)
 ```
 
 ```{python}
-argmaxed = output.argmax(0)
-print(argmaxed.shape)
+outputs = tissue_cell_model(image.unsqueeze(0).to(device))
+output = outputs[0].cpu()
+
+argmaxed_cell_prediction = output.argmax(0)
+argmaxed_cell_prediction = converter[argmaxed_cell_prediction.cpu().detach()]
+print(argmaxed_cell_prediction.shape)
 ```
 
 ```{python}
-plt.figure(figsize=(20, 6))
-plt.title("Model outputs (Tissue-Cell)")
+plt.figure(figsize=(20, 20))
 plt.axis("off")
 
-plt.subplot(1, 4, 1)
+plt.subplot(3, 3, 1)
 plt.imshow(cell_image.permute(1, 2, 0))
 plt.title("Cell image")
 plt.axis("off")
 
-plt.subplot(1, 4, 2)
-plt.imshow(tissue_image.permute(1, 2, 0))
+plt.subplot(3, 3, 2)
+plt.imshow(tissue_pred_cropped.permute(1, 2, 0))
+plt.title("Tissue image prediction cropped")
+plt.axis("off")
+
+plt.subplot(3, 3, 3)
+plt.imshow(255*label_cell.permute(1, 2, 0))
+plt.title("Cell Label")
+plt.axis("off")
+
+plt.subplot(3, 3, 4)
+plt.imshow(255*argmaxed_cell_prediction)
+plt.title("Argmaxed Model Predictions")
+plt.axis("off")
+
+plt.subplot(3, 3, 5)
+plt.imshow(255*tissue_ground_truth)
+plt.title("Tissue label")
+plt.axis("off")
+
+plt.subplot(3, 3, 6)
+plt.imshow(cv2.imread(val_tissue_image_path))
 plt.title("Tissue image")
 plt.axis("off")
 
-plt.subplot(1, 4, 3)
-plt.imshow(label.permute(1, 2, 0))
-plt.title("Label")
-plt.axis("off")
-
-plt.subplot(1, 4, 4)
-plt.imshow(argmaxed.detach().cpu())
-plt.title("Argmaxed Model Predictions")
+plt.subplot(3, 3, 7)
+plt.imshow(255*tissue_prediction)
+plt.title("Tissue prediction")
 plt.axis("off")
 
 plt.tight_layout()
