@@ -37,7 +37,7 @@ def calculate_f1_score(
 
             # Preparing output for peak_local_max
             softmaxed = torch.softmax(output, dim=0)
-            cells, argmaxed = torch.max(softmaxed, axis=0)
+            cells, argmaxed = torch.max(input=softmaxed, axis=0)
             argmaxed = argmaxed.cpu().numpy()
             cells = cells.cpu().numpy()
             peak_points_pred = peak_local_max(
@@ -139,7 +139,7 @@ def calculate_f1_score_segformer(
 
             # Preparing output for peak_local_max
             softmaxed = torch.softmax(output, dim=0)
-            cells, argmaxed = torch.max(softmaxed, axis=0)
+            cells, argmaxed = torch.max(input=softmaxed, axis=0)
             argmaxed = argmaxed.cpu().numpy()
             cells = cells.cpu().numpy()
             peak_points_pred = peak_local_max(

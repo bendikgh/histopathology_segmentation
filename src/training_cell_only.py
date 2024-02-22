@@ -14,7 +14,7 @@ from transformers import (
 
 from deeplabv3.network.modeling import _segm_resnet
 from utils.training import train
-from utils.utils import get_cell_only_files
+from utils.utils import get_ocelot_files
 from utils.constants import IDUN_OCELOT_DATA_PATH
 from dataset import CellOnlyDataset
 
@@ -94,11 +94,11 @@ def main():
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Find the correct files
-    train_image_files, train_seg_files = get_cell_only_files(
-        data_dir=data_dir, partition="train"
+    train_image_files, train_seg_files = get_ocelot_files(
+        data_dir=data_dir, partition="train", zoom="cell"
     )
-    val_image_files, val_seg_files = get_cell_only_files(
-        data_dir=data_dir, partition="val"
+    val_image_files, val_seg_files = get_ocelot_files(
+        data_dir=data_dir, partition="val", zoom="cell"
     )
 
     # Create dataset and dataloader

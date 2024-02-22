@@ -16,7 +16,7 @@ from transformers import (
 from deeplabv3.network.modeling import _segm_resnet
 from utils.training import train
 from utils.constants import IDUN_OCELOT_DATA_PATH
-from utils.utils import get_cell_only_files
+from utils.utils import get_ocelot_files
 
 
 # Function for crop and scale tissue image
@@ -24,6 +24,9 @@ from dataset import CellTissueDataset
 
 
 def main():
+    sns.set_theme()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     default_epochs = 2
     default_batch_size = 2
     default_data_dir = IDUN_OCELOT_DATA_PATH
@@ -71,7 +74,6 @@ def main():
     )
 
     args = parser.parse_args()
-
     num_epochs = args.epochs
     batch_size = args.batch_size
     data_dir = args.data_dir
@@ -81,9 +83,6 @@ def main():
     learning_rate = args.learning_rate
     pretrained = args.pretrained
     warmup_epochs = args.warmup_epochs
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    sns.set_theme()
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -98,11 +97,11 @@ def main():
     print(f"Device: {device}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
-    train_cell_image_files, train_cell_target_files = get_cell_only_files(
-        data_dir=data_dir, partition="train"
+    train_cell_image_files, train_cell_target_files = get_ocelot_files(
+        data_dir=data_dir, partition="train", zoom="cell"
     )
-    val_cell_image_files, val_cell_target_files = get_cell_only_files(
-        data_dir=data_dir, partition="val"
+    val_cell_image_files, val_cell_target_files = get_ocelot_files(
+        data_dir=data_dir, partition="val", zoom="cell"
     )
 
     train_tissue_predicted = glob(
@@ -118,14 +117,14 @@ def main():
             A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
             A.HorizontalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
-            A.Normalize(),
+            # A.Normalize(),
         ],
         additional_targets={"mask1": "mask", "mask2": "mask"},
     )
-    val_transforms = A.Compose(
-        [A.Normalize()],
-        additional_targets={"mask1": "mask", "mask2": "mask"},
-    )
+    # val_transforms = A.Compose(
+    #     [A.Normalize()],
+    #     additional_targets={"mask1": "mask", "mask2": "mask"},
+    # )
 
     train_cell_tissue_dataset = CellTissueDataset(
         cell_image_files=train_cell_image_files,
@@ -137,7 +136,7 @@ def main():
         cell_image_files=val_cell_image_files,
         cell_target_files=val_cell_target_files,
         tissue_pred_files=val_tissue_predicted,
-        transform=val_transforms,
+        # transform=val_transforms,
     )
 
     train_cell_tissue_dataloader = DataLoader(

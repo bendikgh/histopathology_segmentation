@@ -53,8 +53,9 @@ def get_cell_annotations_in_tissue_coordinates(
 
 
 def get_partition_from_file_name(file_name: str):
-    """Returns 'train', 'val' or 'test', depending on which
-    number the file name has.
+    """
+    Returns 'train', 'val' or 'test', depending on which number the file name
+    has.
     """
     if int(file_name) <= 400:
         partition_folder = "train"
@@ -86,9 +87,9 @@ def get_metadata(path: str):
     return data
 
 
-def read_data(data_folder_path: str, fetch_images=True) -> dict:
-    """Function for reading the OCELOT data from given file path.
-    Stores the result in a dictionary.
+def read_data(data_folder_path: str, fetch_images=True) -> tuple:
+    """Function for reading the OCELOT data from given file path. Stores the
+    result in a dictionary.
     """
 
     # data = {}
@@ -294,19 +295,117 @@ def get_tissue_crops_scaled_tensor(data, image_size: int = 1024):
     return torch.stack(cell_channels_with_tissue_annotations)
 
 
-def get_cell_only_files(data_dir: str, partition: str):
+def get_ocelot_files(data_dir: str, partition: str, zoom: str = "cell") -> tuple:
+    """
+    Retrieves paths to image and annotation files for a specified partition
+    and kind.
+
+    Scans the given directory for image and corresponding annotation files,
+    based on the specified partition (train, val, test) and kind (cell or
+    tissue). Assumes specific directory naming and file organization.
+
+    Args:
+        data_dir (str): Root directory of the dataset containing 'annotations'
+                        and 'images' subdirectories.
+        partition (str): Dataset partition to retrieve files from. Must be
+                         'train', 'val', or 'test'.
+        kind (str, optional): Type of images to retrieve ('cell' or 'tissue').
+                              Defaults to 'cell'.
+
+    Returns:
+        tuple: Contains two lists; first with paths to images, second with
+               paths to corresponding annotations.
+
+    Raises:
+        ValueError: If 'partition' not in ['train', 'val', 'test'].
+        ValueError: If 'kind' not in ['cell', 'tissue'].
+
+    """
+    # Validation
     valid_partitions = ["train", "val", "test"]
     if partition not in valid_partitions:
         raise ValueError(f"Partition must be one of {valid_partitions}")
 
-    target_files = glob(
-        os.path.join(data_dir, f"annotations/{partition}/segmented_cell/*")
+    valid_kinds = ["cell", "tissue"]
+    if zoom not in valid_kinds:
+        raise ValueError(f"Kind must be one of {valid_kinds}")
+
+    # Finding the appropriate files
+    final_dir: str = "segmented_cell" if zoom == "cell" else zoom
+    target_files: list = glob(
+        os.path.join(data_dir, f"annotations/{partition}/{final_dir}/*")
     )
-    image_numbers = [
+    image_numbers: list = [
         file_name.split("/")[-1].split(".")[0] for file_name in target_files
     ]
-    image_files = [
-        os.path.join(data_dir, f"images/{partition}/cell", image_number + ".jpg")
+    image_files: list = [
+        os.path.join(data_dir, f"images/{partition}/{zoom}", image_number + ".jpg")
         for image_number in image_numbers
     ]
     return image_files, target_files
+
+
+def validate_numpy_image(image: np.ndarray) -> None:
+    """
+    Validates that the image that was read from file is in the correct format.
+    """
+    if image.shape != (1024, 1024, 3):
+        raise ValueError(f"Image shape is not (1024, 1024, 3), but {image.shape}")
+    if image.dtype != np.uint8:
+        raise ValueError(f"Image dtype is not np.uint8, but {image.dtype}")
+    if image.min() < 0 or image.max() > 255:
+        raise ValueError(
+            f"Image values are not in the range [0, 255], but {image.min()} - {image.max()}"
+        )
+    if image.max() <= 1:
+        raise ValueError(f"Image values are not in the range [0, 255], but [0, 1]")
+
+
+def validate_torch_image(image_torch: torch.Tensor) -> None:
+    """
+    Validates that the image that was read from file is in the correct format.
+    """
+    if image_torch.shape != (3, 1024, 1024):
+        raise ValueError(f"Image shape is not (3, 1024, 1024), but {image_torch.shape}")
+    if image_torch.dtype != torch.float32:
+        raise ValueError(f"Image dtype is not torch.float32, but {image_torch.dtype}")
+    if image_torch.min() < 0 or image_torch.max() > 1:
+        raise ValueError(
+            f"Image values are not in the range [0, 1], but {image_torch.min()} - {image_torch.max()}"
+        )
+
+
+def get_torch_image(path: str) -> torch.Tensor:
+    """
+    Takes in a string as a path and returns a torch tensor of the image with
+    shape (3, 1024, 1024) and dtype torch.float32, with values in [0, 1].
+    """
+    # Format: (1024, 1024, 3), 0-255, np.uint8
+    image: np.ndarray = cv2.imread(path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    validate_numpy_image(image)
+
+    # Fixing the format of the image
+    image = image.astype(np.float32) / 255.0
+    image_torch = torch.from_numpy(image).permute(2, 0, 1)
+    validate_torch_image(image_torch)
+
+    return image_torch
+
+
+def get_save_name(
+    current_time: str,
+    model_name: str,
+    pretrained: bool,
+    learning_rate: float,
+    dropout_rate: float,
+    backbone_model: str,
+):
+    return (
+        f"{current_time}"
+        f"_{model_name}"
+        f"_pretrained-{pretrained}"
+        f"_lr-{learning_rate:.0e}"
+        f"_dropout-{dropout_rate}"
+        f"_backbone-{backbone_model}"
+    )

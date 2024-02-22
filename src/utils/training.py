@@ -1,7 +1,9 @@
 import time
 import torch
 import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader
 from torch.nn.functional import interpolate
+from torch import nn
 from tqdm import tqdm
 
 
@@ -15,19 +17,20 @@ def plot_losses(training_losses, val_losses, save_path: str):
     plt.savefig(save_path)
     plt.close()
 
+
 def run_training_segformer(
-        model, 
-        train_dataloader,
-        optimizer,
-        loss_function,
-        device,
-        break_after_one_iteration: bool = False,
-): 
+    model: nn.Module,
+    train_dataloader: DataLoader,
+    optimizer,
+    loss_function,
+    device,
+    break_after_one_iteration: bool = False,
+) -> float:
     model.train()
-    training_loss = 0
+    training_loss = 0.0
 
     for images, labels in tqdm(train_dataloader):
-        images, labels = images.to(device), labels.to(device)  
+        images, labels = images.to(device), labels.to(device)
         labels = labels.argmax(dim=1)
 
         optimizer.zero_grad()
@@ -43,7 +46,7 @@ def run_training_segformer(
         loss.backward()
         optimizer.step()
         training_loss += loss.item()
-        
+
         if break_after_one_iteration:
             print("Breaking after one iteration")
             break
@@ -51,15 +54,16 @@ def run_training_segformer(
         training_loss /= len(train_dataloader)
     return training_loss
 
+
 def run_validation_segformer(
-        model,
-        val_dataloader,
-        loss_function,
-        device,
-        break_after_one_iteration: bool = False,
-):
+    model: nn.Module,
+    val_dataloader: DataLoader,
+    loss_function,
+    device,
+    break_after_one_iteration: bool = False,
+) -> float:
     model.eval()
-    val_loss = 0
+    val_loss = 0.0
     with torch.no_grad():
         for images, labels in tqdm(val_dataloader):
             images, labels = images.to(device), labels.to(device)
@@ -81,16 +85,17 @@ def run_validation_segformer(
         val_loss /= len(val_dataloader)
     return val_loss
 
+
 def run_training(
-    model,
-    train_dataloader,
+    model: nn.Module,
+    train_dataloader: DataLoader,
     optimizer,
     loss_function,
     device,
     break_after_one_iteration: bool = False,
-):
+) -> float:
     model.train()
-    training_loss = 0
+    training_loss = 0.0
 
     for images, masks in tqdm(train_dataloader):
         images, masks = images.to(device), masks.to(device)
@@ -102,7 +107,7 @@ def run_training(
         optimizer.step()
 
         training_loss += loss.item()
-        
+
         if break_after_one_iteration:
             print("Breaking after one iteration")
             break
@@ -112,15 +117,16 @@ def run_training(
 
     return training_loss
 
+
 def run_validation(
-    model,
-    val_dataloader,
+    model: nn.Module,
+    val_dataloader: DataLoader,
     loss_function,
     device,
     break_after_one_iteration: bool = False,
-):
+) -> float:
     model.eval()
-    val_loss = 0
+    val_loss = 0.0
     with torch.no_grad():
         for images, masks in tqdm(val_dataloader):
             images, masks = images.to(device), masks.to(device)
@@ -140,23 +146,24 @@ def run_validation(
 
 def train(
     num_epochs: int,
-    train_dataloader,
-    val_dataloader,
-    model,
+    train_dataloader: DataLoader,
+    val_dataloader: DataLoader,
+    model: nn.Module,
     loss_function,
     optimizer,
     device,
     save_name: str,
     checkpoint_interval: int = 5,
     break_after_one_iteration: bool = False,
-    scheduler = None,
-    training_func = run_training,
-    validation_function = run_validation,
+    scheduler=None,
+    training_func=run_training,
+    validation_function=run_validation,
+    do_save_model_and_plot: bool = True,
 ):
     start = time.time()
     training_losses = []
     val_losses = []
-    
+
     for epoch in range(num_epochs):
         training_loss = training_func(
             model=model,
@@ -164,10 +171,10 @@ def train(
             optimizer=optimizer,
             loss_function=loss_function,
             device=device,
-            break_after_one_iteration=break_after_one_iteration 
+            break_after_one_iteration=break_after_one_iteration,
         )
         training_losses.append(training_loss)
-            
+
         if scheduler:
             scheduler.step()
 
@@ -181,7 +188,9 @@ def train(
         val_losses.append(val_loss)
 
         # Plotting results and saving model
-        if (epoch + 1) % checkpoint_interval == 0 or (epoch + 1) == num_epochs:
+        if do_save_model_and_plot and (
+            (epoch + 1) % checkpoint_interval == 0 or (epoch + 1) == num_epochs
+        ):
             torch.save(
                 model.state_dict(),
                 f"outputs/models/{save_name}_epochs-{epoch + 1}.pth",

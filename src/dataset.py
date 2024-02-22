@@ -1,90 +1,135 @@
-import torch
 import cv2
 import numpy as np
-
-from monai.data import ImageDataset
-from PIL import Image
-from torchvision.transforms import ToTensor
+import torch
 from torch.utils.data import Dataset
 
-from utils.constants import PYTORCH_STANDARD_IMAGE_SHAPE, NUMPY_STANDARD_IMAGE_SHAPE
+from utils.constants import NUMPY_STANDARD_IMAGE_SHAPE, PYTORCH_STANDARD_IMAGE_SHAPE
 
 
-class TissueDataset(ImageDataset):
-    def __init__(self, image_files, seg_files, transform=None) -> None:
-        self.image_files = image_files
-        self.seg_files = seg_files
-        self.to_tensor = ToTensor()
+class TissueDataset(Dataset):
+    def __init__(self, image_files: list, seg_files: list, transform=None) -> None:
+        self.image_files: list = image_files
+        self.seg_files: list = seg_files
         self.transform = transform
-        self.translator = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+
+    def __len__(self) -> int:
+        return len(self.image_files)
+
+    def _validate_input_image(self, image, seg_image) -> None:
+        """Checks if the image and label that are loaded from file are valid for
+        the dataset. Expects image to be from 0 to 255, label to be from 0 to 1,
+        and the shape to be (1024, 1024, 3). Raises ValueError if not.
+        """
+        if image.dtype != np.uint8:
+            raise ValueError(f"Image is not of type np.uint8")
+        if image.max() > 255 or image.min() < 0:
+            raise ValueError(f"Image has values outside of 0-255")
+        if image.shape != NUMPY_STANDARD_IMAGE_SHAPE:
+            raise ValueError(
+                f"Image shape is {image.shape}, expected {NUMPY_STANDARD_IMAGE_SHAPE}"
+            )
+
+        if seg_image.dtype != np.uint8:
+            raise ValueError(f"Label is not of type np.uint8")
+        if len(set(np.unique(seg_image)) - set([1, 2, 255])) > 0:
+            raise ValueError(f"Label has values outside of 1, 2, 255")
+        if seg_image.shape != (1024, 1024):
+            raise ValueError(f"Label shape is {seg_image.shape}, expected (1024, 1024)")
+
+    def _validate_return_tensor(
+        self, image: torch.Tensor, seg_image: torch.Tensor
+    ) -> None:
+        """
+        Checks that the format of the returned image and label is correct.
+        """
+        if image.dtype != torch.float32:
+            raise ValueError(f"Image is not of type torch.float32")
+        if image.shape != PYTORCH_STANDARD_IMAGE_SHAPE:
+            raise ValueError(
+                f"Image shape is {image.shape}, expected {PYTORCH_STANDARD_IMAGE_SHAPE}"
+            )
+
+        if seg_image.dtype != torch.long:
+            raise ValueError(f"Label is not of type torch.long")
+        if seg_image.shape != (1024, 1024):
+            raise ValueError(f"Label shape is {seg_image.shape}, expected (1024, 1024)")
+        if seg_image.max() > 2 or seg_image.min() < 0:
+            raise ValueError(f"Label has values outside of 0-2")
 
     def __getitem__(self, idx):
         image_path = self.image_files[idx]
         seg_path = self.seg_files[idx]
 
-        image = self.to_tensor(Image.open(image_path).convert("RGB"))
-        seg_image = self.to_tensor(Image.open(seg_path)) * 255
+        image: np.ndarray = cv2.imread(image_path)
+        image: np.ndarray = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        # Setting values to 0, 1, 2, instead of 1, 2, 255
-        seg_image[seg_image == 255.0] = 3
+        # Expecting shape (1024, 1024), i.e. single-channel
+        seg_image: np.ndarray = cv2.imread(seg_path, cv2.IMREAD_UNCHANGED)
+        self._validate_input_image(image, seg_image)
+
+        # [1, 2, 255] -> [1, 2, 3] -> [0, 1, 2]
+        seg_image[seg_image == 255] = 3
         seg_image -= 1
 
-        # One-hot encoding
-        seg = self.translator[seg_image.int()].squeeze().permute((2, 0, 1))
+        if self.transform is not None:
+            transformed = self.transform(image=image, mask=seg_image)
+            image = transformed["image"]
+            seg_image = transformed["mask"]
 
-        if self.transform:
-            transformed = self.transform(
-                image=np.array(image.permute((1, 2, 0))),
-                mask=np.array(seg.permute((1, 2, 0))),
-            )
-            image = torch.tensor(transformed["image"]).permute((2, 0, 1))
-            seg = torch.tensor(transformed["mask"]).permute((2, 0, 1))
+        image = image.astype(np.float32) / 255.0
+        seg_image = seg_image.astype(np.int64)
 
-        return image, seg
+        # Convert image to tensor
+        image_torch: torch.Tensor = torch.from_numpy(image).permute(2, 0, 1)
+        seg_image_torch: torch.Tensor = torch.from_numpy(seg_image)
+
+        self._validate_return_tensor(image_torch, seg_image_torch)
+
+        return image_torch, seg_image_torch
 
 
-class TissueLeakingDataset(ImageDataset):
-    def __init__(
-        self, input_files, cell_seg_files, tissue_seg_files, transform=None
-    ) -> None:
-        self.image_files = input_files
-        self.cell_seg_files = cell_seg_files
-        self.tissue_seg_files = tissue_seg_files
-        self.to_tensor = ToTensor()
-        self.transform = transform
+# class TissueLeakingDataset(ImageDataset):
+#     def __init__(
+#         self, input_files, cell_seg_files, tissue_seg_files, transform=None
+#     ) -> None:
+#         self.image_files = input_files
+#         self.cell_seg_files = cell_seg_files
+#         self.tissue_seg_files = tissue_seg_files
+#         self.to_tensor = ToTensor()
+#         self.transform = transform
 
-    def __getitem__(self, idx):
-        image_path = self.image_files[idx]
-        cell_seg_path = self.cell_seg_files[idx]
-        tissue_seg_path = self.tissue_seg_files[idx]
+#     def __getitem__(self, idx):
+#         image_path = self.image_files[idx]
+#         cell_seg_path = self.cell_seg_files[idx]
+#         tissue_seg_path = self.tissue_seg_files[idx]
 
-        image = self.to_tensor(Image.open(image_path).convert("RGB"))
-        cell_seg = self.to_tensor(Image.open(cell_seg_path).convert("RGB")) * 255
+#         image = self.to_tensor(Image.open(image_path).convert("RGB"))
+#         cell_seg = self.to_tensor(Image.open(cell_seg_path).convert("RGB")) * 255
 
-        # Represented as 0-1 encoding
-        tissue_seg = self.to_tensor(Image.open(tissue_seg_path).convert("P")) * 255
+#         # Represented as 0-1 encoding
+#         tissue_seg = self.to_tensor(Image.open(tissue_seg_path).convert("P")) * 255
 
-        if self.transform:
-            transformed = self.transform(
-                image=np.array(image.permute((1, 2, 0))),
-                mask1=np.array(cell_seg.permute((1, 2, 0))),
-                mask2=np.array(tissue_seg.permute((1, 2, 0))),
-            )
-            image = torch.tensor(transformed["image"]).permute((2, 0, 1))
-            cell_seg = torch.tensor(transformed["mask1"]).permute((2, 0, 1))
-            tissue_seg = torch.tensor(transformed["mask2"]).permute((2, 0, 1))
+#         if self.transform:
+#             transformed = self.transform(
+#                 image=np.array(image.permute((1, 2, 0))),
+#                 mask1=np.array(cell_seg.permute((1, 2, 0))),
+#                 mask2=np.array(tissue_seg.permute((1, 2, 0))),
+#             )
+#             image = torch.tensor(transformed["image"]).permute((2, 0, 1))
+#             cell_seg = torch.tensor(transformed["mask1"]).permute((2, 0, 1))
+#             tissue_seg = torch.tensor(transformed["mask2"]).permute((2, 0, 1))
 
-        image = torch.cat((image, tissue_seg), dim=0)
+#         image = torch.cat((image, tissue_seg), dim=0)
 
-        return image, cell_seg
+#         return image, cell_seg
 
-    def get_cell_annotation_list(self, idx):
-        """Returns a list of cell annotations for a given image index"""
-        path = self.image_files[idx]
-        cell_annotation_path = "annotations".join(path.split("images")).replace(
-            "jpg", "csv"
-        )
-        return np.loadtxt(cell_annotation_path, delimiter=",", dtype=np.int32, ndmin=2)
+#     def get_cell_annotation_list(self, idx):
+#         """Returns a list of cell annotations for a given image index"""
+#         path = self.image_files[idx]
+#         cell_annotation_path = "annotations".join(path.split("images")).replace(
+#             "jpg", "csv"
+#         )
+#         return np.loadtxt(cell_annotation_path, delimiter=",", dtype=np.int32, ndmin=2)
 
 
 class CellTissueDataset(Dataset):
@@ -94,7 +139,7 @@ class CellTissueDataset(Dataset):
         cell_target_files: list,
         tissue_pred_files: list,
         transform=None,
-        debug=True
+        debug=True,
     ):
         if not (len(cell_image_files) == len(cell_target_files) == len(tissue_pred_files)):  # fmt: skip
             raise ValueError(
@@ -215,7 +260,7 @@ class CellTissueDataset(Dataset):
         tissue_pred = torch.from_numpy(tissue_pred).permute(2, 0, 1)
 
         concatenated_input = torch.cat((cell_image, tissue_pred), dim=0)
-        if self.debug: 
+        if self.debug:
             self._validate_return_tensor(concatenated_input, cell_label)
 
         return concatenated_input, cell_label

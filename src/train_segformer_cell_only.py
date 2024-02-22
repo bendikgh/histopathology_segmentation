@@ -12,7 +12,7 @@ from transformers import (
 )
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
-from utils.utils import get_cell_only_files
+from utils.utils import get_ocelot_files
 from torch.optim import AdamW
 from dataset import CellOnlyDataset
 from datetime import datetime
@@ -90,11 +90,11 @@ def main():
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Preparing data
-    train_image_files, train_seg_files = get_cell_only_files(
-        data_dir=data_dir, partition="train"
+    train_image_files, train_seg_files = get_ocelot_files(
+        data_dir=data_dir, partition="train", zoom="cell"
     )
-    val_image_files, val_seg_files = get_cell_only_files(
-        data_dir=data_dir, partition="val"
+    val_image_files, val_seg_files = get_ocelot_files(
+        data_dir=data_dir, partition="val", zoom="cell"
     )
 
     # Creating model

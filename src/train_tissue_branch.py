@@ -1,11 +1,10 @@
 import argparse
-import os
 import torch
 import albumentations as A
 import seaborn as sns
 
 from glob import glob
-from monai.losses import DiceLoss
+from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from datetime import datetime
@@ -16,11 +15,13 @@ from transformers import (
 from deeplabv3.network.modeling import _segm_resnet
 from utils.training import train
 from utils.constants import IDUN_OCELOT_DATA_PATH
+from utils.utils import get_ocelot_files, get_save_name
 from dataset import TissueDataset
 
 
 def main():
-    default_epochs = 2
+    sns.set_theme()
+    default_epochs = 1
     default_batch_size = 2
     default_data_dir = IDUN_OCELOT_DATA_PATH
     default_checkpoint_interval = 5
@@ -28,7 +29,7 @@ def main():
     default_dropout_rate = 0.3
     default_learning_rate = 1e-4
     default_pretrained = True
-    default_warmup_epochs = 2
+    default_warmup_epochs = 0
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -78,8 +79,6 @@ def main():
     pretrained = args.pretrained
     warmup_epochs = args.warmup_epochs
 
-    sns.set_theme()
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -95,23 +94,12 @@ def main():
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Find the correct files
-    train_tissue_seg_files = glob(os.path.join(data_dir, "annotations/train/tissue/*"))
-    train_tissue_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in train_tissue_seg_files
-    ]
-    train_tissue_image_files = [
-        os.path.join(data_dir, "images/train/tissue", image_number + ".jpg")
-        for image_number in train_tissue_image_numbers
-    ]
-
-    val_tissue_seg_files = glob(os.path.join(data_dir, "annotations/val/tissue/*"))
-    val_tissue_image_numbers = [
-        file_name.split("/")[-1].split(".")[0] for file_name in val_tissue_seg_files
-    ]
-    val_tissue_image_files = [
-        os.path.join(data_dir, "images/val/tissue", image_number + ".jpg")
-        for image_number in val_tissue_image_numbers
-    ]
+    train_tissue_image_files, train_tissue_target_files = get_ocelot_files(
+        data_dir=data_dir, partition="train", zoom="tissue"
+    )
+    val_tissue_image_files, val_tissue_target_files = get_ocelot_files(
+        data_dir=data_dir, partition="val", zoom="tissue"
+    )
 
     # Create dataset and dataloader
     transforms = A.Compose(
@@ -126,11 +114,12 @@ def main():
 
     train_tissue_dataset = TissueDataset(
         image_files=train_tissue_image_files,
-        seg_files=train_tissue_seg_files,
+        seg_files=train_tissue_target_files,
         transform=transforms,
     )
     val_tissue_dataset = TissueDataset(
-        image_files=val_tissue_image_files, seg_files=val_tissue_seg_files
+        image_files=val_tissue_image_files,
+        seg_files=val_tissue_target_files,
     )
 
     train_tissue_dataloader = DataLoader(
@@ -140,7 +129,9 @@ def main():
         shuffle=True,
     )
     val_tissue_dataloader = DataLoader(
-        dataset=val_tissue_dataset, batch_size=batch_size, drop_last=True
+        dataset=val_tissue_dataset,
+        batch_size=batch_size,
+        drop_last=True,
     )
 
     # Create model and optimizer
@@ -155,7 +146,8 @@ def main():
     )
     model.to(device)
 
-    loss_function = DiceLoss(softmax=True)
+    # loss_function = DiceLoss(softmax=True)
+    loss_function = CrossEntropyLoss()
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
     scheduler = get_polynomial_decay_schedule_with_warmup(
@@ -165,7 +157,15 @@ def main():
         power=1,
     )
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_name = f"{current_time}_deeplabv3plus_tissue_branch_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone_model}"
+    save_name = get_save_name(
+        current_time=current_time,
+        model_name="deeplabv3plus-tissue-branch",
+        pretrained=pretrained,
+        learning_rate=learning_rate,
+        dropout_rate=dropout_rate,
+        backbone_model=backbone_model,
+    )
+    print(f"Save name: {save_name}")
     train(
         num_epochs=num_epochs,
         train_dataloader=train_tissue_dataloader,
@@ -176,8 +176,9 @@ def main():
         device=device,
         save_name=save_name,
         checkpoint_interval=checkpoint_interval,
-        break_after_one_iteration=False,
+        break_after_one_iteration=True,
         scheduler=scheduler,
+        do_save_model_and_plot=False,  # NOTE: Important to change this before training
     )
 
 
