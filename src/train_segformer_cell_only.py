@@ -12,7 +12,7 @@ from transformers import (
 )
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
-from utils.utils import get_ocelot_files
+from utils.utils import get_ocelot_files, get_save_name
 from torch.optim import AdamW
 from dataset import CellOnlyDataset
 from datetime import datetime
@@ -26,13 +26,16 @@ from utils.constants import IDUN_OCELOT_DATA_PATH
 
 
 def main():
+    sns.set_theme()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     default_epochs = 2
     default_batch_size = 2
     default_data_dir = IDUN_OCELOT_DATA_PATH
     default_checkpoint_interval = 5
     default_learning_rate = 1e-4
     default_warmup_epochs = 0
-    default_pretrained = 1
+    default_pretrained = True
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
@@ -62,7 +65,7 @@ def main():
     )
     parser.add_argument(
         "--pretrained",
-        type=int,
+        type=bool,
         default=default_pretrained,
         help="Use pre-trained weights",
     )
@@ -77,8 +80,6 @@ def main():
     warmup_epochs = args.warmup_epochs
     pretrained = args.pretrained
 
-    sns.set_theme()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
     print(f"Number of epochs: {num_epochs}")
@@ -167,6 +168,13 @@ def main():
     save_name = (
         f"{current_time}_segformer_cell_only_pretrained-{pretrained}_lr-{learning_rate}"
     )
+    save_name = get_save_name(
+        current_time=current_time,
+        model_name="segformer-cell-only",
+        pretrained=pretrained,
+        learning_rate=learning_rate,
+    )
+    print(f"Save name: {save_name}")
 
     train(
         num_epochs=num_epochs,
@@ -178,10 +186,11 @@ def main():
         device=device,
         save_name=save_name,
         checkpoint_interval=checkpoint_interval,
-        break_after_one_iteration=False,
+        break_after_one_iteration=True,
         scheduler=scheduler,
         training_func=run_training_segformer,
         validation_function=run_validation_segformer,
+        do_save_model_and_plot=False,
     )
 
 

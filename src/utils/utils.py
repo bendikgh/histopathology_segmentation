@@ -398,14 +398,17 @@ def get_save_name(
     model_name: str,
     pretrained: bool,
     learning_rate: float,
-    dropout_rate: float,
-    backbone_model: str,
+    dropout_rate: float | None = None,
+    backbone_model: str | None = None,
 ):
-    return (
-        f"{current_time}"
-        f"_{model_name}"
-        f"_pretrained-{pretrained}"
-        f"_lr-{learning_rate:.0e}"
-        f"_dropout-{dropout_rate}"
-        f"_backbone-{backbone_model}"
-    )
+    result = ""
+    result += f"{current_time}"
+    result += f"_{model_name}"
+    result += f"_pretrained-{pretrained}"
+    result += f"_lr-{learning_rate:.0e}"
+    if dropout_rate:
+        result += f"_dropout-{dropout_rate}"
+    if backbone_model:
+        result += f"_backbone-{backbone_model}"
+
+    return result

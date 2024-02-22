@@ -4,7 +4,6 @@ import albumentations as A
 import seaborn as sns
 
 from datetime import datetime
-from glob import glob
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
@@ -14,12 +13,15 @@ from transformers import (
 
 from deeplabv3.network.modeling import _segm_resnet
 from utils.training import train
-from utils.utils import get_ocelot_files
+from utils.utils import get_ocelot_files, get_save_name
 from utils.constants import IDUN_OCELOT_DATA_PATH
 from dataset import CellOnlyDataset
 
 
 def main():
+    sns.set_theme()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     default_epochs = 2
     default_batch_size = 2
     default_data_dir = IDUN_OCELOT_DATA_PATH
@@ -77,9 +79,7 @@ def main():
     learning_rate = args.learning_rate
     pretrained = args.pretrained
     warmup_epochs = args.warmup_epochs
-    sns.set_theme()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
     print(f"Number of epochs: {num_epochs}")
@@ -148,7 +148,15 @@ def main():
         power=1,
     )
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_name = f"{current_time}_deeplabv3plus_cell_only_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone_model}"
+    save_name = get_save_name(
+        current_time=current_time,
+        model_name="deeplabv3plus-cell-only",
+        pretrained=pretrained,
+        learning_rate=learning_rate,
+        dropout_rate=dropout_rate,
+        backbone_model=backbone_model,
+    )
+    print(f"Save name: {save_name}")
 
     train(
         num_epochs=num_epochs,
@@ -160,8 +168,9 @@ def main():
         device=device,
         save_name=save_name,
         checkpoint_interval=checkpoint_interval,
-        break_after_one_iteration=False,
+        break_after_one_iteration=True,
         scheduler=scheduler,
+        do_save_model_and_plot=False,
     )
 
 
