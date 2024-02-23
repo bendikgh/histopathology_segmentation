@@ -6,17 +6,18 @@ import seaborn as sns
 
 from glob import glob
 from monai.losses import DiceLoss
+from torch import nn
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
-from datetime import datetime
 from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
 
-from deeplabv3.network.modeling import _segm_resnet
+# from deeplabv3.network.modeling import _segm_resnet
+from models import DeepLabV3plusModel
 from utils.training import train
 from utils.constants import IDUN_OCELOT_DATA_PATH
-from utils.utils import get_ocelot_files
+from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
 
 
 # Function for crop and scale tissue image
@@ -27,53 +28,8 @@ def main():
     sns.set_theme()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    default_epochs = 2
-    default_batch_size = 2
-    default_data_dir = IDUN_OCELOT_DATA_PATH
-    default_checkpoint_interval = 5
-    default_backbone_model = "resnet50"
-    default_dropout_rate = 0.3
-    default_learning_rate = 1e-4
-    default_pretrained = True
-    default_warmup_epochs = 0
-
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
-    parser.add_argument(
-        "--epochs", type=int, default=default_epochs, help="Number of epochs"
-    )
-    parser.add_argument(
-        "--batch-size", type=int, default=default_batch_size, help="Batch size"
-    )
-    parser.add_argument(
-        "--data-dir", type=str, default=default_data_dir, help="Path to data directory"
-    )
-    parser.add_argument(
-        "--checkpoint-interval",
-        type=int,
-        default=default_checkpoint_interval,
-        help="Checkpoint Interval",
-    )
-    parser.add_argument(
-        "--backbone", type=str, default=default_backbone_model, help="Backbone model"
-    )
-    parser.add_argument(
-        "--dropout", type=float, default=default_dropout_rate, help="Dropout rate"
-    )
-    parser.add_argument(
-        "--learning-rate",
-        type=float,
-        default=default_learning_rate,
-        help="Learning rate",
-    )
-    parser.add_argument(
-        "--pretrained", type=int, default=default_pretrained, help="Pretrained backbone"
-    )
-    parser.add_argument(
-        "--warmup-epochs", type=int, default=default_warmup_epochs, help="Warmup epochs"
-    )
-
-    args = parser.parse_args()
+    args: argparse.Namespace = get_ocelot_args()
     num_epochs = args.epochs
     batch_size = args.batch_size
     data_dir = args.data_dir
@@ -117,14 +73,9 @@ def main():
             A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
             A.HorizontalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
-            # A.Normalize(),
         ],
         additional_targets={"mask1": "mask", "mask2": "mask"},
     )
-    # val_transforms = A.Compose(
-    #     [A.Normalize()],
-    #     additional_targets={"mask1": "mask", "mask2": "mask"},
-    # )
 
     train_cell_tissue_dataset = CellTissueDataset(
         cell_image_files=train_cell_image_files,
@@ -136,7 +87,6 @@ def main():
         cell_image_files=val_cell_image_files,
         cell_target_files=val_cell_target_files,
         tissue_pred_files=val_tissue_predicted,
-        # transform=val_transforms,
     )
 
     train_cell_tissue_dataloader = DataLoader(
@@ -149,42 +99,46 @@ def main():
         dataset=val_cell_tissue_dataset, batch_size=batch_size
     )
 
-    # Create model and optimizer
-    model_cell = _segm_resnet(
-        name="deeplabv3plus",
+    model: nn.Module = DeepLabV3plusModel(
         backbone_name=backbone_model,
         num_classes=3,
-        output_stride=8,
-        pretrained_backbone=True,
-        dropout_rate=dropout_rate,
         num_channels=6,
+        pretrained=pretrained,
+        dropout_rate=dropout_rate,
     )
-    model_cell.to(device)
-    model_cell.train()
+    model.to(device)
 
     loss_function = DiceLoss(softmax=True)
-    optimizer = AdamW(model_cell.parameters(), lr=learning_rate)
+    optimizer = AdamW(model.parameters(), lr=learning_rate)
     scheduler = get_polynomial_decay_schedule_with_warmup(
         optimizer,
         num_warmup_steps=warmup_epochs,
         num_training_steps=num_epochs,
         power=1,
     )
-    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_name = f"{current_time}_deeplabv3plus_cell_branch_lr-{learning_rate}_dropout-{dropout_rate}_backbone-{backbone_model}"
+
+    save_name = get_save_name(
+        model_name="deeplabv3plus-cell-branch",
+        pretrained=pretrained,
+        learning_rate=learning_rate,
+        dropout_rate=dropout_rate,
+        backbone_model=backbone_model,
+    )
+    print(f"Save name: {save_name}")
 
     train(
         num_epochs=num_epochs,
         train_dataloader=train_cell_tissue_dataloader,
         val_dataloader=val_cell_tissue_dataloader,
-        model=model_cell,
+        model=model,
         loss_function=loss_function,
         optimizer=optimizer,
         device=device,
         save_name=save_name,
         checkpoint_interval=checkpoint_interval,
-        break_after_one_iteration=False,
+        break_after_one_iteration=True,
         scheduler=scheduler,
+        do_save_model_and_plot=False,
     )
 
 

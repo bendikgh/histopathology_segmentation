@@ -3,7 +3,6 @@ import torch
 import albumentations as A
 import seaborn as sns
 
-from datetime import datetime
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
@@ -11,74 +10,26 @@ from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
 
-from deeplabv3.network.modeling import _segm_resnet
-from utils.training import train
-from utils.utils import get_ocelot_files, get_save_name
-from utils.constants import IDUN_OCELOT_DATA_PATH
 from dataset import CellOnlyDataset
+from models import DeepLabV3plusModel
+from utils.training import train
+from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
 
 
 def main():
     sns.set_theme()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    default_epochs = 2
-    default_batch_size = 2
-    default_data_dir = IDUN_OCELOT_DATA_PATH
-    default_checkpoint_interval = 5
-    default_backbone_model = "resnet50"
-    default_dropout_rate = 0.3
-    default_learning_rate = 1e-4
-    default_pretrained = True
-    default_warmup_epochs = 0
-
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
-    parser.add_argument(
-        "--epochs", type=int, default=default_epochs, help="Number of epochs"
-    )
-    parser.add_argument(
-        "--batch-size", type=int, default=default_batch_size, help="Batch size"
-    )
-    parser.add_argument(
-        "--data-dir", type=str, default=default_data_dir, help="Path to data directory"
-    )
-    parser.add_argument(
-        "--checkpoint-interval",
-        type=int,
-        default=default_checkpoint_interval,
-        help="Checkpoint Interval",
-    )
-    parser.add_argument(
-        "--backbone", type=str, default=default_backbone_model, help="Backbone model"
-    )
-    parser.add_argument(
-        "--dropout", type=float, default=default_dropout_rate, help="Dropout rate"
-    )
-    parser.add_argument(
-        "--learning-rate",
-        type=float,
-        default=default_learning_rate,
-        help="Learning rate",
-    )
-    parser.add_argument(
-        "--pretrained", type=int, default=default_pretrained, help="Pretrained backbone"
-    )
-    parser.add_argument(
-        "--warmup-epochs", type=int, default=default_warmup_epochs, help="Warmup epochs"
-    )
-
-    args = parser.parse_args()
-
-    num_epochs = args.epochs
-    batch_size = args.batch_size
-    data_dir = args.data_dir
-    checkpoint_interval = args.checkpoint_interval
-    backbone_model = args.backbone
-    dropout_rate = args.dropout
-    learning_rate = args.learning_rate
-    pretrained = args.pretrained
-    warmup_epochs = args.warmup_epochs
+    args: argparse.Namespace = get_ocelot_args()
+    num_epochs: int = args.epochs
+    batch_size: int = args.batch_size
+    data_dir: str = args.data_dir
+    checkpoint_interval: int = args.checkpoint_interval
+    backbone_model: str = args.backbone
+    dropout_rate: float = args.dropout
+    learning_rate: float = args.learning_rate
+    pretrained: bool = args.pretrained
+    warmup_epochs: int = args.warmup_epochs
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -127,14 +78,11 @@ def main():
         dataset=val_dataset, batch_size=batch_size, drop_last=True
     )
 
-    # Create model and optimizer
-    model = _segm_resnet(
-        name="deeplabv3plus",
+    model = DeepLabV3plusModel(
         backbone_name=backbone_model,
         num_classes=3,
         num_channels=3,
-        output_stride=8,
-        pretrained_backbone=pretrained,
+        pretrained=pretrained,
         dropout_rate=dropout_rate,
     )
     model.to(device)
@@ -147,9 +95,7 @@ def main():
         num_training_steps=num_epochs,
         power=1,
     )
-    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
     save_name = get_save_name(
-        current_time=current_time,
         model_name="deeplabv3plus-cell-only",
         pretrained=pretrained,
         learning_rate=learning_rate,

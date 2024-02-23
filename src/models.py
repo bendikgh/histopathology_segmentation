@@ -1,9 +1,14 @@
+import os
+import sys
+
+sys.path.append(os.getcwd())
+
 from torch import nn
-from deeplabv3.network.utils import IntermediateLayerGetter
-from deeplabv3.network.backbone import resnet
+from src.deeplabv3.network.utils import IntermediateLayerGetter
+from src.deeplabv3.network.backbone import resnet
 
 # from deeplabv3.network.modeling import _segm_resnet
-from deeplabv3.network._deeplab import (
+from src.deeplabv3.network._deeplab import (
     DeepLabHeadV3Plus,
     DeepLabV3,
 )

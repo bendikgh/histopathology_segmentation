@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import torch
@@ -6,10 +7,22 @@ import cv2
 import pandas as pd
 import numpy as np
 
+from datetime import datetime
+from glob import glob
 from monai.transforms import SpatialCrop, Resize
 from PIL import Image
 from torchvision.transforms import PILToTensor
-from glob import glob
+from utils.constants import (
+    DEFAULT_BACKBONE_MODEL,
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_CHECKPOINT_INTERVAL,
+    DEFAULT_DATA_DIR,
+    DEFAULT_DROPOUT_RATE,
+    DEFAULT_EPOCHS,
+    DEFAULT_LEARNING_RATE,
+    DEFAULT_PRETRAINED,
+    DEFAULT_WARMUP_EPOCHS,
+)
 
 
 def crop_and_upscale_tissue(
@@ -394,15 +407,15 @@ def get_torch_image(path: str) -> torch.Tensor:
 
 
 def get_save_name(
-    current_time: str,
     model_name: str,
     pretrained: bool,
     learning_rate: float,
     dropout_rate: float | None = None,
     backbone_model: str | None = None,
-):
-    result = ""
-    result += f"{current_time}"
+) -> str:
+    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    result: str = f"{current_time}"
     result += f"_{model_name}"
     result += f"_pretrained-{pretrained}"
     result += f"_lr-{learning_rate:.0e}"
@@ -412,3 +425,65 @@ def get_save_name(
         result += f"_backbone-{backbone_model}"
 
     return result
+
+
+def get_ocelot_args() -> argparse.Namespace:
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=DEFAULT_EPOCHS,
+        help="Number of epochs",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help="Batch size",
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=str,
+        default=DEFAULT_DATA_DIR,
+        help="Path to data directory",
+    )
+    parser.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=DEFAULT_CHECKPOINT_INTERVAL,
+        help="Checkpoint Interval",
+    )
+    parser.add_argument(
+        "--backbone",
+        type=str,
+        default=DEFAULT_BACKBONE_MODEL,
+        help="Backbone model",
+    )
+    parser.add_argument(
+        "--pretrained",
+        type=int,
+        default=DEFAULT_PRETRAINED,
+        help="Pretrained backbone",
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=DEFAULT_DROPOUT_RATE,
+        help="Dropout rate",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=DEFAULT_LEARNING_RATE,
+        help="Learning rate",
+    )
+    parser.add_argument(
+        "--warmup-epochs",
+        type=int,
+        default=DEFAULT_WARMUP_EPOCHS,
+        help="Warmup epochs",
+    )
+
+    args: argparse.Namespace = parser.parse_args()
+    return args

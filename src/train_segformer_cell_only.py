@@ -12,66 +12,22 @@ from transformers import (
 )
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
-from utils.utils import get_ocelot_files, get_save_name
 from torch.optim import AdamW
-from dataset import CellOnlyDataset
-from datetime import datetime
 
+from dataset import CellOnlyDataset
 from utils.training import (
     run_training_segformer,
     run_validation_segformer,
     train,
 )
-from utils.constants import IDUN_OCELOT_DATA_PATH
+from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
 
 
 def main():
     sns.set_theme()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    default_epochs = 2
-    default_batch_size = 2
-    default_data_dir = IDUN_OCELOT_DATA_PATH
-    default_checkpoint_interval = 5
-    default_learning_rate = 1e-4
-    default_warmup_epochs = 0
-    default_pretrained = True
-
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
-    parser.add_argument(
-        "--epochs", type=int, default=default_epochs, help="Number of epochs"
-    )
-    parser.add_argument(
-        "--batch-size", type=int, default=default_batch_size, help="Batch size"
-    )
-    parser.add_argument(
-        "--data-dir", type=str, default=default_data_dir, help="Path to data directory"
-    )
-    parser.add_argument(
-        "--checkpoint-interval",
-        type=int,
-        default=default_checkpoint_interval,
-        help="Checkpoint Interval",
-    )
-    parser.add_argument(
-        "--learning-rate",
-        type=float,
-        default=default_learning_rate,
-        help="Learning rate",
-    )
-    parser.add_argument(
-        "--warmup-epochs", type=int, default=default_warmup_epochs, help="Warmup epochs"
-    )
-    parser.add_argument(
-        "--pretrained",
-        type=bool,
-        default=default_pretrained,
-        help="Use pre-trained weights",
-    )
-
-    args = parser.parse_args()
-
+    args: argparse.Namespace = get_ocelot_args()
     num_epochs = args.epochs
     batch_size = args.batch_size
     data_dir = args.data_dir
@@ -164,12 +120,8 @@ def main():
         power=1,
     )
     loss_fn = DiceLoss(softmax=True, to_onehot_y=True)
-    current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_name = (
-        f"{current_time}_segformer_cell_only_pretrained-{pretrained}_lr-{learning_rate}"
-    )
+
     save_name = get_save_name(
-        current_time=current_time,
         model_name="segformer-cell-only",
         pretrained=pretrained,
         learning_rate=learning_rate,
