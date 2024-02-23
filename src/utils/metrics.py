@@ -37,7 +37,7 @@ def calculate_f1_score(
 
             # Preparing output for peak_local_max
             softmaxed = torch.softmax(output, dim=0)
-            cells, argmaxed = torch.max(input=softmaxed, axis=0)
+            cells, argmaxed = torch.max(input=softmaxed, dim=0)
             argmaxed = argmaxed.cpu().numpy()
             cells = cells.cpu().numpy()
             peak_points_pred = peak_local_max(
@@ -72,12 +72,11 @@ def calculate_f1_score(
 
                 # Calculate distance vector to cell_annotation_list
                 if cell_annotation_list.shape[0] > 0:
-                    distance_squared = (x - cell_annotation_list[:, 0]) ** 2 + (
-                        y - cell_annotation_list[:, 1]
-                    ) ** 2
-                    min_distance_squared, min_distance_cell = np.min(
-                        distance_squared
-                    ), np.argmin(distance_squared)
+                    distance_squared: np.ndarray = (
+                        x - cell_annotation_list[:, 0]
+                    ) ** 2 + (y - cell_annotation_list[:, 1]) ** 2
+                    min_distance_squared: float = np.min(distance_squared)
+                    min_distance_cell: int = np.argmin(distance_squared)
 
                 if min_distance_squared < pixel_radius**2:
                     if cell_annotation_list[min_distance_cell][2] != cell_type:
@@ -139,7 +138,7 @@ def calculate_f1_score_segformer(
 
             # Preparing output for peak_local_max
             softmaxed = torch.softmax(output, dim=0)
-            cells, argmaxed = torch.max(input=softmaxed, axis=0)
+            cells, argmaxed = torch.max(input=softmaxed, dim=0)
             argmaxed = argmaxed.cpu().numpy()
             cells = cells.cpu().numpy()
             peak_points_pred = peak_local_max(
@@ -165,9 +164,8 @@ def calculate_f1_score_segformer(
                     distance_squared = (x - cell_annotation_list[:, 0]) ** 2 + (
                         y - cell_annotation_list[:, 1]
                     ) ** 2
-                    min_distance_squared, min_distance_cell = np.min(
-                        distance_squared
-                    ), np.argmin(distance_squared)
+                    min_distance_squared = np.min(distance_squared)
+                    min_distance_cell: float = np.argmin(distance_squared)
 
                 if min_distance_squared < pixel_radius**2:
                     if cell_annotation_list[min_distance_cell][2] != cell_type:

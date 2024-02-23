@@ -21,6 +21,8 @@ from dataset import TissueDataset
 
 def main():
     sns.set_theme()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     default_epochs = 1
     default_batch_size = 2
     default_data_dir = IDUN_OCELOT_DATA_PATH
@@ -34,13 +36,22 @@ def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
     parser.add_argument(
-        "--epochs", type=int, default=default_epochs, help="Number of epochs"
+        "--epochs",
+        type=int,
+        default=default_epochs,
+        help="Number of epochs",
     )
     parser.add_argument(
-        "--batch-size", type=int, default=default_batch_size, help="Batch size"
+        "--batch-size",
+        type=int,
+        default=default_batch_size,
+        help="Batch size",
     )
     parser.add_argument(
-        "--data-dir", type=str, default=default_data_dir, help="Path to data directory"
+        "--data-dir",
+        type=str,
+        default=default_data_dir,
+        help="Path to data directory",
     )
     parser.add_argument(
         "--checkpoint-interval",
@@ -49,10 +60,16 @@ def main():
         help="Checkpoint Interval",
     )
     parser.add_argument(
-        "--backbone", type=str, default=default_backbone_model, help="Backbone model"
+        "--backbone",
+        type=str,
+        default=default_backbone_model,
+        help="Backbone model",
     )
     parser.add_argument(
-        "--dropout", type=float, default=default_dropout_rate, help="Dropout rate"
+        "--dropout",
+        type=float,
+        default=default_dropout_rate,
+        help="Dropout rate",
     )
     parser.add_argument(
         "--learning-rate",
@@ -61,25 +78,30 @@ def main():
         help="Learning rate",
     )
     parser.add_argument(
-        "--pretrained", type=int, default=default_pretrained, help="Pretrained backbone"
+        "--pretrained",
+        type=bool,
+        default=default_pretrained,
+        help="Pretrained backbone",
     )
     parser.add_argument(
-        "--warmup-epochs", type=int, default=default_warmup_epochs, help="Warmup epochs"
+        "--warmup-epochs",
+        type=int,
+        default=default_warmup_epochs,
+        help="Warmup epochs",
     )
 
     args = parser.parse_args()
 
-    num_epochs = args.epochs
-    batch_size = args.batch_size
-    data_dir = args.data_dir
-    checkpoint_interval = args.checkpoint_interval
-    backbone_model = args.backbone
-    dropout_rate = args.dropout
-    learning_rate = args.learning_rate
-    pretrained = args.pretrained
-    warmup_epochs = args.warmup_epochs
+    num_epochs: int = args.epochs
+    batch_size: int = args.batch_size
+    data_dir: str = args.data_dir
+    checkpoint_interval: int = args.checkpoint_interval
+    backbone_model: str = args.backbone
+    dropout_rate: float = args.dropout
+    learning_rate: float = args.learning_rate
+    pretrained: bool = args.pretrained
+    warmup_epochs: int = args.warmup_epochs
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
     print(f"Number of epochs: {num_epochs}")
@@ -146,7 +168,6 @@ def main():
     )
     model.to(device)
 
-    # loss_function = DiceLoss(softmax=True)
     loss_function = CrossEntropyLoss()
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
@@ -176,9 +197,9 @@ def main():
         device=device,
         save_name=save_name,
         checkpoint_interval=checkpoint_interval,
-        break_after_one_iteration=True,
+        break_after_one_iteration=False,
         scheduler=scheduler,
-        do_save_model_and_plot=False,  # NOTE: Important to change this before training
+        do_save_model_and_plot=True,  # NOTE: Important to change this before training
     )
 
 
