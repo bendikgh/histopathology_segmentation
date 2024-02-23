@@ -61,7 +61,9 @@ def _segm_resnet(name, backbone_name, num_classes, output_stride, pretrained_bac
         new_conv1 = nn.Conv2d(
                 num_channels, input_layer.out_channels,
                 kernel_size=input_layer.kernel_size, stride=input_layer.stride,
-                padding=input_layer.padding)
+                padding=input_layer.padding, 
+                bias=False
+        )
         
         new_conv1.weight.data[:, :3] = input_layer.weight.data
         # new_conv1.weight.data[:] = input_layer.bias.data

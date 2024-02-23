@@ -1,8 +1,11 @@
 import argparse
+import cv2
 import json
 import os
+import sys
 import torch
-import cv2
+
+sys.path.append(os.getcwd())
 
 import pandas as pd
 import numpy as np
@@ -11,8 +14,10 @@ from datetime import datetime
 from glob import glob
 from monai.transforms import SpatialCrop, Resize
 from PIL import Image
-from torchvision.transforms import PILToTensor
-from utils.constants import (
+from torchvision.transforms import PILToTensor, InterpolationMode
+from torchvision.transforms.v2.functional import resized_crop
+
+from src.utils.constants import (
     DEFAULT_BACKBONE_MODEL,
     DEFAULT_BATCH_SIZE,
     DEFAULT_CHECKPOINT_INTERVAL,
@@ -65,7 +70,7 @@ def get_cell_annotations_in_tissue_coordinates(
     return tissue_annotations
 
 
-def get_partition_from_file_name(file_name: str):
+def get_partition_from_file_name(file_name: str) -> str:
     """
     Returns 'train', 'val' or 'test', depending on which number the file name
     has.
@@ -306,6 +311,88 @@ def get_tissue_crops_scaled_tensor(data, image_size: int = 1024):
 
         cell_channels_with_tissue_annotations.append(cell_tensor_tissue_annotation)
     return torch.stack(cell_channels_with_tissue_annotations)
+
+
+def crop_and_resize_tissue_patch(
+    image: torch.Tensor,
+    tissue_mpp: float,
+    cell_mpp: float,
+    x_offset: float,
+    y_offset: float,
+    input_height: int = 1024,
+    input_width: int = 1024,
+) -> torch.Tensor:
+    """
+    Takes in an input image of a tissue patch and crops and resizes it,
+    based on the given MPPs and offsets.
+
+    Args:
+        image (torch.Tensor): A 2D tensor of shape (input_height, input_width)
+            representing the input image to be cropped and resized.
+        tissue_mpp (float): The microscopy pixels per unit for the tissue image.
+        cell_mpp (float): The microscopy pixels per unit for the cell image.
+        x_offset (float): The horizontal offset (as a fraction of width) for the center
+            of the crop area, must be between 0 and 1 inclusive.
+        y_offset (float): The vertical offset (as a fraction of height) for the center
+            of the crop area, must be between 0 and 1 inclusive.
+        input_height (int, optional): The height of the input image. Defaults to 1024.
+        input_width (int, optional): The width of the input image. Defaults to 1024.
+
+    Returns:
+        torch.Tensor: A tensor of the same shape as the input (input_height, input_width)
+            containing the cropped and resized image.
+
+    Raises:
+        ValueError: If the input image does not have the expected shape.
+        ValueError: If tissue_mpp is less than cell_mpp.
+        ValueError: If either offset is not within the [0, 1] range.
+        ValueError: If the calculated crop area extends beyond the bounds of the input image.
+
+    """
+    if image.shape != (input_height, input_width):
+        raise ValueError(
+            f"Image shape is not ({input_height}, {input_width}), but {image.shape}"
+        )
+
+    if tissue_mpp < cell_mpp:
+        raise ValueError(f"Tissue mpp is less than cell mpp: {tissue_mpp} < {cell_mpp}")
+
+    if not (0 <= x_offset <= 1) or not (0 <= y_offset <= 1):
+        raise ValueError(f"Offsets are not in the range [0, 1]: {x_offset}, {y_offset}")
+
+    # Calculating crop size and position
+    scaling_value = cell_mpp / tissue_mpp
+    assert 0 <= scaling_value <= 1
+
+    crop_height = int(input_height * scaling_value)
+    crop_width = int(input_width * scaling_value)
+
+    # Note that the offset is the center of the cropped image
+    top = int(y_offset * input_height - crop_height / 2)
+    left = int(x_offset * input_width - crop_width / 2)
+
+    if top < 0 or top + crop_height > input_height:
+        raise ValueError(
+            f"Top + crop height is not in the range [0, {input_height}]: {top}"
+        )
+    if left < 0 or left + crop_width > input_width:
+        raise ValueError(
+            f"Left + crop width is not in the range [0, {input_width}]: {left}"
+        )
+
+    image = image.unsqueeze(0)
+    crop: torch.Tensor = resized_crop(
+        inpt=image,
+        top=top,
+        left=left,
+        height=crop_height,
+        width=crop_width,
+        size=(input_height, input_width),
+        interpolation=InterpolationMode.NEAREST,
+    )
+    crop = crop.squeeze(0)
+
+    return crop
 
 
 def get_ocelot_files(data_dir: str, partition: str, zoom: str = "cell") -> tuple:
