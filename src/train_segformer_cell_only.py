@@ -35,6 +35,8 @@ def main():
     learning_rate = args.learning_rate
     warmup_epochs = args.warmup_epochs
     pretrained = args.pretrained
+    do_save: bool = args.do_save
+    break_after_one_iteration: bool = args.break_early
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -43,6 +45,8 @@ def main():
     print(f"Learning rate: {learning_rate}")
     print(f"Checkpoint interval: {checkpoint_interval}")
     print(f"Warmup epochs: {warmup_epochs}")
+    print(f"Do save: {do_save}")
+    print(f"Break after one iteration: {break_after_one_iteration}")
     print(f"Device: {device}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
@@ -138,11 +142,11 @@ def main():
         device=device,
         save_name=save_name,
         checkpoint_interval=checkpoint_interval,
-        break_after_one_iteration=True,
+        break_after_one_iteration=break_after_one_iteration,
         scheduler=scheduler,
         training_func=run_training_segformer,
         validation_function=run_validation_segformer,
-        do_save_model_and_plot=False,
+        do_save_model_and_plot=do_save,
     )
 
 

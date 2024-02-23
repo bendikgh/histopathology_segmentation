@@ -88,7 +88,7 @@ def create_cropped_tissue_predictions(
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_path: str = (
-        "outputs/models/2024-01-21_15-48-32_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-30.pth"
+        "outputs/models/20240223_105459_deeplabv3plus-tissue-branch_pretrained-True_lr-1e-04_dropout-0.3_backbone-resnet50_epochs-60.pth"
     )
 
     print("Setting up tissue predictions!")

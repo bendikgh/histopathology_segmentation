@@ -27,6 +27,8 @@ from src.utils.constants import (
     DEFAULT_LEARNING_RATE,
     DEFAULT_PRETRAINED,
     DEFAULT_WARMUP_EPOCHS,
+    DEFAULT_BREAK_AFTER_ONE_ITERATION,
+    DEFAULT_DO_SAVE,
 )
 
 
@@ -515,6 +517,10 @@ def get_save_name(
 
 
 def get_ocelot_args() -> argparse.Namespace:
+    # NOTE: Bool arguments must be 0 or 1, because otherwise argparser will
+    # handle the presence of the argument as "true", despite setting it to
+    # false
+
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Train Deeplabv3plus model")
     parser.add_argument(
@@ -570,6 +576,18 @@ def get_ocelot_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_WARMUP_EPOCHS,
         help="Warmup epochs",
+    )
+    parser.add_argument(
+        "--break-early",
+        type=int,
+        default=DEFAULT_BREAK_AFTER_ONE_ITERATION,
+        help="Break after one iteration",
+    )
+    parser.add_argument(
+        "--do-save",
+        type=int,
+        default=DEFAULT_DO_SAVE,
+        help="Whether to save and plot or not",
     )
 
     args: argparse.Namespace = parser.parse_args()

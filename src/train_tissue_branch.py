@@ -31,6 +31,8 @@ def main():
     learning_rate: float = args.learning_rate
     pretrained: bool = args.pretrained
     warmup_epochs: int = args.warmup_epochs
+    do_save: bool = args.do_save
+    break_after_one_iteration: bool = args.break_early
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -42,6 +44,8 @@ def main():
     print(f"Checkpoint interval: {checkpoint_interval}")
     print(f"Pretrained: {pretrained}")
     print(f"Warmup epochs: {warmup_epochs}")
+    print(f"Do save: {do_save}")
+    print(f"Break after one iteration: {break_after_one_iteration}")
     print(f"Device: {device}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
@@ -54,24 +58,27 @@ def main():
     )
 
     # Create dataset and dataloader
-    transforms = A.Compose(
+    train_transforms = A.Compose(
         [
             A.GaussianBlur(blur_limit=(3, 7), p=0.5),
             A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
             A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
             A.HorizontalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
+            A.Normalize(),
         ]
     )
+    val_transforms = A.Compose([A.Normalize()])
 
     train_tissue_dataset = TissueDataset(
         image_files=train_tissue_image_files,
         seg_files=train_tissue_target_files,
-        transform=transforms,
+        transform=train_transforms,
     )
     val_tissue_dataset = TissueDataset(
         image_files=val_tissue_image_files,
         seg_files=val_tissue_target_files,
+        transform=val_transforms,
     )
 
     train_tissue_dataloader = DataLoader(
@@ -85,6 +92,7 @@ def main():
         batch_size=batch_size,
         drop_last=True,
     )
+
     model = DeepLabV3plusModel(
         backbone_name=backbone_model,
         num_classes=3,
@@ -121,9 +129,9 @@ def main():
         device=device,
         save_name=save_name,
         checkpoint_interval=checkpoint_interval,
-        break_after_one_iteration=True,
+        break_after_one_iteration=break_after_one_iteration,
         scheduler=scheduler,
-        do_save_model_and_plot=False,  # NOTE: Important to change this before training
+        do_save_model_and_plot=do_save,  # NOTE: Important to change this before training
     )
 
 
