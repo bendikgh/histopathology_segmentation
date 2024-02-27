@@ -36,7 +36,6 @@ import cv2
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
-import seaborn as sns
 
 from glob import glob
 from monai.data import DataLoader
@@ -48,7 +47,6 @@ from torch.nn.functional import one_hot
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"device: {device}")
-sns.set_theme()
 ```
 
 ```{python}
@@ -168,7 +166,7 @@ tissue_cell_model = _segm_resnet(
 tissue_cell_model.to(device)
 tissue_cell_model.load_state_dict(
     torch.load(
-        "outputs/models/20240218_223520_deeplabv3plus_cell_branch_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-100.pth"
+        "outputs/models/20240216_211905_deeplabv3plus_cell_branch_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-100.pth"
     )
 )
 tissue_cell_model.eval()
@@ -190,7 +188,7 @@ tissue_model = _segm_resnet(
 tissue_model.to(device)
 tissue_model.load_state_dict(
     torch.load(
-        "outputs/models/20240221_212019_deeplabv3plus_tissue_branch_lr-0.0001_dropout-0.1_backbone-resnet50_epochs-50.pth"
+        "outputs/models/2024-01-21_15-48-32_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-30.pth"
     )
 )
 tissue_model.eval()
@@ -205,7 +203,7 @@ print()
 ```
 
 ```{python}
-index = 2
+index = 0
 
 image, label_cell = val_cell_tissue_dataset[index]
 
@@ -237,13 +235,7 @@ print(tissue_ground_truth.shape)
 converter = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 tissue_image_input = cv2.imread(val_tissue_image_path).astype(np.float32)
-tissue_image_input = cv2.cvtColor(tissue_image_input, cv2.COLOR_BGR2RGB)
-
 tissue_image_input = torch.from_numpy(tissue_image_input).permute(2, 0, 1).to(device)
-print(tissue_image_input.shape)
-print(tissue_image_input.min())
-print(tissue_image_input.max())
-print(tissue_image_input.dtype)
 
 outputs_tissue_model = tissue_model(tissue_image_input.unsqueeze(0)/255)
 tissue_prediction = outputs_tissue_model[0].detach().cpu()
@@ -263,8 +255,6 @@ print(argmaxed_cell_prediction.shape)
 ```
 
 ```{python}
-print(num)
-
 plt.figure(figsize=(20, 20))
 plt.axis("off")
 
@@ -302,7 +292,6 @@ plt.subplot(3, 3, 7)
 plt.imshow(255*tissue_prediction)
 plt.title("Tissue prediction")
 plt.axis("off")
-plt.grid(color="white", linestyle="-", linewidth=2)
 
 plt.tight_layout()
 plt.show()

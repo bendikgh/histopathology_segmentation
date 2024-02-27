@@ -29,85 +29,91 @@ else:
 ```
 
 ```{python}
-import os
+import cv2
 import torch
+import numpy as np
+import matplotlib.pyplot as plt
 
-from glob import glob
-from monai.losses import DiceLoss
-from monai.data import ImageDataset
-from torch.utils.data import DataLoader
-from torch.optim import Adam
-
-from src.deeplabv3.network.modeling import _segm_resnet
-from src.train_utils import train
+from src.utils.utils import get_ocelot_files
+from src.utils.constants import IDUN_OCELOT_DATA_PATH
 ```
 
 ```{python}
-
-num_epochs = 2
-batch_size = 2
-data_dir = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
-checkpoint_interval = 5
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("Training with the following parameters:")
-print(f"Data directory: {data_dir}")
-print(f"Number of epochs: {num_epochs}")
-print(f"Batch size: {batch_size}")
-print(f"Checkpoint interval: {checkpoint_interval}")
-print(f"Device: {device}")
-print(f"Number of GPUs: {torch.cuda.device_count()}")
-
-train_seg_files = glob(os.path.join(data_dir, "annotations/train/segmented_cell/*"))
-train_image_numbers = [
-    file_name.split("/")[-1].split(".")[0] for file_name in train_seg_files
-]
-train_image_files = [
-    os.path.join(data_dir, "images/train/cell", image_number + ".jpg")
-    for image_number in train_image_numbers
-]
-
-val_seg_files = glob(os.path.join(data_dir, "annotations/val/segmented_cell/*"))
-val_image_numbers = [
-    file_name.split("/")[-1].split(".")[0] for file_name in val_seg_files
-]
-val_image_files = [
-    os.path.join(data_dir, "images/val/cell", image_number + ".jpg")
-    for image_number in val_image_numbers
-]
-
-# Create dataset and dataloader
-train_dataset = ImageDataset(
-    image_files=train_image_files, seg_files=train_seg_files
+train_cell_image_files, train_cell_target_files = get_ocelot_files(
+    data_dir=IDUN_OCELOT_DATA_PATH,
+    partition="train",
+    zoom="cell"
 )
-val_dataset = ImageDataset(image_files=val_image_files, seg_files=val_seg_files)
-
-train_dataloader = DataLoader(
-    dataset=train_dataset, batch_size=batch_size, shuffle=True
+train_tissue_image_files, train_tissue_target_files = get_ocelot_files(
+    data_dir=IDUN_OCELOT_DATA_PATH,
+    partition="train",
+    zoom="tissue"
 )
-val_dataloader = DataLoader(dataset=val_dataset, batch_size=batch_size)
+```
 
-model = _segm_resnet(
-    name="deeplabv3plus",
-    backbone_name="resnet50",
-    num_classes=3,
-    output_stride=8,
-    pretrained_backbone=True,
+```{python}
+print(train_cell_image_files)
+print(len(train_cell_image_files)) # This is 395
+
+cell_images = np.zeros((len(train_cell_image_files), 1024, 1024, 3), dtype=np.double)
+
+for idx, path in enumerate(train_cell_image_files):  
+  image = cv2.imread(path)
+  image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+  image = image.astype(np.double) / 255.0
+  cell_images[idx, ...] = image[:]
+
+# NOTE: axis=(0, 1, 2) only works with double precision
+print(cell_images.mean(axis=(0, 1, 2))) 
+print(cell_images.std(axis=(0, 1, 2)))
+```
+
+```{python}
+print(train_tissue_image_files)
+print(len(train_tissue_image_files)) # This is 395
+
+tissue_images = np.zeros((len(train_tissue_image_files), 1024, 1024, 3), dtype=np.double)
+
+for idx, path in enumerate(train_tissue_image_files):  
+  image = cv2.imread(path)
+  image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+  image = image.astype(np.double) / 255.0
+  tissue_images[idx, ...] = image[:]
+
+# NOTE: axis=(0, 1, 2) only works with double precision
+print(tissue_images.mean(axis=(0, 1, 2))) 
+print(tissue_images.std(axis=(0, 1, 2)))
+```
+
+```{python}
+from glob import glob
+# Checking the written images 
+
+train_tissue_predicted = glob(
+    os.path.join(IDUN_OCELOT_DATA_PATH, "annotations/train/pred_tissue/*")
 )
-model.to(device)
+train_tissue_predicted.sort(key = lambda x: int(x.split("/")[-1].split(".")[0]))
+print(train_tissue_predicted[-10:])
+print(train_cell_image_files[-10:])
 
-loss_function = DiceLoss(softmax=True)
-optimizer = Adam(model.parameters(), lr=1e-3)
 
-train(
-    num_epochs=num_epochs,
-    train_dataloader=train_dataloader,
-    val_dataloader=val_dataloader,
-    model=model,
-    loss_function=loss_function,
-    optimizer=optimizer,
-    device=device,
-    checkpoint_interval=checkpoint_interval,
-    break_after_one_iteration=False,
-)
+for i in range(360, len(train_tissue_predicted)): 
+  cell_path = train_cell_image_files[i]
+  pred_path = train_tissue_predicted[i]
+
+  cell_img = cv2.imread(cell_path)
+  cell_img = cv2.cvtColor(cell_img, cv2.COLOR_BGR2RGB)
+
+  pred_img = cv2.imread(pred_path)
+  pred_img = cv2.cvtColor(pred_img, cv2.COLOR_BGR2RGB)
+
+  fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+  ax[0].imshow(cell_img)
+  ax[0].set_title("Cell Image")
+
+  ax[1].imshow(pred_img*255)
+  ax[1].set_title("Prediction")
+  plt.show()
+
+
 ```

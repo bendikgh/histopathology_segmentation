@@ -1,9 +1,14 @@
 import cv2
-import numpy as np
+import os
+import sys
 import torch
+import numpy as np
+
 from torch.utils.data import Dataset
 
-from utils.constants import NUMPY_STANDARD_IMAGE_SHAPE, PYTORCH_STANDARD_IMAGE_SHAPE
+sys.path.append(os.getcwd())
+
+from src.utils.constants import NUMPY_STANDARD_IMAGE_SHAPE, PYTORCH_STANDARD_IMAGE_SHAPE
 
 
 class TissueDataset(Dataset):
@@ -76,7 +81,10 @@ class TissueDataset(Dataset):
             image = transformed["image"]
             seg_image = transformed["mask"]
 
-        image = image.astype(np.float32) / 255.0
+        if image.dtype == np.uint8:
+            image = image.astype(np.float32) / 255.0
+        elif image.dtype != np.float32:
+            image = image.astype(np.float32)
         seg_image = seg_image.astype(np.int64)
 
         # Convert image to tensor
@@ -86,50 +94,6 @@ class TissueDataset(Dataset):
         self._validate_return_tensor(image_torch, seg_image_torch)
 
         return image_torch, seg_image_torch
-
-
-# class TissueLeakingDataset(ImageDataset):
-#     def __init__(
-#         self, input_files, cell_seg_files, tissue_seg_files, transform=None
-#     ) -> None:
-#         self.image_files = input_files
-#         self.cell_seg_files = cell_seg_files
-#         self.tissue_seg_files = tissue_seg_files
-#         self.to_tensor = ToTensor()
-#         self.transform = transform
-
-#     def __getitem__(self, idx):
-#         image_path = self.image_files[idx]
-#         cell_seg_path = self.cell_seg_files[idx]
-#         tissue_seg_path = self.tissue_seg_files[idx]
-
-#         image = self.to_tensor(Image.open(image_path).convert("RGB"))
-#         cell_seg = self.to_tensor(Image.open(cell_seg_path).convert("RGB")) * 255
-
-#         # Represented as 0-1 encoding
-#         tissue_seg = self.to_tensor(Image.open(tissue_seg_path).convert("P")) * 255
-
-#         if self.transform:
-#             transformed = self.transform(
-#                 image=np.array(image.permute((1, 2, 0))),
-#                 mask1=np.array(cell_seg.permute((1, 2, 0))),
-#                 mask2=np.array(tissue_seg.permute((1, 2, 0))),
-#             )
-#             image = torch.tensor(transformed["image"]).permute((2, 0, 1))
-#             cell_seg = torch.tensor(transformed["mask1"]).permute((2, 0, 1))
-#             tissue_seg = torch.tensor(transformed["mask2"]).permute((2, 0, 1))
-
-#         image = torch.cat((image, tissue_seg), dim=0)
-
-#         return image, cell_seg
-
-#     def get_cell_annotation_list(self, idx):
-#         """Returns a list of cell annotations for a given image index"""
-#         path = self.image_files[idx]
-#         cell_annotation_path = "annotations".join(path.split("images")).replace(
-#             "jpg", "csv"
-#         )
-#         return np.loadtxt(cell_annotation_path, delimiter=",", dtype=np.int32, ndmin=2)
 
 
 class CellTissueDataset(Dataset):

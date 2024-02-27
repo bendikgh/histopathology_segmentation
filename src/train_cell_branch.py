@@ -16,7 +16,6 @@ from transformers import (
 # from deeplabv3.network.modeling import _segm_resnet
 from models import DeepLabV3plusModel
 from utils.training import train
-from utils.constants import IDUN_OCELOT_DATA_PATH
 from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
 
 
@@ -68,6 +67,8 @@ def main():
         os.path.join(data_dir, "annotations/train/pred_tissue/*")
     )
     val_tissue_predicted = glob(os.path.join(data_dir, "annotations/val/pred_tissue/*"))
+    train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+    val_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
 
     # Create dataset and dataloader
     train_transforms = A.Compose(
@@ -77,13 +78,12 @@ def main():
             A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
             A.HorizontalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
-            A.Normalize(),
         ],
         additional_targets={"mask1": "mask", "mask2": "mask"},
     )
-    val_transforms = A.Compose(
-        [A.Normalize()], additional_targets={"mask1": "mask", "mask2": "mask"}
-    )
+    # val_transforms = A.Compose(
+    #     [A.Normalize()], additional_targets={"mask1": "mask", "mask2": "mask"}
+    # )
 
     train_cell_tissue_dataset = CellTissueDataset(
         cell_image_files=train_cell_image_files,
@@ -95,7 +95,7 @@ def main():
         cell_image_files=val_cell_image_files,
         cell_target_files=val_cell_target_files,
         tissue_pred_files=val_tissue_predicted,
-        transform=val_transforms,
+        # transform=val_transforms,
     )
 
     train_cell_tissue_dataloader = DataLoader(

@@ -29,7 +29,7 @@ def create_cropped_tissue_predictions(
 
     # Getting the correct paths
     tissue_crop_path = os.path.join(
-        ocelot_data_path, "annotations", partition, "cropped_tissue"
+        ocelot_data_path, "annotations", partition, "pred_tissue"
     )
     tissue_path = os.path.join(ocelot_data_path, "images", partition, "tissue")
     tissue_files = sorted(

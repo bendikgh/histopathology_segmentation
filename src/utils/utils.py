@@ -411,7 +411,7 @@ def get_ocelot_files(data_dir: str, partition: str, zoom: str = "cell") -> tuple
                         and 'images' subdirectories.
         partition (str): Dataset partition to retrieve files from. Must be
                          'train', 'val', or 'test'.
-        kind (str, optional): Type of images to retrieve ('cell' or 'tissue').
+        zoom (str, optional): Type of images to retrieve ('cell' or 'tissue').
                               Defaults to 'cell'.
 
     Returns:
@@ -444,6 +444,9 @@ def get_ocelot_files(data_dir: str, partition: str, zoom: str = "cell") -> tuple
         os.path.join(data_dir, f"images/{partition}/{zoom}", image_number + ".jpg")
         for image_number in image_numbers
     ]
+    # Sorting by image numbers
+    target_files.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+    image_files.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
     return image_files, target_files
 
 
