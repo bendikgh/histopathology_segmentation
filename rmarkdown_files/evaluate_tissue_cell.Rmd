@@ -36,17 +36,20 @@ import cv2
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
+import seaborn as sns
 
 from glob import glob
 from monai.data import DataLoader
 
 from src.deeplabv3.network.modeling import _segm_resnet
+from src.models import DeepLabV3plusModel
 from src.dataset import CellTissueDataset
 from src.utils.metrics import calculate_f1_score
 from torch.nn.functional import one_hot 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"device: {device}")
+sns.set_theme()
 ```
 
 ```{python}
@@ -101,20 +104,7 @@ test_tissue_predicted = glob(os.path.join(data_path, "annotations/test/pred_tiss
 ```
 
 ```{python}
-transforms = A.Compose(
-    [
-        A.GaussianBlur(blur_limit=(3, 7), p=0.5),
-        A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
-        A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
-        A.HorizontalFlip(p=0.5),
-        A.RandomRotate90(p=0.5),
-    ],
-    additional_targets={"mask1": "mask", "mask2": "mask"},
-)
-```
-
-```{python}
-batch_size = 3
+batch_size = 1
 
 train_cell_tissue_dataset = CellTissueDataset(
     cell_image_files=train_image_files,
@@ -154,19 +144,17 @@ val_tissue_dataset = CellTissueDataset(
 ```{python}
 backbone = "resnet50"
 dropout_rate = 0.3
-tissue_cell_model = _segm_resnet(
-    name="deeplabv3plus",
-    backbone_name=backbone,
+tissue_cell_model = DeepLabV3plusModel(
+    backbone_name="resnet50",
     num_classes=3,
-    output_stride=8,
-    pretrained_backbone=True,
-    dropout_rate=dropout_rate,
     num_channels=6,
+    pretrained=True,
+    dropout_rate=dropout_rate,
 )
 tissue_cell_model.to(device)
 tissue_cell_model.load_state_dict(
     torch.load(
-        "outputs/models/20240216_211905_deeplabv3plus_cell_branch_lr-0.0001_dropout-0.3_backbone-resnet50_epochs-100.pth"
+        "outputs/models/20240228_192603_deeplabv3plus-cell-branch_pretrained-1_lr-5e-05_dropout-0.3_backbone-resnet50_epochs-100.pth"
     )
 )
 tissue_cell_model.eval()
@@ -176,19 +164,17 @@ print()
 ```{python}
 backbone = "resnet50"
 dropout_rate = 0.3
-tissue_model = _segm_resnet(
-    name="deeplabv3plus",
-    backbone_name=backbone,
+tissue_model = DeepLabV3plusModel(
+    backbone_name="resnet50",
     num_classes=3,
-    output_stride=8,
-    pretrained_backbone=True,
-    dropout_rate=dropout_rate,
     num_channels=3,
+    pretrained=True,
+    dropout_rate=dropout_rate,
 )
 tissue_model.to(device)
 tissue_model.load_state_dict(
     torch.load(
-        "outputs/models/2024-01-21_15-48-32_deeplabv3plus_tissue_branch_lr-1e-05_dropout-0.3_backbone-resnet50_epochs-30.pth"
+        "outputs/models/20240228_192603_deeplabv3plus-tissue-branch_pretrained-1_lr-5e-05_dropout-0.3_backbone-resnet50_epochs-100.pth"
     )
 )
 tissue_model.eval()
@@ -203,7 +189,7 @@ print()
 ```
 
 ```{python}
-index = 0
+index = 4
 
 image, label_cell = val_cell_tissue_dataset[index]
 
@@ -212,12 +198,16 @@ num = file_name.split("/")[-1].split(".")[0]
 
 val_tissue_image_path = os.path.join(data_path, "images", "val", "tissue", num + ".jpg")
 val_tissue_ground_truth_path = os.path.join(data_path, "annotations", "val", "tissue", num + ".png")
+val_tissue_ground_truth_cropped_path = os.path.join(data_path, "annotations", "val", "cropped_tissue", num + ".png")
 
 tissue_ground_truth = torch.from_numpy(cv2.imread(val_tissue_ground_truth_path)).permute(2, 0, 1)
 tissue_ground_truth[tissue_ground_truth == 255] = 3
 tissue_ground_truth -= 1
 tissue_ground_truth = tissue_ground_truth[0].to(torch.long)
 
+
+tissue_ground_truth_cropped = cv2.imread(val_tissue_ground_truth_cropped_path)
+tissue_ground_truth_cropped = torch.from_numpy(cv2.cvtColor(tissue_ground_truth_cropped, cv2.COLOR_BGR2RGB))
 
 tissue_ground_truth = one_hot(tissue_ground_truth, num_classes=3)
 cell_image = image[:3]
@@ -235,7 +225,13 @@ print(tissue_ground_truth.shape)
 converter = torch.tensor([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
 tissue_image_input = cv2.imread(val_tissue_image_path).astype(np.float32)
+tissue_image_input = cv2.cvtColor(tissue_image_input, cv2.COLOR_BGR2RGB)
+
 tissue_image_input = torch.from_numpy(tissue_image_input).permute(2, 0, 1).to(device)
+print(tissue_image_input.shape)
+print(tissue_image_input.min())
+print(tissue_image_input.max())
+print(tissue_image_input.dtype)
 
 outputs_tissue_model = tissue_model(tissue_image_input.unsqueeze(0)/255)
 tissue_prediction = outputs_tissue_model[0].detach().cpu()
@@ -246,15 +242,58 @@ print(tissue_prediction.shape)
 ```
 
 ```{python}
-outputs = tissue_cell_model(image.unsqueeze(0).to(device))
-output = outputs[0].cpu()
+from skimage.feature import peak_local_max
+from torch.nn.functional import softmax
+from src.utils.utils import create_cell_segmentation_image
 
-argmaxed_cell_prediction = output.argmax(0)
+cell_predictions = tissue_cell_model(image.unsqueeze(0).to(device))
+cell_prediction = cell_predictions[0].cpu().detach()
+
+argmaxed_cell_prediction = cell_prediction.argmax(0)
 argmaxed_cell_prediction = converter[argmaxed_cell_prediction.cpu().detach()]
-print(argmaxed_cell_prediction.shape)
+# print(argmaxed_cell_prediction.shape)
+
+
+
+## Peak local max
+
+softmaxed = softmax(cell_prediction, dim=0)
+
+# max values and indices
+confidences, predictions = torch.max(softmaxed, dim=0)
+confidences, predictions = confidences.numpy(), predictions.numpy()
+peak_points_pred = peak_local_max(
+    confidences,
+    min_distance=20,
+    labels=np.logical_or(predictions == 1, predictions == 2),
+    threshold_abs=0.01,
+)
+
+n = peak_points_pred.shape[0]
+annotations = np.zeros(shape=(n, 3))
+annotations[:, 0] = peak_points_pred[:, 1]
+annotations[:, 1] = peak_points_pred[:, 0]
+
+annotations[:, 2] = predictions[peak_points_pred[:, 0], peak_points_pred[:, 1]]
+
+for i in range(len(annotations[:, 2])):
+    if annotations[i, 2] == 1: 
+        annotations[i, 2] = 2
+    elif annotations[i, 2] == 2: 
+        annotations[i, 2] = 1
+
+annotations = annotations.astype(np.int64)
+peak_cell_prediction = create_cell_segmentation_image(annotations, cell_mpp=0.2)
+
+
+# peak_cell_prediction = np.zeros(shape=(1024, 1024))
+# peak_cell_prediction[peak_points_pred[:, 0], peak_points_pred[:, 1]] = predictions[peak_points_pred[:, 0], peak_points_pred[:, 1]]
+# peak_cell_prediction = converter[peak_cell_prediction]
 ```
 
 ```{python}
+print(num)
+
 plt.figure(figsize=(20, 20))
 plt.axis("off")
 
@@ -293,6 +332,17 @@ plt.imshow(255*tissue_prediction)
 plt.title("Tissue prediction")
 plt.axis("off")
 
+plt.subplot(3, 3, 8)
+plt.imshow(255*peak_cell_prediction)
+plt.title("Peak cell prediction")
+plt.axis("off")
+
+plt.subplot(3, 3, 9)
+plt.imshow(255*tissue_ground_truth_cropped)
+plt.title("Tissue label cropped")
+plt.axis("off")
+
+plt.grid(color="white", linestyle="-", linewidth=2)
 plt.tight_layout()
 plt.show()
 ```
