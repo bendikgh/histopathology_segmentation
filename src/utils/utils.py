@@ -321,8 +321,6 @@ def crop_and_resize_tissue_patch(
     cell_mpp: float,
     x_offset: float,
     y_offset: float,
-    input_height: int = 1024,
-    input_width: int = 1024,
 ) -> torch.Tensor:
     """
     Takes in an input image of a tissue patch and crops and resizes it,
@@ -337,8 +335,6 @@ def crop_and_resize_tissue_patch(
             of the crop area, must be between 0 and 1 inclusive.
         y_offset (float): The vertical offset (as a fraction of height) for the center
             of the crop area, must be between 0 and 1 inclusive.
-        input_height (int, optional): The height of the input image. Defaults to 1024.
-        input_width (int, optional): The width of the input image. Defaults to 1024.
 
     Returns:
         torch.Tensor: A tensor of the same shape as the input (input_height, input_width)
@@ -351,10 +347,13 @@ def crop_and_resize_tissue_patch(
         ValueError: If the calculated crop area extends beyond the bounds of the input image.
 
     """
-    if image.shape != (input_height, input_width):
+    if len(image.shape) != 2:
         raise ValueError(
-            f"Image shape is not ({input_height}, {input_width}), but {image.shape}"
+            f"Input image is not 2D, but {image.shape}"
         )
+
+    input_height = image.shape[0]
+    input_width = image.shape[1]
 
     if tissue_mpp < cell_mpp:
         raise ValueError(f"Tissue mpp is less than cell mpp: {tissue_mpp} < {cell_mpp}")

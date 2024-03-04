@@ -4,8 +4,8 @@ import albumentations as A
 import seaborn as sns
 
 from glob import glob
-from torch.nn import CrossEntropyLoss
 from torch.utils.data import DataLoader
+from loss import DiceLossWrapper
 from torch.optim import AdamW
 from transformers import (
     get_polynomial_decay_schedule_with_warmup,
@@ -56,19 +56,19 @@ def main():
     val_tissue_image_files, val_tissue_target_files = get_ocelot_files(
         data_dir=data_dir, partition="val", zoom="tissue"
     )
+    val_transforms = A.Compose([A.Normalize(mean=(0.75928293, 0.57434749, 0.6941771), std=(0.1899926, 0.2419049, 0.18382073))])
 
-    # Create dataset and dataloader
     train_transforms = A.Compose(
         [
-            A.GaussianBlur(blur_limit=(3, 7), p=0.5),
-            A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
-            A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
-            A.HorizontalFlip(p=0.5),
-            A.RandomRotate90(p=0.5),
-            A.Normalize(),
+            A.GaussianBlur(),
+            A.GaussNoise(),
+            A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05),
+            A.HorizontalFlip(),
+            A.Normalize(mean=(0.75928293, 0.57434749, 0.6941771), std=(0.1899926, 0.2419049, 0.18382073))
+            # A.RandomRotate90(),
+            # A.Downscale(),
         ]
     )
-    val_transforms = A.Compose([A.Normalize()])
 
     train_tissue_dataset = TissueDataset(
         image_files=train_tissue_image_files,
@@ -84,13 +84,13 @@ def main():
     train_tissue_dataloader = DataLoader(
         dataset=train_tissue_dataset,
         batch_size=batch_size,
-        drop_last=True,
+        drop_last=False,
         shuffle=True,
     )
     val_tissue_dataloader = DataLoader(
         dataset=val_tissue_dataset,
         batch_size=batch_size,
-        drop_last=True,
+        drop_last=False,
     )
 
     model = DeepLabV3plusModel(
@@ -102,7 +102,7 @@ def main():
     )
     model.to(device)
 
-    loss_function = CrossEntropyLoss()
+    loss_function = DiceLossWrapper(to_onehot_y=True, softmax=True)
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
     scheduler = get_polynomial_decay_schedule_with_warmup(
