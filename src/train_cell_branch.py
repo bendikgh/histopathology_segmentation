@@ -63,8 +63,18 @@ def main():
         data_dir=data_dir, partition="val", zoom="cell"
     )
 
+    image_nums = [x.split("/")[-1].split(".")[0] for x in train_cell_image_files]
+
     train_tissue_predicted = glob(
         os.path.join(data_dir, "annotations/train/pred_tissue/*")
+    )
+    train_tissue_predicted = [
+        file
+        for file in train_tissue_predicted
+        if file.split("/")[-1].split(".")[0] in image_nums
+    ]
+    train_tissue_predicted = sorted(
+        train_tissue_predicted, key=lambda x: int(x.split("/")[-1].split(".")[0])
     )
     val_tissue_predicted = glob(os.path.join(data_dir, "annotations/val/pred_tissue/*"))
     train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
@@ -78,12 +88,13 @@ def main():
             A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
             A.HorizontalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
+            # A.Normalize(),
         ],
         additional_targets={"mask1": "mask", "mask2": "mask"},
     )
-    # val_transforms = A.Compose(
-    #     [A.Normalize()], additional_targets={"mask1": "mask", "mask2": "mask"}
-    # )
+    val_transforms = A.Compose(
+        [A.Normalize()], additional_targets={"mask1": "mask", "mask2": "mask"}
+    )
 
     train_cell_tissue_dataset = CellTissueDataset(
         cell_image_files=train_cell_image_files,

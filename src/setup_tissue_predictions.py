@@ -2,12 +2,15 @@ import cv2
 import os
 import json
 import torch
+import sys
 import numpy as np
 import torch.nn.functional as F
 
-from utils.constants import IDUN_OCELOT_DATA_PATH
-from utils.utils import get_torch_image, crop_and_resize_tissue_patch
-from deeplabv3.network.modeling import _segm_resnet
+sys.path.append(os.getcwd())
+
+from src.utils.constants import IDUN_OCELOT_DATA_PATH, CELL_IMAGE_MEAN, CELL_IMAGE_STD
+from src.utils.utils import get_torch_image, crop_and_resize_tissue_patch
+from src.models import DeepLabV3plusModel
 
 
 def create_cropped_tissue_predictions(
@@ -59,6 +62,11 @@ def create_cropped_tissue_predictions(
         # Format: (3, 1024, 1024), 0-1, torch.float32
         image_torch = get_torch_image(path)
 
+        # Normalizing
+        mean = torch.tensor(CELL_IMAGE_MEAN).reshape(3, 1, 1)
+        std = torch.tensor(CELL_IMAGE_STD).reshape(3, 1, 1)
+        image_torch = (image_torch - mean) / std
+
         # Feed the image into the model
         image_torch = image_torch.unsqueeze(0).to(device)
         model_tissue.to(device)
@@ -88,7 +96,7 @@ def create_cropped_tissue_predictions(
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_path: str = (
-        "outputs/models/20240223_105459_deeplabv3plus-tissue-branch_pretrained-True_lr-1e-04_dropout-0.3_backbone-resnet50_epochs-60.pth"
+        "outputs/models/20240303_205501_deeplabv3plus-tissue-branch_pretrained-1_lr-6e-05_dropout-0.1_backbone-resnet50_epochs-100.pth"
     )
 
     print("Setting up tissue predictions!")
@@ -97,23 +105,21 @@ if __name__ == "__main__":
 
     backbone: str = "resnet50"
     dropout_rate = 0.3
-    model_tissue = _segm_resnet(
-        name="deeplabv3plus",
+    model = DeepLabV3plusModel(
         backbone_name=backbone,
         num_classes=3,
         num_channels=3,
-        output_stride=8,
-        pretrained_backbone=True,
+        pretrained=True,
         dropout_rate=dropout_rate,
     )
-    model_tissue.load_state_dict(torch.load(model_path))
-    model_tissue.to(device)
-    model_tissue.eval()
+    model.load_state_dict(torch.load(model_path))
+    model.to(device)
+    model.eval()
 
     print("Creating images for train set...")
-    create_cropped_tissue_predictions(model_tissue=model_tissue, partition="train")
+    create_cropped_tissue_predictions(model_tissue=model, partition="train")
     print("Creating images for val set...")
-    create_cropped_tissue_predictions(model_tissue=model_tissue, partition="val")
+    create_cropped_tissue_predictions(model_tissue=model, partition="val")
     print("Creating images for test set...")
-    create_cropped_tissue_predictions(model_tissue=model_tissue, partition="test")
+    create_cropped_tissue_predictions(model_tissue=model, partition="test")
     print("All done!")

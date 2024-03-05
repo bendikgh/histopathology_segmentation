@@ -179,6 +179,11 @@ def get_image_dict(base_path: str, image_num: str) -> dict:
     with open(metadata_path, "r") as f:
         metadata = json.load(f)
 
+    cell_mpp = metadata["sample_pairs"][image_num]["cell"]["resized_mpp_x"]
+    tissue_mpp = metadata["sample_pairs"][image_num]["tissue"]["resized_mpp_x"]
+    x_offset = metadata["sample_pairs"][image_num]["patch_x_offset"]
+    y_offset = metadata["sample_pairs"][image_num]["patch_y_offset"]
+
     # Creating dictionary
     image_dict: dict = {
         "cell_input_image_path": cell_input_image_path,
@@ -187,6 +192,10 @@ def get_image_dict(base_path: str, image_num: str) -> dict:
         "tissue_target_image_path": tissue_target_image_path,
         "tissue_predicted_image_path": tissue_predicted_image_path,
         "tissue_cropped_target_image_path": tissue_cropped_target_image_path,
+        "cell_mpp": cell_mpp,
+        "tissue_mpp": tissue_mpp,
+        "x_offset": x_offset,
+        "y_offset": y_offset,
     }
     return image_dict
 
@@ -218,22 +227,10 @@ def main():
     # st.set_page_config(layout="wide")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     cell_branch, tissue_branch = get_models(device=device)
+    st.title("Ocelot Data")
 
     if "image_index" not in st.session_state:
         st.session_state.image_index = 0
-    if "partition" not in st.session_state:
-        st.session_state.partition = 0
-
-    st.title("Ocelot Data")
-    partitions = ["train", "val", "test"]
-
-    st.session_state.partition = st.selectbox(
-        "Choose a partition:",
-        list(range(len(partitions))),
-        index=st.session_state.partition,
-        format_func=lambda x: partitions[x],
-        on_change=update_image_index,
-    )
 
     image_numbers: list = [
         create_three_digit_number(i)
@@ -283,6 +280,19 @@ def main():
     tissue_prediction, cell_prediction = get_predicted_images(
         cell_input_image, tissue_input_image, cell_branch, tissue_branch, device
     )
+    tissue_prediction_tensor = torch.from_numpy(tissue_prediction.argmax(axis=2))
+
+    tissue_prediction_cropped = crop_and_resize_tissue_patch(
+        tissue_prediction_tensor,
+        tissue_mpp=path_dict["tissue_mpp"],
+        cell_mpp=path_dict["cell_mpp"],
+        x_offset=path_dict["x_offset"],
+        y_offset=path_dict["y_offset"],
+    )
+    tissue_prediction_cropped = tissue_prediction_cropped.numpy()
+    tissue_prediction_cropped = (
+        np.eye(3, dtype=np.uint8)[tissue_prediction_cropped] * 255
+    )
 
     setup_buttons(max_index=len(image_numbers) - 1)
     labels = [
@@ -292,8 +302,9 @@ def main():
         "Tissue Input Image",
         "Tissue Target Image",
         "Tissue Predicted (File)",
-        "Cropped Target Image",
         "Tissue Predicted (Model)",
+        "Cropped Target Image",
+        "Tissue Predicted (Cropped)",
     ]
     images = [
         cell_input_image,
@@ -302,8 +313,9 @@ def main():
         tissue_input_image,
         tissue_target_image,
         tissue_predicted_image,
-        tissue_cropped_target_image,
         tissue_prediction,
+        tissue_cropped_target_image,
+        tissue_prediction_cropped,
     ]
     show_images(images, labels)
 
