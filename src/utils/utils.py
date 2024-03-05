@@ -77,6 +77,9 @@ def get_partition_from_file_name(file_name: str) -> str:
     Returns 'train', 'val' or 'test', depending on which number the file name
     has.
     """
+    if not 1 <= int(file_name) <= 667:
+        raise ValueError("Index must be between 1 and 667 inclusive.")
+
     if int(file_name) <= 400:
         partition_folder = "train"
     elif int(file_name) <= 537:
