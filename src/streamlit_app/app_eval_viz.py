@@ -2,7 +2,7 @@ import os
 import json
 import matplotlib.pyplot as plt
 import numpy as np
-import pkgutil
+import cv2
 
 import streamlit as st
 
@@ -14,13 +14,18 @@ def create_scatter_plot(ax, x, y, cls):
     ax.scatter(x[cls == 2], y[cls == 2], c='green', label='Class 2')  # Points with class 2 in green
     ax.legend()
 
-def create_grid_plot(data_list, grid_dims, titles=None):
+def create_image_plot(ax, image):
+    ax.imshow(image)
+    ax.axis('off')
+
+def create_grid_plot(images, data_list, grid_dims, titles=None):
     """
-    Creates a grid of scatter plots using create_scatter_plot for each subplot.
+    Creates a grid of plots that can include both scatter plots and image plots.
     Allows specifying titles for each subplot.
 
     Parameters:
-    - data_list: List of tuples, each containing (x, y, cls) for each dataset to plot.
+    - images: List of np.ndarray images to be plotted. Use None for scatter plots.
+    - data_list: List of tuples, each containing (x, y, cls) for each dataset to plot. Use None for image plots.
     - grid_dims: Tuple of (rows, cols) specifying the grid layout dimensions.
     - titles: Optional list of titles for each subplot.
     """
@@ -31,7 +36,13 @@ def create_grid_plot(data_list, grid_dims, titles=None):
     # Ensure axs is a 2D array for consistent indexing
     axs = axs.reshape(nrows, ncols)
 
-    for i, (x, y, cls) in enumerate(data_list):
+    for i, image in enumerate(images):
+        row, col = divmod(i, ncols)
+        create_image_plot(axs[row, col], image)
+        if titles and i < len(titles):
+            axs[row, col].set_title(titles[i])
+
+    for i, (x, y, cls) in enumerate(data_list, start=len(images)):
         row, col = divmod(i, ncols)
         create_scatter_plot(axs[row, col], x, y, cls)
         if titles and i < len(titles):
@@ -41,7 +52,29 @@ def create_grid_plot(data_list, grid_dims, titles=None):
     return fig
 
 
-def initialize():    
+def initialize():
+    
+    DATA_DIR = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+    
+    cell_path = os.path.join(DATA_DIR, f"images/{st.session_state.partition}/cell/")
+    tissue_path = os.path.join(DATA_DIR, f"annotations/{st.session_state.partition}/pred_tissue/")
+
+    
+    tissue_ending = ".png"
+
+    cell_patches = sorted(
+        [os.path.join(cell_path, f) for f in os.listdir(cell_path) if ".jpg" in f],
+        key=lambda x: int(x.split("/")[-1].split(".")[0]),
+    )
+    tissue_patches = sorted(
+        [
+            os.path.join(tissue_path, f)
+            for f in os.listdir(tissue_path)
+            if tissue_ending in f
+        ],
+        key=lambda x: int(x.split("/")[-1].split(".")[0]),
+    )
+
 
     algorithm_output_path = (
         f"{os.getcwd()}/eval_outputs/cell_classification_{st.session_state.partition}.json"
@@ -73,6 +106,9 @@ def initialize():
 
     st.session_state.prediction_all = prediction_all
     st.session_state.label_points_all = label_points_all
+
+    st.session_state.cell_patches = cell_patches
+    st.session_state.tissue_patches = tissue_patches
 
     st.session_state['initialized'] = True
 
@@ -121,6 +157,7 @@ def main():
     prediction_points = st.session_state.prediction_all[st.session_state.image_index]
     label_points = st.session_state.label_points_all[st.session_state.image_index]
 
+    ## Get cell predictions and cell labels
     x_pred = prediction_points[:, 0]
     y_pred = prediction_points[:, 1]
     cls_pred = prediction_points[:, 2]
@@ -129,11 +166,20 @@ def main():
     y_label = label_points[:, 1]
     cls_label = label_points[:, 2]
 
-    plotting_list = [(x_pred, y_pred, cls_pred), (x_label, y_label, cls_label)]
-    fig = create_grid_plot(plotting_list, (1, 2), titles=["Cell-predictions", "Cell-labels"])
-    st.write(fig)
+    data_for_plot = [(x_pred, y_pred, cls_pred), (x_label, y_label, cls_label)]
 
-    ## Get the tissue predictions and tissue labels
+    ## Get the tissue predictions and cell input image
+
+    cell_patch = cv2.imread(st.session_state.cell_patches[st.session_state.image_index])
+    tissue_patch = cv2.imread(st.session_state.tissue_patches[st.session_state.image_index])*255
+
+    cell_patch: np.ndarray = cv2.cvtColor(cell_patch, cv2.COLOR_BGR2RGB)
+    tissue_patch: np.ndarray = cv2.cvtColor(tissue_patch, cv2.COLOR_BGR2RGB)
+
+    images = [cell_patch, tissue_patch]
+
+    fig = create_grid_plot(images, data_for_plot, (2, 2), titles=["Cell patch", "Tissue patch", "Cell-predictions", "Cell-labels"])
+    st.write(fig)
 
 
 if __name__ == "__main__":
