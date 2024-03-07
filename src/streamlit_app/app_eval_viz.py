@@ -8,6 +8,8 @@ import streamlit as st
 
 from ocelot23algo.evaluation.eval import _check_validity, _convert_format
 
+plt.style.use('dark_background')
+
 
 def create_scatter_plot(ax, x, y, cls):
     ax.scatter(x[cls == 1], y[cls == 1], c='red', label='Class 1')  # Points with class 1 in red
@@ -31,7 +33,6 @@ def create_grid_plot(images, data_list, grid_dims, titles=None):
     """
     nrows, ncols = grid_dims
     fig, axs = plt.subplots(nrows, ncols, figsize=(5 * ncols, 5 * nrows))
-    plt.style.use('dark_background')
 
     # Ensure axs is a 2D array for consistent indexing
     axs = axs.reshape(nrows, ncols)
