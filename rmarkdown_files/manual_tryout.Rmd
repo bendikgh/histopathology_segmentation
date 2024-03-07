@@ -30,7 +30,6 @@ else:
 
 ```{python}
 import cv2
-import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -52,37 +51,37 @@ train_tissue_image_files, train_tissue_target_files = get_ocelot_files(
 ```
 
 ```{python}
-print(train_cell_image_files)
-print(len(train_cell_image_files)) # This is 395
+# print(train_cell_image_files)
+# print(len(train_cell_image_files)) # This is 395
 
-cell_images = np.zeros((len(train_cell_image_files), 1024, 1024, 3), dtype=np.double)
+# cell_images = np.zeros((len(train_cell_image_files), 1024, 1024, 3), dtype=np.double)
 
-for idx, path in enumerate(train_cell_image_files):  
-  image = cv2.imread(path)
-  image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-  image = image.astype(np.double) / 255.0
-  cell_images[idx, ...] = image[:]
+# for idx, path in enumerate(train_cell_image_files):  
+#   image = cv2.imread(path)
+#   image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#   image = image.astype(np.double) / 255.0
+#   cell_images[idx, ...] = image[:]
 
-# NOTE: axis=(0, 1, 2) only works with double precision
-print(cell_images.mean(axis=(0, 1, 2))) 
-print(cell_images.std(axis=(0, 1, 2)))
+# # NOTE: axis=(0, 1, 2) only works with double precision
+# print(cell_images.mean(axis=(0, 1, 2))) 
+# print(cell_images.std(axis=(0, 1, 2)))
 ```
 
 ```{python}
-print(train_tissue_image_files)
-print(len(train_tissue_image_files)) # This is 395
+# print(train_tissue_image_files)
+# print(len(train_tissue_image_files)) # This is 395
 
-tissue_images = np.zeros((len(train_tissue_image_files), 1024, 1024, 3), dtype=np.double)
+# tissue_images = np.zeros((len(train_tissue_image_files), 1024, 1024, 3), dtype=np.double)
 
-for idx, path in enumerate(train_tissue_image_files):  
-  image = cv2.imread(path)
-  image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-  image = image.astype(np.double) / 255.0
-  tissue_images[idx, ...] = image[:]
+# for idx, path in enumerate(train_tissue_image_files):  
+#   image = cv2.imread(path)
+#   image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#   image = image.astype(np.double) / 255.0
+#   tissue_images[idx, ...] = image[:]
 
-# NOTE: axis=(0, 1, 2) only works with double precision
-print(tissue_images.mean(axis=(0, 1, 2))) 
-print(tissue_images.std(axis=(0, 1, 2)))
+# # NOTE: axis=(0, 1, 2) only works with double precision
+# print(tissue_images.mean(axis=(0, 1, 2))) 
+# print(tissue_images.std(axis=(0, 1, 2)))
 ```
 
 ```{python}
@@ -92,28 +91,62 @@ from glob import glob
 train_tissue_predicted = glob(
     os.path.join(IDUN_OCELOT_DATA_PATH, "annotations/train/pred_tissue/*")
 )
+train_tissue_cropped_target = glob(
+    os.path.join(IDUN_OCELOT_DATA_PATH, "annotations/train/cropped_tissue/*")
+)
 train_tissue_predicted.sort(key = lambda x: int(x.split("/")[-1].split(".")[0]))
+train_tissue_cropped_target.sort(key = lambda x: int(x.split("/")[-1].split(".")[0]))
+
+image_nums = [int(x.split("/")[-1].split(".")[0]) for x in train_tissue_predicted]
+train_tissue_cropped_target = [file for file in train_tissue_cropped_target if int(file.split("/")[-1].split(".")[0]) in image_nums]
+
 print(train_tissue_predicted[-10:])
 print(train_cell_image_files[-10:])
+print(train_tissue_cropped_target[-10:])
 
 
 for i in range(360, len(train_tissue_predicted)): 
-  cell_path = train_cell_image_files[i]
-  pred_path = train_tissue_predicted[i]
+    print(f"index: {i}")
+    cell_path = train_cell_image_files[i]
+    pred_path = train_tissue_predicted[i]
+    target_path = train_tissue_cropped_target[i]
 
-  cell_img = cv2.imread(cell_path)
-  cell_img = cv2.cvtColor(cell_img, cv2.COLOR_BGR2RGB)
+    cell_img = cv2.imread(cell_path)
+    cell_img = cv2.cvtColor(cell_img, cv2.COLOR_BGR2RGB)
 
-  pred_img = cv2.imread(pred_path)
-  pred_img = cv2.cvtColor(pred_img, cv2.COLOR_BGR2RGB)
+    pred_img = cv2.imread(pred_path)
+    pred_img = cv2.cvtColor(pred_img, cv2.COLOR_BGR2RGB)
 
-  fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-  ax[0].imshow(cell_img)
-  ax[0].set_title("Cell Image")
+    target_img = cv2.imread(target_path)
+    target_img = cv2.cvtColor(target_img, cv2.COLOR_BGR2RGB)
 
-  ax[1].imshow(pred_img*255)
-  ax[1].set_title("Prediction")
-  plt.show()
+    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    ax[0].imshow(cell_img)
+    ax[0].set_title("Cell Image")
+    ax[0].set_axis_off()
+
+    ax[1].imshow(pred_img*255)
+    ax[1].set_title("Prediction")
+    ax[1].set_axis_off()
+
+    ax[2].imshow(target_img*255)
+    ax[2].set_title("Target")
+    ax[2].set_axis_off()
+    
+    plt.tight_layout()
+    plt.show()
 
 
+```
+
+```{python}
+partitions = ["train", "val", "test"]
+cell_nums = []
+tissue_nums = []
+for partition in partitions: 
+  cell_path = os.path.join(IDUN_OCELOT_DATA_PATH, f"annotations/{partition}/pred_tissue") 
+  nums = sorted([int(path.split(".")[0]) for path in os.listdir(cell_path)])
+  cell_nums += nums
+
+print(sorted(list(set(range(1, max(cell_nums)+1)) - set(cell_nums))))
 ```
