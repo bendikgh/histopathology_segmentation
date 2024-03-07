@@ -46,9 +46,7 @@ def create_and_save_cropped_tissue_annotations(
             tissue_mpp=tissue_mpp,
             cell_mpp=cell_mpp,
             x_offset=x_offset,
-            y_offset=y_offset,
-            # input_height=1024,
-            # input_width=1024,
+            y_offset=y_offset
         )
         # One-hot encoding the image
         cropped_image = cropped_image_tensor.numpy()
