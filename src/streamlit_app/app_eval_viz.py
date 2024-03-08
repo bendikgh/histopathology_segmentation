@@ -15,6 +15,7 @@ def create_scatter_plot(ax, x, y, cls):
     ax.scatter(x[cls == 1], y[cls == 1], c='red', label='Class 1')  # Points with class 1 in red
     ax.scatter(x[cls == 2], y[cls == 2], c='green', label='Class 2')  # Points with class 2 in green
     ax.legend()
+    ax.invert_yaxis()
 
 def create_image_plot(ax, image):
     ax.imshow(image)
@@ -38,12 +39,17 @@ def create_grid_plot(images, data_list, grid_dims, titles=None):
     axs = axs.reshape(nrows, ncols)
 
     for i, image in enumerate(images):
+        if image is None:
+            continue
         row, col = divmod(i, ncols)
         create_image_plot(axs[row, col], image)
         if titles and i < len(titles):
             axs[row, col].set_title(titles[i])
 
-    for i, (x, y, cls) in enumerate(data_list, start=len(images)):
+    for i, points in enumerate(data_list, start=len(images)):
+        if points is None:
+            continue
+        x, y, cls = points
         row, col = divmod(i, ncols)
         create_scatter_plot(axs[row, col], x, y, cls)
         if titles and i < len(titles):
@@ -58,8 +64,8 @@ def initialize():
     DATA_DIR = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
     
     cell_path = os.path.join(DATA_DIR, f"images/{st.session_state.partition}/cell/")
-    tissue_path = os.path.join(DATA_DIR, f"annotations/{st.session_state.partition}/pred_tissue/")
-
+    tissue_pred_path = os.path.join(DATA_DIR, f"annotations/{st.session_state.partition}/pred_tissue/")
+    tissue_label_path = os.path.join(DATA_DIR, f"annotations/{st.session_state.partition}/cropped_tissue/")
     
     tissue_ending = ".png"
 
@@ -67,10 +73,19 @@ def initialize():
         [os.path.join(cell_path, f) for f in os.listdir(cell_path) if ".jpg" in f],
         key=lambda x: int(x.split("/")[-1].split(".")[0]),
     )
-    tissue_patches = sorted(
+    tissue_pred_patches = sorted(
         [
-            os.path.join(tissue_path, f)
-            for f in os.listdir(tissue_path)
+            os.path.join(tissue_pred_path, f)
+            for f in os.listdir(tissue_pred_path)
+            if tissue_ending in f
+        ],
+        key=lambda x: int(x.split("/")[-1].split(".")[0]),
+    )
+
+    tissue_label_patches = sorted(
+        [
+            os.path.join(tissue_label_path, f)
+            for f in os.listdir(tissue_label_path)
             if tissue_ending in f
         ],
         key=lambda x: int(x.split("/")[-1].split(".")[0]),
@@ -109,7 +124,8 @@ def initialize():
     st.session_state.label_points_all = label_points_all
 
     st.session_state.cell_patches = cell_patches
-    st.session_state.tissue_patches = tissue_patches
+    st.session_state.tissue_pred_patches = tissue_pred_patches
+    st.session_state.tissue_label_patches = tissue_label_patches
 
     st.session_state['initialized'] = True
 
@@ -145,15 +161,6 @@ def main():
     )
     st.session_state.image_index = chosen_index
 
-    def button_next_callback():
-        st.session_state.image_index += 1
-
-    def button_past_callback():
-        st.session_state.image_index -= 1
-
-    st.button("Next", on_click=button_next_callback)
-    st.button("Past", on_click=button_past_callback)
-
     # Get the correct patch
     prediction_points = st.session_state.prediction_all[st.session_state.image_index]
     label_points = st.session_state.label_points_all[st.session_state.image_index]
@@ -167,20 +174,31 @@ def main():
     y_label = label_points[:, 1]
     cls_label = label_points[:, 2]
 
-    data_for_plot = [(x_pred, y_pred, cls_pred), (x_label, y_label, cls_label)]
+    data_for_plot = [None, (x_pred, y_pred, cls_pred), (x_label, y_label, cls_label)]
 
     ## Get the tissue predictions and cell input image
 
     cell_patch = cv2.imread(st.session_state.cell_patches[st.session_state.image_index])
-    tissue_patch = cv2.imread(st.session_state.tissue_patches[st.session_state.image_index])*255
+    tissue_pred_patch = cv2.imread(st.session_state.tissue_pred_patches[st.session_state.image_index])*255
+    tissue_label_patch = cv2.imread(st.session_state.tissue_label_patches[st.session_state.image_index])*255
 
     cell_patch: np.ndarray = cv2.cvtColor(cell_patch, cv2.COLOR_BGR2RGB)
-    tissue_patch: np.ndarray = cv2.cvtColor(tissue_patch, cv2.COLOR_BGR2RGB)
+    tissue_pred_patch: np.ndarray = cv2.cvtColor(tissue_pred_patch, cv2.COLOR_BGR2RGB)
+    tissue_label_patch: np.ndarray = cv2.cvtColor(tissue_label_patch, cv2.COLOR_BGR2RGB)
 
-    images = [cell_patch, tissue_patch]
+    images = [cell_patch, tissue_pred_patch, tissue_label_patch]
 
-    fig = create_grid_plot(images, data_for_plot, (2, 2), titles=["Cell patch", "Tissue patch", "Cell-predictions", "Cell-labels"])
+    fig = create_grid_plot(images, data_for_plot, (2, 3), titles=["Cell patch", "Tissue pred", "Tissue label", "", "Cell pred", "Cell label"])
     st.write(fig)
+
+    def button_next_callback():
+        st.session_state.image_index += 1
+
+    def button_past_callback():
+        st.session_state.image_index -= 1
+
+    st.button("Next", on_click=button_next_callback)
+    st.button("Past", on_click=button_past_callback)
 
 
 if __name__ == "__main__":
