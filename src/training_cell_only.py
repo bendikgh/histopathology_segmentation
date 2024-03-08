@@ -14,6 +14,7 @@ from dataset import CellOnlyDataset
 from models import DeepLabV3plusModel
 from utils.training import train
 from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
+from utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
 
 
 def main():
@@ -32,6 +33,7 @@ def main():
     warmup_epochs: int = args.warmup_epochs
     do_save: bool = args.do_save
     break_after_one_iteration: bool = args.break_early
+    normalization: str = args.normalization
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -49,25 +51,38 @@ def main():
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Find the correct files
+
+    train_transform_list = [
+        A.GaussianBlur(blur_limit=(3, 7), p=0.5),
+        A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
+        A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
+        A.HorizontalFlip(p=0.5),
+        A.RandomRotate90(p=0.5),
+    ]
+    val_transform_list = []
+
+    macenko = False
+    if normalization == "imagenet":
+        train_transform_list.append(A.Normalize())
+        val_transform_list.append(A.Normalize())
+    elif normalization == "cell":
+        train_transform_list.append(
+            A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD)
+        )
+        val_transform_list.append(A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD))
+    elif normalization == "macenko":
+        macenko = True
+
     train_image_files, train_seg_files = get_ocelot_files(
-        data_dir=data_dir, partition="train", zoom="cell"
+        data_dir=data_dir, partition="train", zoom="cell", macenko=macenko
     )
     val_image_files, val_seg_files = get_ocelot_files(
-        data_dir=data_dir, partition="val", zoom="cell"
+        data_dir=data_dir, partition="val", zoom="cell", macenko=macenko
     )
 
     # Create dataset and dataloader
-    train_transforms = A.Compose(
-        [
-            A.GaussianBlur(blur_limit=(3, 7), p=0.5),
-            A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
-            A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
-            A.HorizontalFlip(p=0.5),
-            A.RandomRotate90(p=0.5),
-            A.Normalize(),
-        ]
-    )
-    val_transforms = A.Compose([A.Normalize()])
+    train_transforms = A.Compose(train_transform_list)
+    val_transforms = A.Compose(val_transform_list)
     train_dataset = CellOnlyDataset(
         cell_image_files=train_image_files,
         cell_target_files=train_seg_files,
@@ -109,6 +124,7 @@ def main():
         learning_rate=learning_rate,
         dropout_rate=dropout_rate,
         backbone_model=backbone_model,
+        normalization=normalization,
     )
     print(f"Save name: {save_name}")
 

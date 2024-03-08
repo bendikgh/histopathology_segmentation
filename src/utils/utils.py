@@ -29,6 +29,7 @@ from src.utils.constants import (
     DEFAULT_WARMUP_EPOCHS,
     DEFAULT_BREAK_AFTER_ONE_ITERATION,
     DEFAULT_DO_SAVE,
+    DEFAULT_NORMALIZATION,
 )
 
 
@@ -351,9 +352,7 @@ def crop_and_resize_tissue_patch(
 
     """
     if len(image.shape) != 2:
-        raise ValueError(
-            f"Input image is not 2D, but {image.shape}"
-        )
+        raise ValueError(f"Input image is not 2D, but {image.shape}")
 
     input_height = image.shape[0]
     input_width = image.shape[1]
@@ -399,7 +398,9 @@ def crop_and_resize_tissue_patch(
     return crop
 
 
-def get_ocelot_files(data_dir: str, partition: str, zoom: str = "cell") -> tuple:
+def get_ocelot_files(
+    data_dir: str, partition: str, zoom: str = "cell", macenko: bool = False
+) -> tuple:
     """
     Retrieves paths to image and annotation files for a specified partition
     and kind.
@@ -435,15 +436,28 @@ def get_ocelot_files(data_dir: str, partition: str, zoom: str = "cell") -> tuple
         raise ValueError(f"Kind must be one of {valid_kinds}")
 
     # Finding the appropriate files
-    final_dir: str = "segmented_cell" if zoom == "cell" else zoom
+    image_dir: str = ""
+    annotation_dir: str = ""
+    if macenko and zoom == "tissue":
+        raise NotImplementedError("Macenko normalization is not implemented for tissue")
+    elif macenko:
+        image_dir = "cell_macenko"
+        annotation_dir = "segmented_cell"
+    elif zoom == "cell":
+        image_dir = "cell"
+        annotation_dir = "segmented_cell"
+    else:
+        image_dir = "tissue"
+        annotation_dir = zoom
+
     target_files: list = glob(
-        os.path.join(data_dir, f"annotations/{partition}/{final_dir}/*")
+        os.path.join(data_dir, f"annotations/{partition}/{annotation_dir}/*")
     )
     image_numbers: list = [
         file_name.split("/")[-1].split(".")[0] for file_name in target_files
     ]
     image_files: list = [
-        os.path.join(data_dir, f"images/{partition}/{zoom}", image_number + ".jpg")
+        os.path.join(data_dir, f"images/{partition}/{image_dir}", image_number + ".jpg")
         for image_number in image_numbers
     ]
     # Sorting by image numbers
@@ -506,6 +520,7 @@ def get_save_name(
     learning_rate: float,
     dropout_rate: float | None = None,
     backbone_model: str | None = None,
+    **keyword_args,
 ) -> str:
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -517,6 +532,9 @@ def get_save_name(
         result += f"_dropout-{dropout_rate}"
     if backbone_model:
         result += f"_backbone-{backbone_model}"
+
+    for key, value in keyword_args.items():
+        result += f"_{key}-{value}"
 
     return result
 
@@ -593,6 +611,13 @@ def get_ocelot_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_DO_SAVE,
         help="Whether to save and plot or not",
+    )
+    parser.add_argument(
+        "--normalization",
+        type=str,
+        default=DEFAULT_NORMALIZATION,
+        help="Which type of normalization to use",
+        choices=["off", "imagenet", "cell", "macenko"],
     )
 
     args: argparse.Namespace = parser.parse_args()
