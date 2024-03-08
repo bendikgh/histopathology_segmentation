@@ -197,8 +197,11 @@ def main():
     def button_past_callback():
         st.session_state.image_index -= 1
 
-    st.button("Next", on_click=button_next_callback)
-    st.button("Past", on_click=button_past_callback)
+    col1, col2 = st.columns([6, 1], gap="large")
+    with col1:
+        st.button("Past", on_click=button_past_callback)
+    with col2:
+        st.button("Next", on_click=button_next_callback)
 
 
 if __name__ == "__main__":
