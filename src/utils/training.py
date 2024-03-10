@@ -163,6 +163,7 @@ def train(
     start = time.time()
     training_losses = []
     val_losses = []
+    lowest_val_loss = float("inf")
 
     for epoch in range(num_epochs):
         training_loss = training_func(
@@ -188,6 +189,14 @@ def train(
         val_losses.append(val_loss)
 
         # Plotting results and saving model
+        if val_loss < lowest_val_loss and do_save_model_and_plot:
+            lowest_val_loss = val_loss
+            torch.save(
+                model.state_dict(),
+                f"outputs/models/{save_name}_best.pth",
+            )
+            print(f"New best model saved after {epoch + 1} epochs!")
+
         if do_save_model_and_plot and (
             (epoch + 1) % checkpoint_interval == 0 or (epoch + 1) == num_epochs
         ):
