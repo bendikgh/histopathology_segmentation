@@ -34,6 +34,7 @@ def main():
     do_save: bool = args.do_save
     break_after_one_iteration: bool = args.break_early
     normalization: str = args.normalization
+    id: str = args.id
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -49,30 +50,29 @@ def main():
     print(f"Break after one iteration: {break_after_one_iteration}")
     print(f"Device: {device}")
     print(f"Normalization: {normalization}")
+    print(f"ID: {id}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Find the correct files
 
     train_transform_list = [
-        A.GaussianBlur(blur_limit=(3, 7), p=0.5),
+        A.GaussianBlur(),
         A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
-        A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
+        A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05, p=0.5),
         A.HorizontalFlip(p=0.5),
         A.RandomRotate90(p=0.5),
     ]
     val_transform_list = []
 
-    macenko = False
-    if normalization == "imagenet":
+    macenko = "macenko" in normalization
+    if "imagenet" in normalization:
         train_transform_list.append(A.Normalize())
         val_transform_list.append(A.Normalize())
-    elif normalization == "cell":
+    elif "cell" in normalization:
         train_transform_list.append(
             A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD)
         )
         val_transform_list.append(A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD))
-    elif normalization == "macenko":
-        macenko = True
 
     train_image_files, train_seg_files = get_ocelot_files(
         data_dir=data_dir, partition="train", zoom="cell", macenko=macenko
@@ -126,6 +126,7 @@ def main():
         dropout_rate=dropout_rate,
         backbone_model=backbone_model,
         normalization=normalization,
+        id=id,
     )
     print(f"Save name: {save_name}")
 

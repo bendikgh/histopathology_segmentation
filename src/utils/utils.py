@@ -535,6 +535,8 @@ def get_save_name(
         result += f"_backbone-{backbone_model}"
 
     for key, value in keyword_args.items():
+        if value is None: 
+            continue
         result += f"_{key}-{value}"
 
     return result
@@ -618,7 +620,14 @@ def get_ocelot_args() -> argparse.Namespace:
         type=str,
         default=DEFAULT_NORMALIZATION,
         help="Which type of normalization to use",
-        choices=["off", "imagenet", "cell", "macenko", "macenko + cell", "macenko + imagenet"],
+        choices=[
+            "off",
+            "imagenet",
+            "cell",
+            "macenko",
+            "macenko + cell",
+            "macenko + imagenet",
+        ],
     )
     parser.add_argument(
         "--id",
