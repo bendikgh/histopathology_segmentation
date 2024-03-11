@@ -48,6 +48,7 @@ def main():
     print(f"Do save: {do_save}")
     print(f"Break after one iteration: {break_after_one_iteration}")
     print(f"Device: {device}")
+    print(f"Normalization: {normalization}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Find the correct files

@@ -15,6 +15,7 @@ from dataset import TissueDataset
 from models import DeepLabV3plusModel
 from utils.training import train
 from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
+from utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
 
 
 def main():
@@ -33,6 +34,8 @@ def main():
     warmup_epochs: int = args.warmup_epochs
     do_save: bool = args.do_save
     break_after_one_iteration: bool = args.break_early
+    normalization: str = args.normalization
+    id: str = args.id
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -47,28 +50,50 @@ def main():
     print(f"Do save: {do_save}")
     print(f"Break after one iteration: {break_after_one_iteration}")
     print(f"Device: {device}")
-    print(f"Number of GPUs: {torch.cuda.device_count()}")
+    print(f"Normalization: {normalization}")
+    print(f"Id: {id}")
+    print(f"Number of GPUs: {torch.cuda.device_count()}")    
 
-    # Find the correct files
+    train_transform_list = [
+        A.GaussianBlur(blur_limit=(3, 7), p=0.5),
+        A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
+        A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
+        A.HorizontalFlip(p=0.5),
+        A.RandomRotate90(p=0.5),
+    ]
+    val_transform_list = []
+
+    macenko = False
+    if normalization == "imagenet":
+        train_transform_list.append(A.Normalize())
+        val_transform_list.append(A.Normalize())
+    elif normalization == "cell":
+        train_transform_list.append(
+            A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD)
+        )
+        val_transform_list.append(A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD))
+    elif normalization == "macenko":
+        macenko = True
+    elif normalization == "macenko + cell":
+        macenko = True
+        train_transform_list.append(
+            A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD)
+        )
+        val_transform_list.append(A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD))
+    elif normalization == "macenko + imagenet":
+        macenko = True
+        train_transform_list.append(A.Normalize())
+        val_transform_list.append(A.Normalize())
+
     train_tissue_image_files, train_tissue_target_files = get_ocelot_files(
-        data_dir=data_dir, partition="train", zoom="tissue"
+        data_dir=data_dir, partition="train", zoom="tissue", macenko=macenko
     )
     val_tissue_image_files, val_tissue_target_files = get_ocelot_files(
-        data_dir=data_dir, partition="val", zoom="tissue"
+        data_dir=data_dir, partition="val", zoom="tissue", macenko=macenko
     )
-    val_transforms = A.Compose([A.Normalize(mean=(0.75928293, 0.57434749, 0.6941771), std=(0.1899926, 0.2419049, 0.18382073))])
-
-    train_transforms = A.Compose(
-        [
-            A.GaussianBlur(),
-            A.GaussNoise(),
-            A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05),
-            A.HorizontalFlip(),
-            A.Normalize(mean=(0.75928293, 0.57434749, 0.6941771), std=(0.1899926, 0.2419049, 0.18382073))
-            # A.RandomRotate90(),
-            # A.Downscale(),
-        ]
-    )
+    
+    train_transforms = A.Compose(train_transform_list)
+    val_transforms = A.Compose(val_transform_list)
 
     train_tissue_dataset = TissueDataset(
         image_files=train_tissue_image_files,
@@ -117,6 +142,7 @@ def main():
         learning_rate=learning_rate,
         dropout_rate=dropout_rate,
         backbone_model=backbone_model,
+        id=id
     )
     print(f"Save name: {save_name}")
     train(
@@ -133,7 +159,6 @@ def main():
         scheduler=scheduler,
         do_save_model_and_plot=do_save,  # NOTE: Important to change this before training
     )
-
 
 if __name__ == "__main__":
     main()

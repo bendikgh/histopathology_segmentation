@@ -439,7 +439,8 @@ def get_ocelot_files(
     image_dir: str = ""
     annotation_dir: str = ""
     if macenko and zoom == "tissue":
-        raise NotImplementedError("Macenko normalization is not implemented for tissue")
+        annotation_dir = "tissue"
+        image_dir = "tissue_macenko"
     elif macenko:
         image_dir = "cell_macenko"
         annotation_dir = "segmented_cell"
@@ -617,7 +618,13 @@ def get_ocelot_args() -> argparse.Namespace:
         type=str,
         default=DEFAULT_NORMALIZATION,
         help="Which type of normalization to use",
-        choices=["off", "imagenet", "cell", "macenko"],
+        choices=["off", "imagenet", "cell", "macenko", "macenko + cell", "macenko + imagenet"],
+    )
+    parser.add_argument(
+        "--id",
+        type=str,
+        default=None,
+        help="trial identifier",
     )
 
     args: argparse.Namespace = parser.parse_args()
