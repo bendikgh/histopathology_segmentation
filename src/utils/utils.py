@@ -469,6 +469,43 @@ def get_ocelot_files(
     return image_files, target_files
 
 
+def get_predicted_tissue(data_dir: str, image_train_nums: list, image_val_nums: list) -> tuple:
+    """
+    Retrieves paths to predicted tissue annotations for both the train set and the val set.
+
+    Args:
+        image_train_nums (list): List of image numbers from the train set.
+        image_val_nums (list): List of image numbers from the val set.
+
+    Returns:
+        tuple: Contains two lists with paths to predcited tissue annotations
+          for the train set and the val set respectively.
+
+    Raises:
+        ValueError: 
+    """
+    
+    train_tissue_predicted = glob(
+        os.path.join(data_dir, "annotations/train/pred_tissue/*")
+    )
+    train_tissue_predicted = [
+        file
+        for file in train_tissue_predicted
+        if file.split("/")[-1].split(".")[0] in image_train_nums
+    ]
+
+    val_tissue_predicted = glob(os.path.join(data_dir, "annotations/val/pred_tissue/*"))
+    val_tissue_predicted = [
+        file
+        for file in val_tissue_predicted
+        if file.split("/")[-1].split(".")[0] in image_val_nums
+    ]
+
+    train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+    val_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+
+    return train_tissue_predicted, val_tissue_predicted
+
 def validate_numpy_image(image: np.ndarray) -> None:
     """
     Validates that the image that was read from file is in the correct format.
