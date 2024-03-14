@@ -31,10 +31,10 @@ def create_cropped_tissue_predictions(
     """
 
     # Getting the correct paths
-    tissue_crop_path = os.path.join(
-        ocelot_data_path, "annotations", partition, "pred_tissue"
+    tissue_cropped_prediction_save_path = os.path.join(
+        ocelot_data_path, "annotations", partition, "predicted_cropped_tissue"
     )
-    tissue_path = os.path.join(ocelot_data_path, "images", partition, "tissue")
+    tissue_path = os.path.join(ocelot_data_path, "images", partition, "tissue_macenko")
     tissue_files = sorted(
         [
             os.path.join(tissue_path, path)
@@ -63,9 +63,9 @@ def create_cropped_tissue_predictions(
         image_torch = get_torch_image(path)
 
         # Normalizing
-        mean = torch.tensor(CELL_IMAGE_MEAN).reshape(3, 1, 1)
-        std = torch.tensor(CELL_IMAGE_STD).reshape(3, 1, 1)
-        image_torch = (image_torch - mean) / std
+        # mean = torch.tensor(CELL_IMAGE_MEAN).reshape(3, 1, 1)
+        # std = torch.tensor(CELL_IMAGE_STD).reshape(3, 1, 1)
+        # image_torch = (image_torch - mean) / std
 
         # Feed the image into the model
         image_torch = image_torch.unsqueeze(0).to(device)
@@ -88,7 +88,9 @@ def create_cropped_tissue_predictions(
 
         # Save the cropped image to file
         cv2.imwrite(
-            filename=os.path.join(tissue_crop_path, f"{image_num}.png"),
+            filename=os.path.join(
+                tissue_cropped_prediction_save_path, f"{image_num}.png"
+            ),
             img=cv2.cvtColor(one_hot, cv2.COLOR_RGB2BGR),
         )
 
@@ -96,7 +98,8 @@ def create_cropped_tissue_predictions(
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_path: str = (
-        "outputs/models/20240303_205501_deeplabv3plus-tissue-branch_pretrained-1_lr-6e-05_dropout-0.1_backbone-resnet50_epochs-100.pth"
+        # "outputs/models/20240303_205501_deeplabv3plus-tissue-branch_pretrained-1_lr-6e-05_dropout-0.1_backbone-resnet50_epochs-100.pth"
+        "outputs/models/best/20240313_002829_deeplabv3plus-tissue-branch_pretrained-1_lr-1e-04_dropout-0.1_backbone-resnet50_normalization-macenko_id-5_best.pth"
     )
 
     print("Setting up tissue predictions!")
