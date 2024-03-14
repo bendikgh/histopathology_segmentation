@@ -193,7 +193,7 @@ def train(
             lowest_val_loss = val_loss
             torch.save(
                 model.state_dict(),
-                f"outputs/models/{save_name}_best.pth",
+                f"outputs/models/best/{save_name}_best.pth",
             )
             print(f"New best model saved after {epoch + 1} epochs!")
 
