@@ -22,7 +22,8 @@ from src.utils.constants import (
 
 
 def get_models(device: torch.device):
-    tissue_branch_model_path = "outputs/models/20240303_205501_deeplabv3plus-tissue-branch_pretrained-1_lr-6e-05_dropout-0.1_backbone-resnet50_epochs-100.pth"
+    # tissue_branch_model_path = "outputs/models/20240303_205501_deeplabv3plus-tissue-branch_pretrained-1_lr-6e-05_dropout-0.1_backbone-resnet50_epochs-100.pth"
+    tissue_branch_model_path = "outputs/models/best/20240313_002829_deeplabv3plus-tissue-branch_pretrained-1_lr-1e-04_dropout-0.1_backbone-resnet50_normalization-macenko_id-5_best.pth"
     cell_branch_model_path = "outputs/models/20240223_194933_deeplabv3plus-cell-branch_pretrained-1_lr-1e-04_dropout-0.3_backbone-resnet50_epochs-100.pth"
 
     tissue_branch: nn.Module = DeepLabV3plusModel(
@@ -106,16 +107,17 @@ def get_tissue_images(image_paths, image_target_paths, idx):
 
 
 def get_predicted_images(cell_image, tissue_image, cell_branch, tissue_branch, device):
-    tissue_mean = np.array([0.7593, 0.5743, 0.6942], dtype=np.float32) * 255
-    tissue_std = np.array([0.1900, 0.2419, 0.1838], dtype=np.float32) * 255
+    # tissue_mean = np.array([0.7593, 0.5743, 0.6942], dtype=np.float32) * 255
+    # tissue_std = np.array([0.1900, 0.2419, 0.1838], dtype=np.float32) * 255
 
     cell_mean = np.array([0.485, 0.456, 0.406], dtype=np.float32) * 255
     cell_std = np.array([0.229, 0.224, 0.225], dtype=np.float32) * 255
 
     normalized_cell_image = (cell_image.astype(np.float32) - cell_mean) / cell_std
-    normalized_tissue_image = (
-        tissue_image.astype(np.float32) - tissue_mean
-    ) / tissue_std
+    # normalized_tissue_image = (
+    #     tissue_image.astype(np.float32) - tissue_mean
+    # ) / tissue_std
+    normalized_tissue_image = tissue_image.astype(np.float32) / 255.0
 
     normalized_tissue_image = torch.from_numpy(normalized_tissue_image).permute(2, 0, 1)
     normalized_cell_image = torch.from_numpy(normalized_cell_image).permute(2, 0, 1)
@@ -164,13 +166,17 @@ def get_image_dict(base_path: str, image_num: str) -> dict:
         base_path, "annotations", partition, "segmented_cell", f"{image_num}.png"
     )
     tissue_input_image_path = os.path.join(
-        base_path, "images", partition, "tissue", f"{image_num}.jpg"
+        base_path, "images", partition, "tissue_macenko", f"{image_num}.jpg"
     )
     tissue_target_image_path = os.path.join(
         base_path, "annotations", partition, "tissue", f"{image_num}.png"
     )
     tissue_predicted_image_path = os.path.join(
-        base_path, "annotations", partition, "pred_tissue", f"{image_num}.png"
+        base_path,
+        "annotations",
+        partition,
+        "predicted_cropped_tissue",
+        f"{image_num}.png",
     )
     tissue_cropped_target_image_path = os.path.join(
         base_path, "annotations", partition, "cropped_tissue", f"{image_num}.png"
