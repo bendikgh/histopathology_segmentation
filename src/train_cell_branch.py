@@ -13,10 +13,10 @@ from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
 
-# from deeplabv3.network.modeling import _segm_resnet
 from models import DeepLabV3plusModel
 from utils.training import train
 from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
+from utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
 
 
 # Function for crop and scale tissue image
@@ -40,6 +40,8 @@ def main():
     warmup_epochs = args.warmup_epochs
     do_save: bool = args.do_save
     break_after_one_iteration: bool = args.break_early
+    normalization: str = args.normalization
+    id: str = args.id
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -54,46 +56,71 @@ def main():
     print(f"Do save: {do_save}")
     print(f"Break after one iteration: {break_after_one_iteration}")
     print(f"Device: {device}")
+    print(f"Normalization: {normalization}")
+    print(f"ID: {id}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
+    # Setting up transforms
+    train_transform_list = [
+        A.GaussianBlur(),
+        A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
+        A.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05, p=0.5),
+        A.HorizontalFlip(p=0.5),
+        A.RandomRotate90(p=0.5),
+    ]
+    val_transform_list = []
+
+    macenko = "macenko" in normalization
+    if "imagenet" in normalization:
+        train_transform_list.append(A.Normalize())
+        val_transform_list.append(A.Normalize())
+    elif "cell" in normalization:
+        train_transform_list.append(
+            A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD)
+        )
+        val_transform_list.append(A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD))
+
+    # Getting cell files
     train_cell_image_files, train_cell_target_files = get_ocelot_files(
-        data_dir=data_dir, partition="train", zoom="cell"
+        data_dir=data_dir, partition="train", zoom="cell", macenko=macenko
     )
     val_cell_image_files, val_cell_target_files = get_ocelot_files(
-        data_dir=data_dir, partition="val", zoom="cell"
+        data_dir=data_dir, partition="val", zoom="cell", macenko=macenko
     )
 
-    image_nums = [x.split("/")[-1].split(".")[0] for x in train_cell_image_files]
+    train_image_nums = [x.split("/")[-1].split(".")[0] for x in train_cell_image_files]
+    val_image_nums = [x.split("/")[-1].split(".")[0] for x in val_cell_image_files]
 
+    # Getting tissue files
     train_tissue_predicted = glob(
-        os.path.join(data_dir, "annotations/train/pred_tissue/*")
+        os.path.join(data_dir, "annotations/train/predicted_cropped_tissue/*")
     )
+    val_tissue_predicted = glob(
+        os.path.join(data_dir, "annotations/val/predicted_cropped_tissue/*")
+    )
+
+    # Making sure only the appropriate numbers are used
     train_tissue_predicted = [
         file
         for file in train_tissue_predicted
-        if file.split("/")[-1].split(".")[0] in image_nums
+        if file.split("/")[-1].split(".")[0] in train_image_nums
     ]
-    train_tissue_predicted = sorted(
-        train_tissue_predicted, key=lambda x: int(x.split("/")[-1].split(".")[0])
-    )
-    val_tissue_predicted = glob(os.path.join(data_dir, "annotations/val/pred_tissue/*"))
+    val_tissue_predicted = [
+        file
+        for file in val_tissue_predicted
+        if file.split("/")[-1].split(".")[0] in val_image_nums
+    ]
+
     train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
     val_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
 
     # Create dataset and dataloader
     train_transforms = A.Compose(
-        [
-            A.GaussianBlur(blur_limit=(3, 7), p=0.5),
-            A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
-            A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
-            A.HorizontalFlip(p=0.5),
-            A.RandomRotate90(p=0.5),
-            # A.Normalize(),
-        ],
+        train_transform_list,
         additional_targets={"mask1": "mask", "mask2": "mask"},
     )
     val_transforms = A.Compose(
-        [A.Normalize()], additional_targets={"mask1": "mask", "mask2": "mask"}
+        val_transform_list, additional_targets={"mask1": "mask", "mask2": "mask"}
     )
 
     train_cell_tissue_dataset = CellTissueDataset(
@@ -106,7 +133,7 @@ def main():
         cell_image_files=val_cell_image_files,
         cell_target_files=val_cell_target_files,
         tissue_pred_files=val_tissue_predicted,
-        # transform=val_transforms,
+        transform=val_transforms,
     )
 
     train_cell_tissue_dataloader = DataLoader(
@@ -143,6 +170,8 @@ def main():
         learning_rate=learning_rate,
         dropout_rate=dropout_rate,
         backbone_model=backbone_model,
+        normalization=normalization,
+        id=id,
     )
     print(f"Save name: {save_name}")
 
