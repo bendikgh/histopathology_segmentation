@@ -142,7 +142,8 @@ def main():
         learning_rate=learning_rate,
         dropout_rate=dropout_rate,
         backbone_model=backbone_model,
-        id=id
+        normalization=normalization,
+        id=id,
     )
     print(f"Save name: {save_name}")
     train(
