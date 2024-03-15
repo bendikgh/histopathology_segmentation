@@ -6,6 +6,8 @@ my_env/*
 slurm_scripts/*
 images_for_report/*
 .vscode/
+scripts/run_slurm_jobs_bendik.py
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
