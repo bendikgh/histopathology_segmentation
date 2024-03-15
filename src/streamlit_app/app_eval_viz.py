@@ -192,14 +192,16 @@ def main():
     st.write(fig)
 
     def button_next_callback():
-        st.session_state.image_index += 1
+        if st.session_state.image_index < number_of_images:
+            st.session_state.image_index += 1
 
-    def button_past_callback():
-        st.session_state.image_index -= 1
+    def button_prev_callback():
+        if st.session_state.image_index > 0:
+            st.session_state.image_index -= 1
 
     col1, col2 = st.columns([6, 1], gap="large")
     with col1:
-        st.button("Past", on_click=button_past_callback)
+        st.button("Past", on_click=button_prev_callback)
     with col2:
         st.button("Next", on_click=button_next_callback)
 

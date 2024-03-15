@@ -18,6 +18,8 @@ from src.utils.constants import (
     IDUN_OCELOT_DATA_PATH,
     MISSING_IMAGE_NUMBERS,
     MAX_IMAGE_NUMBER,
+    CELL_IMAGE_MEAN,
+    CELL_IMAGE_STD
 )
 
 
@@ -74,16 +76,22 @@ def show_images(images: list, labels: list):
 
 
 def setup_buttons(max_index: int):
+
+    def button_next_callback():
+        if st.session_state.image_index < max_index:
+            st.session_state.image_index += 1
+
+    def button_prev_callback():
+        if st.session_state.image_index > 0:
+            st.session_state.image_index -= 1
+    
     # Setting up button
     button_col1, button_col2, _ = st.columns([1, 1, 8])
     with button_col1:
-        if st.button("Prev") and st.session_state.image_index > 0:
-            st.session_state.image_index -= 1
+        st.button("Prev", on_click=button_prev_callback)
 
     with button_col2:
-        if st.button("Next") and st.session_state.image_index < max_index:
-            st.session_state.image_index += 1
-    st.text(f"Showing images for index {st.session_state.image_index}")
+        st.button("Next", on_click=button_next_callback)
 
 
 def get_cell_images(image_paths, image_target_paths, idx):
@@ -110,8 +118,8 @@ def get_predicted_images(cell_image, tissue_image, cell_branch, tissue_branch, d
     # tissue_mean = np.array([0.7593, 0.5743, 0.6942], dtype=np.float32) * 255
     # tissue_std = np.array([0.1900, 0.2419, 0.1838], dtype=np.float32) * 255
 
-    cell_mean = np.array([0.485, 0.456, 0.406], dtype=np.float32) * 255
-    cell_std = np.array([0.229, 0.224, 0.225], dtype=np.float32) * 255
+    cell_mean = np.array(CELL_IMAGE_MEAN, dtype=np.float32) * 255
+    cell_std = np.array(CELL_IMAGE_STD, dtype=np.float32) * 255
 
     normalized_cell_image = (cell_image.astype(np.float32) - cell_mean) / cell_std
     # normalized_tissue_image = (
@@ -301,6 +309,9 @@ def main():
     )
 
     setup_buttons(max_index=len(image_numbers) - 1)
+
+    st.text(f"Showing images for index {image_numbers[st.session_state.image_index]}")
+
     labels = [
         "Cell Input",
         "Cell Target",
