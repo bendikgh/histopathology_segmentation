@@ -24,6 +24,7 @@ from src.utils.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_CHECKPOINT_INTERVAL,
     DEFAULT_DATA_DIR,
+    DEFAULT_DO_EVALUATE,
     DEFAULT_DROPOUT_RATE,
     DEFAULT_EPOCHS,
     DEFAULT_LEARNING_RATE,
@@ -564,8 +565,8 @@ def get_save_name(
 ) -> str:
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    result: str = f"{current_time}"
-    result += f"_{model_name}"
+    result: str = f"{current_time}/"
+    result += f"{model_name}"
     result += f"_pretrained-{pretrained}"
     result += f"_lr-{learning_rate:.0e}"
     if dropout_rate:
@@ -581,6 +582,13 @@ def get_save_name(
     result = result.replace(" ", "_")
     result = result.replace("+", "and")
     return result
+
+
+def get_ground_truth_points(partition: str):
+    gt_path: str = f"{os.getcwd()}/eval_outputs/cell_gt_{partition}.json"
+    with open(gt_path, "r") as f:
+        gt_json = json.load(f)
+    return gt_json
 
 
 def get_point_predictions(softmaxed: torch.Tensor) -> List[Tuple[int, int, int, float]]:
@@ -688,6 +696,12 @@ def get_ocelot_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_DO_SAVE,
         help="Whether to save and plot or not",
+    )
+    parser.add_argument(
+        "--do-eval",
+        type=int,
+        default=DEFAULT_DO_EVALUATE,
+        help="Whether to evaluate the model after training or not",
     )
     parser.add_argument(
         "--normalization",

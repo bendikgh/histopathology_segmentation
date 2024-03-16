@@ -1,6 +1,9 @@
 import time
 import torch
+import os
+
 import matplotlib.pyplot as plt
+
 from torch.utils.data import DataLoader
 from torch.nn.functional import interpolate
 from torch import nn
@@ -14,6 +17,7 @@ def plot_losses(training_losses, val_losses, save_path: str):
     plt.ylabel("Loss")
     plt.title("Training and validation loss")
     plt.legend()
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
     plt.savefig(save_path)
     plt.close()
 
@@ -191,28 +195,25 @@ def train(
         # Plotting results and saving model
         if val_loss < lowest_val_loss and do_save_model_and_plot:
             lowest_val_loss = val_loss
-            torch.save(
-                model.state_dict(),
-                f"outputs/models/best/{save_name}_best.pth",
-            )
+            best_model_save_path = f"outputs/models/{save_name}_best.pth"
+            os.makedirs(os.path.dirname(best_model_save_path), exist_ok=True)
+            torch.save(model.state_dict(), best_model_save_path)
             print(f"New best model saved after {epoch + 1} epochs!")
 
         if do_save_model_and_plot and (
             (epoch + 1) % checkpoint_interval == 0 or (epoch + 1) == num_epochs
         ):
-            torch.save(
-                model.state_dict(),
-                f"outputs/models/{save_name}_epochs-{epoch + 1}.pth",
-            )
+            model_save_path = f"outputs/models/{save_name}_epochs-{epoch + 1}.pth"
+            os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+            torch.save(model.state_dict(), model_save_path)
             plot_losses(
-                training_losses,
-                val_losses,
-                save_path=f"outputs/plots/{save_name}.png",
+                training_losses, val_losses, save_path=f"outputs/plots/{save_name}.png"
             )
-            with open(
-                f"outputs/logs/{save_name}.txt",
-                "w",
-            ) as file:
+
+            # Writing logs
+            log_file_path = f"outputs/logs/{save_name}.txt"
+            os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+            with open(log_file_path, "w") as file:
                 file.write(
                     f"Number of epochs: {epoch + 1}, total time: {time.time() - start:.3f} seconds \n"
                 )
@@ -226,4 +227,4 @@ def train(
         print(
             f"Epoch {epoch + 1}/{num_epochs} - Learning rate: {lr:.6f}  - Training loss: {training_loss:.4f} - Validation loss: {val_loss:.4f}"
         )
-    return training_losses, val_losses
+    return best_model_save_path
