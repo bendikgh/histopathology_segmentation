@@ -12,6 +12,8 @@ from transformers import (
 
 from dataset import CellOnlyDataset
 from models import DeepLabV3plusModel
+from ocelot23algo.user.inference import Deeplabv3CellOnlyModel
+from src.utils.metrics import predict_and_evaluate
 from utils.training import train
 from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
 from utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
@@ -32,6 +34,7 @@ def main():
     pretrained: bool = args.pretrained
     warmup_epochs: int = args.warmup_epochs
     do_save: bool = args.do_save
+    do_eval: bool = args.do_eval
     break_after_one_iteration: bool = args.break_early
     normalization: str = args.normalization
     id: str = args.id
@@ -47,6 +50,7 @@ def main():
     print(f"Pretrained: {pretrained}")
     print(f"Warmup epochs: {warmup_epochs}")
     print(f"Do save: {do_save}")
+    print(f"Do eval: {do_eval}")
     print(f"Break after one iteration: {break_after_one_iteration}")
     print(f"Device: {device}")
     print(f"Normalization: {normalization}")
@@ -96,10 +100,15 @@ def main():
     )
 
     train_dataloader = DataLoader(
-        dataset=train_dataset, batch_size=batch_size, shuffle=True, drop_last=True
+        dataset=train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        drop_last=True,
     )
     val_dataloader = DataLoader(
-        dataset=val_dataset, batch_size=batch_size, drop_last=True
+        dataset=val_dataset,
+        batch_size=batch_size,
+        drop_last=True,
     )
 
     model = DeepLabV3plusModel(
@@ -130,7 +139,7 @@ def main():
     )
     print(f"Save name: {save_name}")
 
-    train(
+    best_model_path = train(
         num_epochs=num_epochs,
         train_dataloader=train_dataloader,
         val_dataloader=val_dataloader,
@@ -144,6 +153,30 @@ def main():
         scheduler=scheduler,
         do_save_model_and_plot=do_save,
     )
+
+    print("Training complete!")
+    if not (do_save and do_eval):
+        return
+
+    print(f"Best model: {best_model_path}\n")
+    print("Calculating validation score:")
+    val_mf1 = predict_and_evaluate(
+        model_path=best_model_path,
+        model_cls=Deeplabv3CellOnlyModel,
+        partition="val",
+        tissue_file_folder="tissue_macenko",
+        tissue_model_path=None,
+    )
+    print(f"Validation mF1: {val_mf1}")
+    print("\nCalculating test score:")
+    test_mf1 = predict_and_evaluate(
+        model_path=best_model_path,
+        model_cls=Deeplabv3CellOnlyModel,
+        partition="test",
+        tissue_file_folder="tissue_macenko",
+        tissue_model_path=None,
+    )
+    print(f"Test mF1: {test_mf1}")
 
 
 if __name__ == "__main__":

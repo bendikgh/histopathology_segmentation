@@ -16,7 +16,7 @@ from transformers import (
 from dataset import CellTissueDataset
 from models import DeepLabV3plusModel
 from utils.training import train
-from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
+from utils.utils import get_save_name, get_ocelot_args
 
 
 def main():
