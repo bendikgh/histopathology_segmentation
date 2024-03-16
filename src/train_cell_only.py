@@ -164,19 +164,19 @@ def main():
         model_path=best_model_path,
         model_cls=Deeplabv3CellOnlyModel,
         partition="val",
-        tissue_file_folder="tissue_macenko",
+        tissue_file_folder="images/val/tissue_macenko",
         tissue_model_path=None,
     )
-    print(f"Validation mF1: {val_mf1}")
+    print(f"Validation mF1: {val_mf1:.4f}")
     print("\nCalculating test score:")
     test_mf1 = predict_and_evaluate(
         model_path=best_model_path,
         model_cls=Deeplabv3CellOnlyModel,
         partition="test",
-        tissue_file_folder="tissue_macenko",
+        tissue_file_folder="images/test/tissue_macenko",
         tissue_model_path=None,
     )
-    print(f"Test mF1: {test_mf1}")
+    print(f"Test mF1: {test_mf1:.4f}")
 
 
 if __name__ == "__main__":

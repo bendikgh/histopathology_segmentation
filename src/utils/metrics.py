@@ -159,12 +159,10 @@ def get_pointwise_prediction(
     tissue_model_path: str,
     model_cls,
     partition: str = "val",
-    tissue_file_folder: str = "tissue_macenko",
+    tissue_file_folder: str = "images/val/tissue_macenko",
 ) -> List:
     cell_file_path = os.path.join(data_dir, f"images/{partition}/cell_macenko/")
-    tissue_file_path = os.path.join(
-        data_dir, f"images/{partition}/{tissue_file_folder}/"
-    )
+    tissue_file_path = os.path.join(data_dir, tissue_file_folder)
 
     # Reading metadata
     metadata_path = os.path.join(data_dir, "metadata.json")

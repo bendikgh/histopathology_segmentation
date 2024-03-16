@@ -66,62 +66,63 @@ python {python_file} \\
 
 
 def main():
-    run_script = False
+    run_script = True
 
     # General parameters
-    job_name = "ocelot_deeplab_cell_only"
-    python_file = "src/train_cell_branch.py"
+    job_name = "ocelot_deeplab_tissue_leaking"
+    python_file = "src/train_tissue_leaking.py"
     duration_str: str = "0-06:00:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
-    epochs = 1
-    batch_size = 2
+    epochs = 100
+    batch_size = 4
     checkpoint_interval = 30
     backbone = "resnet50"
     dropout = 0.3
     learning_rate = 1e-4
     pretrained = 1
-    warmup_epochs = 0
+    warmup_epochs = 10
     do_save = 1
     do_eval = 1
-    break_early = 1
+    break_early = 0
     id_ = 1
     normalization = "macenko"
 
-    script_contents = generate_slurm_script(
-        job_name=job_name,
-        python_file=python_file,
-        duration_str=duration_str,
-        work_dir=work_dir,
-        epochs=epochs,
-        batch_size=batch_size,
-        checkpoint_interval=checkpoint_interval,
-        backbone=backbone,
-        dropout=dropout,
-        learning_rate=learning_rate,
-        pretrained=pretrained,
-        warmup_epochs=warmup_epochs,
-        do_save=do_save,
-        do_eval=do_eval,
-        break_early=break_early,
-        normalization=normalization,
-        id_=id_,
-    )
-    script_filename = f"scripts/slurm_script_id{id_}.sh"
-    with open(script_filename, "w") as script_file:
-        script_file.write(script_contents)
+    for id_ in range(1, 6):
+        script_contents = generate_slurm_script(
+            job_name=job_name,
+            python_file=python_file,
+            duration_str=duration_str,
+            work_dir=work_dir,
+            epochs=epochs,
+            batch_size=batch_size,
+            checkpoint_interval=checkpoint_interval,
+            backbone=backbone,
+            dropout=dropout,
+            learning_rate=learning_rate,
+            pretrained=pretrained,
+            warmup_epochs=warmup_epochs,
+            do_save=do_save,
+            do_eval=do_eval,
+            break_early=break_early,
+            normalization=normalization,
+            id_=id_,
+        )
+        script_filename = f"scripts/slurm_script_id{id_}.sh"
+        with open(script_filename, "w") as script_file:
+            script_file.write(script_contents)
 
-    if run_script:
-        # Submit the script
-        subprocess.run(["sbatch", script_filename])
-        print(f"Submitted: {script_filename}")
-    else:
-        print(script_contents)
+        if run_script:
+            # Submit the script
+            subprocess.run(["sbatch", script_filename])
+            print(f"Submitted: {script_filename}")
+        else:
+            print(script_contents)
 
-    # Delete the script file
-    os.remove(script_filename)
-    print(f"Deleted: {script_filename}")
+        # Delete the script file
+        os.remove(script_filename)
+        print(f"Deleted: {script_filename}")
 
 
 if __name__ == "__main__":
