@@ -23,7 +23,7 @@ def generate_slurm_script(
     id_,
 ):
     current_time = datetime.datetime.now().strftime("%Y-%m-%d")
-    output_str = f"outputs/logs/{current_time}/{job_name}_normalize_{normalization.replace('+', '_').replace(' ', '')}_id-{id_}"
+    output_str = f"{current_time}/{job_name}_normalize_{normalization.replace('+', '_').replace(' ', '')}_id-{id_}"
     return f"""#!/bin/sh
 
 #SBATCH --job-name={job_name}
@@ -71,7 +71,7 @@ def main():
     # General parameters
     job_name = "ocelot_deeplab_tissue_leaking"
     python_file = "src/train_tissue_leaking.py"
-    duration_str: str = "0-06:00:00"
+    duration_str: str = "0-04:30:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
