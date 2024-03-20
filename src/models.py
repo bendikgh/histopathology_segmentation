@@ -13,6 +13,15 @@ from src.deeplabv3.network._deeplab import (
     DeepLabV3,
 )
 
+from src.utils.constants import OCELOT_IMAGE_SIZE
+
+from transformers import (
+    SegformerForSemanticSegmentation,
+    SegformerConfig,
+    SegformerModel,
+)
+
+
 
 class DeepLabV3plusModel(nn.Module):
 
@@ -69,3 +78,97 @@ class DeepLabV3plusModel(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+
+class CustomSegformerModel(nn.Module):
+
+    segformer_architectures = {
+        "b0": {
+            "depths": [2, 2, 2, 2],
+            "hidden_sizes": [32, 64, 160, 256],
+            "decoder_hidden_size": 256,
+        },
+        "b1": {
+            "depths": [2, 2, 2, 2],
+            "hidden_sizes": [64, 128, 320, 512],
+            "decoder_hidden_size": 256,
+        },
+        "b2": {
+            "depths": [3, 4, 6, 3],
+            "hidden_sizes": [64, 128, 320, 512],
+            "decoder_hidden_size": 768,
+        },
+        "b3": {
+            "depths": [3, 4, 18, 3],
+            "hidden_sizes": [64, 128, 320, 512],
+            "decoder_hidden_size": 768,
+        },
+        "b4": {
+            "depths": [3, 8, 27, 3],
+            "hidden_sizes": [64, 128, 320, 512],
+            "decoder_hidden_size": 768,
+        },
+        "b5": {
+            "depths": [3, 6, 40, 3],
+            "hidden_sizes": [64, 128, 320, 512],
+            "decoder_hidden_size": 768,
+        },
+    }
+
+    def __init__(
+        self,
+        backbone_name: str,
+        num_classes: int,
+        num_channels: int,
+        pretrained_dataset: str = None,
+        output_spatial_shape=OCELOT_IMAGE_SIZE,
+    ):
+        if num_channels < 3:
+            raise ValueError("Number of input channels must be at least 3")
+
+        super().__init__()
+
+        # keeping track of what the model is pretrained on
+        self.pretrained_dataset = pretrained_dataset
+        self.output_spatial_shape = output_spatial_shape
+
+        # Fetching the parameters for the segformer model
+        parameters = self.segformer_architectures[backbone_name]
+
+        # Creating model
+        configuration = SegformerConfig(
+            num_labels=num_classes,
+            num_channels=num_channels,
+            depths=parameters["depths"],
+            hidden_sizes=parameters["hidden_sizes"],
+            decoder_hidden_size=parameters["decoder_hidden_size"],
+        )
+
+        model = SegformerForSemanticSegmentation(configuration)
+
+        # Loading pretrained weights
+        if pretrained_dataset == "ade":
+            encoder = SegformerModel.from_pretrained(
+                f"nvidia/segformer-{backbone_name}-finetuned-ade-512-512"
+            )
+            model.segformer = encoder
+        elif pretrained_dataset == "cityscapes":
+            encoder = SegformerModel.from_pretrained(
+                f"nvidia/segformer-{backbone_name}-finetuned-cityscapes-1024-1024"
+            )
+            model.segformer = encoder
+
+        self.model = model
+
+    def forward(self, x):
+        logits = self.model(x).logits
+
+        # Upscaling the result to the shape of the ground truth
+        if logits.shape[1:] != self.output_spatial_shape:
+            logits = nn.functional.interpolate(
+                logits,
+                size=OCELOT_IMAGE_SIZE,  # (height, width)
+                mode="bilinear",
+                align_corners=False,
+            )
+
+        return logits

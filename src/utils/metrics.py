@@ -3,6 +3,7 @@ import os
 import sys
 import torch
 
+import albumentations as A
 import numpy as np
 
 from src.utils.utils import get_ground_truth_points
@@ -24,7 +25,7 @@ from ocelot23algo.evaluation.eval import (
     DISTANCE_CUTOFF,
 )
 from ocelot23algo.util import gcio
-from ocelot23algo.user.inference import Deeplabv3TissueCellModel
+from ocelot23algo.user.inference import Deeplabv3TissueCellModel, SegformerCellOnlyModel
 
 from src.utils.constants import (
     DEFAULT_TISSUE_MODEL_PATH,
@@ -160,6 +161,7 @@ def get_pointwise_prediction(
     model_cls,
     partition: str = "val",
     tissue_file_folder: str = "images/val/tissue_macenko",
+    transform=None,
 ) -> List:
     cell_file_path = os.path.join(data_dir, f"images/{partition}/cell_macenko/")
     tissue_file_path = os.path.join(data_dir, tissue_file_folder)
@@ -183,7 +185,7 @@ def get_pointwise_prediction(
     for cell_patch, tissue_patch, pair_id in tqdm(
         loader, desc="Processing samples: ", total=len(loader)
     ):
-        cell_classification = model(cell_patch, tissue_patch, pair_id, transform=None)
+        cell_classification = model(cell_patch, tissue_patch, pair_id, transform=transform)
 
         for x, y, class_id, prob in cell_classification:
             predictions.append(
@@ -217,24 +219,53 @@ def predict_and_evaluate(
     gt_points = gt_json["points"]
 
     scores = calculate_point_based_f1(
-        ground_truth=predictions,
-        predictions=gt_points,
+        ground_truth=gt_points,
+        predictions=predictions,
         num_images=num_images,
     )
     return scores["mF1"]
 
 
 if __name__ == "__main__":
+    # partition = "test"
+    # cell_model_path = "outputs/models/20240314_163849_deeplabv3plus-cell-branch_pretrained-1_lr-1e-04_dropout-0.3_backbone-resnet50_normalization-macenko_id-1_epochs-60.pth"
+    # tissue_model_path = "outputs/models/best/20240313_002829_deeplabv3plus-tissue-branch_pretrained-1_lr-1e-04_dropout-0.1_backbone-resnet50_normalization-macenko_id-5_best.pth"
+
+    # predictions = get_pointwise_prediction(
+    #     data_dir=IDUN_OCELOT_DATA_PATH,
+    #     cell_model_path=cell_model_path,
+    #     tissue_model_path=tissue_model_path,
+    #     model_cls=Deeplabv3TissueCellModel,
+    #     partition=partition,
+    # )
+
+    # gt_path = f"{os.getcwd()}/eval_outputs/cell_gt_{partition}.json"
+    # with open(gt_path, "r") as f:
+    #     gt_json = json.load(f)
+    #     gt_points = gt_json["points"]
+    #     num_images = gt_json["num_images"]
+
+    # scores = calculate_point_based_f1(
+    #     ground_truth=gt_points,
+    #     predictions=predictions,
+    #     num_images=num_images,
+    # )
+    # print(scores)
+
+
     partition = "test"
-    cell_model_path = "outputs/models/20240314_163849_deeplabv3plus-cell-branch_pretrained-1_lr-1e-04_dropout-0.3_backbone-resnet50_normalization-macenko_id-1_epochs-60.pth"
-    tissue_model_path = "outputs/models/best/20240313_002829_deeplabv3plus-tissue-branch_pretrained-1_lr-1e-04_dropout-0.1_backbone-resnet50_normalization-macenko_id-5_best.pth"
+    cell_model_path = "outputs/models/20240320_120628/deeplabv3plus-cell-only_pretrained-1_lr-5e-05_dropout-0.3_backbone-b3_normalization-off_pretrained_dataset-ade_best.pth"
+    tissue_file_folder = f"images/{partition}/tissue_macenko"
+    resize = 512
 
     predictions = get_pointwise_prediction(
         data_dir=IDUN_OCELOT_DATA_PATH,
         cell_model_path=cell_model_path,
-        tissue_model_path=tissue_model_path,
-        model_cls=Deeplabv3TissueCellModel,
+        tissue_model_path=None,
+        model_cls=SegformerCellOnlyModel,
         partition=partition,
+        transform=A.Resize(height=resize, width=resize),
+        tissue_file_folder=tissue_file_folder,
     )
 
     gt_path = f"{os.getcwd()}/eval_outputs/cell_gt_{partition}.json"
@@ -248,4 +279,5 @@ if __name__ == "__main__":
         predictions=predictions,
         num_images=num_images,
     )
+
     print(scores)

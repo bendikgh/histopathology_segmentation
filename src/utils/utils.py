@@ -723,6 +723,18 @@ def get_ocelot_args() -> argparse.Namespace:
         default=None,
         help="trial identifier",
     )
+    parser.add_argument(
+        "--resize",
+        type=int,
+        default=None,
+        help="resize the input images",
+    )
+    parser.add_argument(
+        "--pretrained-dataset",
+        type=str,
+        default=None,
+        help="The dataset the model should be pretrained on",
+    )
 
     args: argparse.Namespace = parser.parse_args()
     return args

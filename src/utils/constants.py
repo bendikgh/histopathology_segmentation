@@ -30,4 +30,6 @@ CELL_IMAGE_STD: list = [0.1899926, 0.2419049, 0.18382073]
 TISSUE_IMAGE_MEAN: list = [0.76528257, 0.58330387, 0.69940715]
 TISSUE_IMAGE_STD: list = [0.18308686, 0.23847347, 0.18801605]
 
+OCELOT_IMAGE_SIZE = (1024, 1024)
+
 DEFAULT_TISSUE_MODEL_PATH = "outputs/models/best/20240313_002829_deeplabv3plus-tissue-branch_pretrained-1_lr-1e-04_dropout-0.1_backbone-resnet50_normalization-macenko_id-5_best.pth"

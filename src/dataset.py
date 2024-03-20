@@ -244,7 +244,8 @@ class CellOnlyDataset(Dataset):
         cell_image_files: list,
         cell_target_files: list,
         transform=None,
-        output_shape: tuple = (1024, 1024),
+        image_shape: tuple = (1024, 1024),
+        label_shape: tuple = (1024, 1024),
     ):
 
         if len(cell_image_files) != len(cell_target_files):
@@ -255,11 +256,15 @@ class CellOnlyDataset(Dataset):
         self.cell_image_files: list = cell_image_files
         self.cell_target_files: list = cell_target_files
         self.transform = transform
-        self.output_shape: tuple = output_shape
 
         # Conventions for image shapes
-        self.pytorch_image_output_shape = (3, *self.output_shape)
-        self.numpy_image_output_shape = (*self.output_shape, 3)  # Currently unused
+        self.pytorch_image_output_shape = (3, *image_shape)
+        self.numpy_image_output_shape = (*image_shape, 3)  # Currently unused
+
+        self.pytorch_label_output_shape = (3, *label_shape)
+        self.numpy_label_output_shape = (*label_shape, 3)  # Currently unused
+
+
 
     def __len__(self):
         return len(self.cell_image_files)
@@ -298,6 +303,7 @@ class CellOnlyDataset(Dataset):
 
         if image.dtype != torch.float32:
             raise ValueError(f"Image is not of type torch.float32")
+        
         if image.shape != self.pytorch_image_output_shape:
             raise ValueError(
                 f"Image shape is {image.shape}, expected {self.pytorch_image_output_shape}"
@@ -305,9 +311,9 @@ class CellOnlyDataset(Dataset):
 
         if label.dtype != torch.long:
             raise ValueError(f"Label is not of type torch.long")
-        if label.shape != self.pytorch_image_output_shape:
+        if label.shape != self.pytorch_label_output_shape:
             raise ValueError(
-                f"Label shape is {label.shape}, expected {self.pytorch_image_output_shape}"
+                f"Label shape is {label.shape}, expected {self.pytorch_label_output_shape}"
             )
         if label.sum(dim=0).unique().item() != 1:
             raise ValueError(
