@@ -147,15 +147,33 @@ class CustomSegformerModel(nn.Module):
 
         # Loading pretrained weights
         if pretrained_dataset == "ade":
-            encoder = SegformerModel.from_pretrained(
+            pretrained = SegformerModel.from_pretrained(
                 f"nvidia/segformer-{backbone_name}-finetuned-ade-512-512"
             )
-            model.segformer = encoder
+            model.segformer = pretrained
         elif pretrained_dataset == "cityscapes":
-            encoder = SegformerModel.from_pretrained(
+            pretrained = SegformerModel.from_pretrained(
                 f"nvidia/segformer-{backbone_name}-finetuned-cityscapes-1024-1024"
             )
-            model.segformer = encoder
+            model.segformer = pretrained
+
+        if num_channels != 3:
+            input_layer = model.segformer.encoder.patch_embeddings[0].proj
+
+            new_input_layer = nn.Conv2d(
+                num_channels, 
+                input_layer.out_channels,
+                kernel_size=input_layer.kernel_size, 
+                stride=input_layer.stride,
+                padding=input_layer.padding)
+            
+            num_channels_input_layer = input_layer.weight.data.shape[1]
+            
+            new_input_layer.weight.data[:, :num_channels_input_layer] = input_layer.weight.data
+            new_input_layer.bias.data[:] = input_layer.bias.data
+
+            model.segformer.encoder.patch_embeddings[0].proj = new_input_layer
+
 
         self.model = model
 

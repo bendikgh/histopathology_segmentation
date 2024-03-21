@@ -104,6 +104,8 @@ class CellTissueDataset(Dataset):
         tissue_pred_files: list,
         transform=None,
         debug=True,
+        image_shape=(1024, 1024),
+        label_shape=(1024, 1024),
     ):
         if not (len(cell_image_files) == len(cell_target_files) == len(tissue_pred_files)):  # fmt: skip
             raise ValueError(
@@ -115,6 +117,13 @@ class CellTissueDataset(Dataset):
         self.tissue_pred_files = tissue_pred_files
         self.transform = transform
         self.debug = debug
+
+        # Conventions for image shapes
+        self.pytorch_image_output_shape = (6, *image_shape)
+        self.numpy_image_output_shape = (*image_shape, 3)  # Currently unused
+
+        self.pytorch_label_output_shape = (6, *label_shape)
+        self.numpy_label_output_shape = (*label_shape, 3)  # Currently unused
 
     def __len__(self) -> int:
         return len(self.cell_image_files)
@@ -161,9 +170,9 @@ class CellTissueDataset(Dataset):
         """
         if concatenated_input.dtype != torch.float32:
             raise ValueError(f"Concatenated image is not of type torch.float32")
-        if concatenated_input.shape != (6, 1024, 1024):
+        if concatenated_input.shape != self.pytorch_image_output_shape:
             raise ValueError(
-                f"Concatenated image shape is {concatenated_input.shape}, expected (6, 1024, 1024)"
+                f"Concatenated image shape is {concatenated_input.shape}, expected {self.pytorch_image_output_shape}"
             )
         tissue_pred = concatenated_input[3:]
         if tissue_pred.max() != 1 or tissue_pred.min() != 0:
