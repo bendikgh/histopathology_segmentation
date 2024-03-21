@@ -1,3 +1,4 @@
+import cv2
 import json
 import os
 import sys
@@ -25,7 +26,7 @@ from ocelot23algo.evaluation.eval import (
     DISTANCE_CUTOFF,
 )
 from ocelot23algo.util import gcio
-from ocelot23algo.user.inference import Deeplabv3TissueCellModel, SegformerCellOnlyModel
+from ocelot23algo.user.inference import Deeplabv3TissueCellModel, SegformerCellOnlyModel, SegformerTissueFromFile
 
 from src.utils.constants import (
     DEFAULT_TISSUE_MODEL_PATH,
@@ -204,6 +205,7 @@ def predict_and_evaluate(
     partition: str,
     tissue_file_folder: str,
     tissue_model_path: str = DEFAULT_TISSUE_MODEL_PATH,
+    transform=None,
 ):
     predictions = get_pointwise_prediction(
         data_dir=IDUN_OCELOT_DATA_PATH,
@@ -212,6 +214,7 @@ def predict_and_evaluate(
         model_cls=model_cls,
         partition=partition,
         tissue_file_folder=tissue_file_folder,
+        transform=transform
     )
 
     gt_json = get_ground_truth_points(partition=partition)
@@ -254,17 +257,18 @@ if __name__ == "__main__":
 
 
     partition = "test"
-    cell_model_path = "outputs/models/20240320_120628/deeplabv3plus-cell-only_pretrained-1_lr-5e-05_dropout-0.3_backbone-b3_normalization-off_pretrained_dataset-ade_best.pth"
-    tissue_file_folder = f"images/{partition}/tissue_macenko"
+    cell_model_path = "outputs/models/20240321_140646/deeplabv3plus-cell-only_pretrained-1_lr-5e-05_dropout-0.3_backbone-b3_normalization-off_pretrained_dataset-ade_resize-512_best.pth"
+    tissue_file_folder = f"annotations/{partition}/predicted_cropped_tissue"
     resize = 512
+    transform = A.Compose([A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)], additional_targets={'tissue': 'image'})
 
     predictions = get_pointwise_prediction(
         data_dir=IDUN_OCELOT_DATA_PATH,
         cell_model_path=cell_model_path,
         tissue_model_path=None,
-        model_cls=SegformerCellOnlyModel,
+        model_cls=SegformerTissueFromFile,
         partition=partition,
-        transform=A.Resize(height=resize, width=resize),
+        transform=transform,
         tissue_file_folder=tissue_file_folder,
     )
 

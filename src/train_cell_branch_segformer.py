@@ -195,7 +195,7 @@ def main():
         power=1,
     )
     save_name = get_save_name(
-        model_name="deeplabv3plus-cell-only",
+        model_name="segformer-tissue-cell",
         pretrained=pretrained,
         learning_rate=learning_rate,
         dropout_rate=dropout_rate,
@@ -228,12 +228,15 @@ def main():
 
     print(f"Best model: {best_model_path}\n")
     print("Calculating validation score:")
+
+    transform = A.Compose([A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)], additional_targets={'tissue': 'image'})
     val_mf1 = predict_and_evaluate(
         model_path=best_model_path,
         model_cls=SegformerTissueFromFile,
         partition="val",
         tissue_file_folder="annotations/val/cropped_tissue",
         tissue_model_path=None,
+        transform=transform,
     )
     print(f"Validation mF1: {val_mf1:.4f}")
     print("\nCalculating test score:")
@@ -243,6 +246,7 @@ def main():
         partition="test",
         tissue_file_folder="annotations/test/cropped_tissue",
         tissue_model_path=None,
+        transform=transform,
     )
     print(f"Test mF1: {test_mf1:.4f}")
 
