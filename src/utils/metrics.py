@@ -6,13 +6,13 @@ import torch
 
 import albumentations as A
 import numpy as np
+import scipy.stats as st
 
 from src.utils.utils import get_ground_truth_points
 
 sys.path.append(os.getcwd())
 
 from skimage.feature import peak_local_max
-from torch.nn.functional import interpolate
 from typing import List, Dict, Any
 from tqdm import tqdm
 
@@ -26,7 +26,10 @@ from ocelot23algo.evaluation.eval import (
     DISTANCE_CUTOFF,
 )
 from ocelot23algo.util import gcio
-from ocelot23algo.user.inference import Deeplabv3TissueCellModel, SegformerCellOnlyModel, SegformerTissueFromFile
+
+from ocelot23algo.user.inference import (
+    SegformerTissueFromFile,
+)
 
 from src.utils.constants import (
     DEFAULT_TISSUE_MODEL_PATH,
@@ -186,7 +189,9 @@ def get_pointwise_prediction(
     for cell_patch, tissue_patch, pair_id in tqdm(
         loader, desc="Processing samples: ", total=len(loader)
     ):
-        cell_classification = model(cell_patch, tissue_patch, pair_id, transform=transform)
+        cell_classification = model(
+            cell_patch, tissue_patch, pair_id, transform=transform
+        )
 
         for x, y, class_id, prob in cell_classification:
             predictions.append(
@@ -214,7 +219,7 @@ def predict_and_evaluate(
         model_cls=model_cls,
         partition=partition,
         tissue_file_folder=tissue_file_folder,
-        transform=transform
+        transform=transform,
     )
 
     gt_json = get_ground_truth_points(partition=partition)
@@ -255,12 +260,14 @@ if __name__ == "__main__":
     # )
     # print(scores)
 
-
     partition = "test"
     cell_model_path = "outputs/models/20240321_140646/deeplabv3plus-cell-only_pretrained-1_lr-5e-05_dropout-0.3_backbone-b3_normalization-off_pretrained_dataset-ade_resize-512_best.pth"
     tissue_file_folder = f"annotations/{partition}/predicted_cropped_tissue"
     resize = 512
-    transform = A.Compose([A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)], additional_targets={'tissue': 'image'})
+    transform = A.Compose(
+        [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
+        additional_targets={"tissue": "image"},
+    )
 
     predictions = get_pointwise_prediction(
         data_dir=IDUN_OCELOT_DATA_PATH,
@@ -285,3 +292,48 @@ if __name__ == "__main__":
     )
 
     print(scores)
+
+
+def calculate_confidence_interval(results: list, metrics: list[str]) -> None:
+    """
+    Calculates the mean and 95% confidence interval of specified metrics for each experiment in the results.
+
+    Each experiment in `results` is expected to be a dict containing:
+    - "name": String name of the experiment.
+    - "results": List of dicts, each containing measurement results for the specified metrics.
+
+    Example of `results` format:
+    [
+        {
+            "name": "Experiment Name",
+            "results": [
+                {"metric1": value1, "metric2": value2, ... },
+                ...
+            ],
+        },
+        ...
+    ]
+
+    Args:
+    - results (list of dict): A list of experiments, where each experiment is a dict containing
+                              the experiment name and its results.
+    - metrics (list of str): The metrics for which to calculate the mean and confidence interval.
+
+    Prints:
+    - For each metric in each experiment, prints the mean and the half-width of the 95%
+      confidence interval.
+    """
+    for experiment in results:
+        result_list: list = experiment["results"]
+        print(experiment["name"])
+
+        for metric in metrics:
+            scores = np.array([x[metric] for x in result_list])
+            scores_ci = st.t.interval(
+                0.95, len(scores) - 1, loc=scores.mean(), scale=st.sem(scores)
+            )
+            print(f"{metric} mean: {scores.mean()*100:.4f} (%)")
+            print(
+                f"{metric} 95% CI half-width: ±{(scores_ci[1] - scores_ci[0])/2*100:.4f} (%)"
+            )
+        print()
