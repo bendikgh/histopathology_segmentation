@@ -6,7 +6,6 @@ import torch
 import albumentations as A
 import seaborn as sns
 
-from copy import copy
 from glob import glob
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
@@ -28,14 +27,28 @@ def build_transform(transforms, extra_transform_cell_tissue):
 
     def transform(image, mask1, mask2):
         transformed = transforms(image=image, mask1=mask1, mask2=mask2)
-        transformed_cell, transformed_label, transformed_tissue = transformed["image"], transformed["mask1"], transformed["mask2"]
+        transformed_cell, transformed_label, transformed_tissue = (
+            transformed["image"],
+            transformed["mask1"],
+            transformed["mask2"],
+        )
 
-        transformed = extra_transform_cell_tissue(image=transformed_cell, extra_image=transformed_tissue)
-        transformed_cell, transformed_tissue = transformed["image"], transformed["extra_image"]
-        
-        return {"image": transformed_cell, "mask1": transformed_label, "mask2": transformed_tissue}
+        transformed = extra_transform_cell_tissue(
+            image=transformed_cell, extra_image=transformed_tissue
+        )
+        transformed_cell, transformed_tissue = (
+            transformed["image"],
+            transformed["extra_image"],
+        )
+
+        return {
+            "image": transformed_cell,
+            "mask1": transformed_label,
+            "mask2": transformed_tissue,
+        }
 
     return transform
+
 
 def main():
     sns.set_theme()
@@ -46,17 +59,17 @@ def main():
     batch_size: int = args.batch_size
     data_dir: str = args.data_dir
     checkpoint_interval: int = args.checkpoint_interval
-    backbone_model: str = "b3" #args.backbone
+    backbone_model: str = args.backbone
     dropout_rate: float = args.dropout
     learning_rate: float = args.learning_rate
     pretrained: bool = args.pretrained
     warmup_epochs: int = args.warmup_epochs
-    do_save: bool = 1 #args.do_save
+    do_save: bool = args.do_save
     do_eval: bool = args.do_eval
     break_after_one_iteration: bool = args.break_early
     normalization: str = args.normalization
-    pretrained_dataset: str = "ade" #args.pretrained_dataset
-    resize: int = 512 #args.resize
+    pretrained_dataset: str = args.pretrained_dataset
+    resize: int = args.resize
     id: str = args.id
 
     print("Training with the following parameters:")
@@ -80,7 +93,6 @@ def main():
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Find the correct files
-
     train_transform_list = [
         A.GaussianBlur(),
         A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
@@ -100,18 +112,24 @@ def main():
         )
         val_transform_list.append(A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD))
 
-    train_transforms = A.Compose(train_transform_list)
+    train_transforms = A.Compose(
+        train_transform_list, additional_targets={"mask1": "mask", "mask2": "mask"}
+    )
     val_transforms = A.Compose(val_transform_list)
 
     if resize is not None:
-
-        extra_transform_cell_tissue = A.Compose([A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)], additional_targets={'extra_image': 'image'}) 
+        extra_transform_cell_tissue = A.Compose(
+            [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
+            additional_targets={"extra_image": "image"},
+        )
 
         train_transforms = build_transform(
-            transforms=train_transforms, extra_transform_cell_tissue=extra_transform_cell_tissue
+            transforms=train_transforms,
+            extra_transform_cell_tissue=extra_transform_cell_tissue,
         )
         val_transforms = build_transform(
-            transforms=val_transforms, extra_transform_cell_tissue=extra_transform_cell_tissue
+            transforms=val_transforms,
+            extra_transform_cell_tissue=extra_transform_cell_tissue,
         )
 
     train_cell_image_files, train_cell_seg_files = get_ocelot_files(
@@ -121,8 +139,6 @@ def main():
         data_dir=data_dir, partition="val", zoom="cell", macenko=macenko
     )
 
-
-    ## Tissue
     train_image_nums = [x.split("/")[-1].split(".")[0] for x in train_cell_image_files]
     val_image_nums = [x.split("/")[-1].split(".")[0] for x in val_cell_image_files]
 
@@ -149,21 +165,20 @@ def main():
     train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
     val_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
 
-
     # Create dataset and dataloader
     train_dataset = CellTissueDataset(
         cell_image_files=train_cell_image_files,
         cell_target_files=train_cell_seg_files,
         transform=train_transforms,
         tissue_pred_files=train_tissue_predicted,
-        image_shape=(resize, resize) if resize else (1024, 1024)
+        image_shape=(resize, resize) if resize else (1024, 1024),
     )
     val_dataset = CellTissueDataset(
         cell_image_files=val_cell_image_files,
         cell_target_files=val_cell_seg_files,
         transform=val_transforms,
         tissue_pred_files=val_tissue_predicted,
-        image_shape=(resize, resize) if resize else (1024, 1024)
+        image_shape=(resize, resize) if resize else (1024, 1024),
     )
 
     train_dataloader = DataLoader(
@@ -198,7 +213,6 @@ def main():
         model_name="segformer-tissue-cell",
         pretrained=pretrained,
         learning_rate=learning_rate,
-        dropout_rate=dropout_rate,
         backbone_model=backbone_model,
         normalization=normalization,
         pretrained_dataset=pretrained_dataset,
@@ -229,7 +243,10 @@ def main():
     print(f"Best model: {best_model_path}\n")
     print("Calculating validation score:")
 
-    transform = A.Compose([A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)], additional_targets={'tissue': 'image'})
+    transform = A.Compose(
+        [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
+        additional_targets={"tissue": "image"},
+    )
     val_mf1 = predict_and_evaluate(
         model_path=best_model_path,
         model_cls=SegformerTissueFromFile,
@@ -253,3 +270,20 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""
+python src/train_cell_branch_segformer.py \
+    --epochs 20 \
+    --batch-size 2 \
+    --checkpoint-interval 10 \
+    --backbone b3 \
+    --learning-rate 5e-5 \
+    --pretrained 1 \
+    --warmup-epochs 0 \
+    --do-save 1 \
+    --do-eval 1 \
+    --break-early 0 \
+    --normalization macenko \
+    --resize 512 \
+    --pretrained-dataset ade 
+"""

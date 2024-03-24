@@ -20,6 +20,8 @@ def generate_slurm_script(
     do_eval,
     break_early,
     normalization,
+    resize,
+    pretrained_dataset,
     id_,
 ):
     current_time = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -62,6 +64,8 @@ python {python_file} \\
   --do-eval {do_eval} \\
   --break-early {break_early} \\
   --normalization "{normalization}" \\
+  --resize "{resize}" \\
+  --pretrained-dataset "{pretrained_dataset}" \\
   --id {id_}"""
 
 
@@ -69,27 +73,29 @@ def main():
     run_script = True
 
     # General parameters
-    job_name = "ocelot_deeplab_tissue_leaking"
-    python_file = "src/train_tissue_leaking.py"
-    duration_str: str = "0-04:30:00"
+    job_name = "segformer_cell_branch_cityscapes"
+    python_file = "src/train_cell_branch_segformer.py"
+    duration_str: str = "0-02:00:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
-    epochs = 100
+    epochs = 30
     batch_size = 4
-    checkpoint_interval = 30
-    backbone = "resnet50"
+    checkpoint_interval = 10
+    backbone = "b3"
     dropout = 0.3
     learning_rate = 1e-4
     pretrained = 1
-    warmup_epochs = 10
+    warmup_epochs = 5
     do_save = 1
     do_eval = 1
     break_early = 0
+    resize = 512
+    pretrained_dataset = "cityscapes"
     id_ = 1
     normalization = "macenko"
 
-    for id_ in range(1, 6):
+    for id_ in range(1, 2):
         script_contents = generate_slurm_script(
             job_name=job_name,
             python_file=python_file,
@@ -107,6 +113,8 @@ def main():
             do_eval=do_eval,
             break_early=break_early,
             normalization=normalization,
+            resize=resize,
+            pretrained_dataset=pretrained_dataset,
             id_=id_,
         )
         script_filename = f"scripts/slurm_script_id{id_}.sh"

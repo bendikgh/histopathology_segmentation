@@ -30,6 +30,7 @@ def build_transform(transforms, extra_transform_image):
 
     return transform
 
+
 def main():
     sns.set_theme()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -39,17 +40,16 @@ def main():
     batch_size: int = args.batch_size
     data_dir: str = args.data_dir
     checkpoint_interval: int = args.checkpoint_interval
-    backbone_model: str = "b3" #args.backbone
-    dropout_rate: float = args.dropout
+    backbone_model: str = args.backbone
     learning_rate: float = args.learning_rate
     pretrained: bool = args.pretrained
     warmup_epochs: int = args.warmup_epochs
     do_save: bool = args.do_save
     do_eval: bool = args.do_eval
-    break_after_one_iteration: bool = 1 #args.break_early
+    break_after_one_iteration: bool = args.break_early
     normalization: str = args.normalization
     pretrained_dataset: str = args.pretrained_dataset
-    resize: int = 512 #args.resize
+    resize: int = args.resize
     id: str = args.id
 
     print("Training with the following parameters:")
@@ -57,7 +57,6 @@ def main():
     print(f"Number of epochs: {num_epochs}")
     print(f"Batch size: {batch_size}")
     print(f"Backbone model: {backbone_model}")
-    print(f"Dropout rate: {dropout_rate}")
     print(f"Learning rate: {learning_rate}")
     print(f"Checkpoint interval: {checkpoint_interval}")
     print(f"Pretrained: {pretrained}")
@@ -97,7 +96,6 @@ def main():
     val_transforms = A.Compose(val_transform_list)
 
     if resize is not None:
-
         extra_transform_image = A.Resize(height=resize, width=resize)
 
         train_transforms = build_transform(
@@ -119,13 +117,13 @@ def main():
         cell_image_files=train_image_files,
         cell_target_files=train_seg_files,
         transform=train_transforms,
-        image_shape=(resize, resize) if resize else (1024, 1024)
+        image_shape=(resize, resize) if resize else (1024, 1024),
     )
     val_dataset = CellOnlyDataset(
         cell_image_files=val_image_files,
         cell_target_files=val_seg_files,
         transform=val_transforms,
-        image_shape=(resize, resize) if resize else (1024, 1024)
+        image_shape=(resize, resize) if resize else (1024, 1024),
     )
 
     train_dataloader = DataLoader(
@@ -160,7 +158,6 @@ def main():
         model_name="deeplabv3plus-cell-only",
         pretrained=pretrained,
         learning_rate=learning_rate,
-        dropout_rate=dropout_rate,
         backbone_model=backbone_model,
         normalization=normalization,
         pretrained_dataset=pretrained_dataset,
