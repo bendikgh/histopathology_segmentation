@@ -8,14 +8,19 @@ import albumentations as A
 import numpy as np
 import scipy.stats as st
 
-from src.utils.utils import get_ground_truth_points
-
 sys.path.append(os.getcwd())
+
+from src.utils.constants import (
+    DEFAULT_TISSUE_MODEL_PATH,
+    IDUN_OCELOT_DATA_PATH,
+    DATASET_PARTITION_OFFSETS,
+)
+from src.utils.utils import get_ground_truth_points
+from src.models import DeepLabV3plusModel, CustomSegformerModel
 
 from skimage.feature import peak_local_max
 from typing import List, Dict, Any
 from tqdm import tqdm
-
 
 from ocelot23algo.evaluation.eval import (
     _calc_scores,
@@ -29,12 +34,6 @@ from ocelot23algo.util import gcio
 
 from ocelot23algo.user.inference import (
     SegformerTissueFromFile,
-)
-
-from src.utils.constants import (
-    DEFAULT_TISSUE_MODEL_PATH,
-    IDUN_OCELOT_DATA_PATH,
-    DATASET_PARTITION_OFFSETS,
 )
 
 
@@ -204,6 +203,45 @@ def get_pointwise_prediction(
     return predictions
 
 
+def get_pointwise_prediction_v2(
+    data_dir: str,
+    evaluation_model,
+    partition: str = "val",
+    tissue_file_folder: str = "images/val/tissue_macenko",
+    transform=None,
+) -> List:
+    cell_file_path = os.path.join(data_dir, f"images/{partition}/cell_macenko/")
+    tissue_file_path = os.path.join(data_dir, tissue_file_folder)
+
+    # Reading metadata
+    metadata_path = os.path.join(data_dir, "metadata.json")
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
+    metadata = list(metadata["sample_pairs"].values())[
+        DATASET_PARTITION_OFFSETS[partition] :
+    ]
+
+    loader = gcio.CustomDataLoader(cell_file_path, tissue_file_path)
+
+    predictions = []
+    for cell_patch, tissue_patch, pair_id in tqdm(
+        loader, desc="Processing samples: ", total=len(loader)
+    ):
+        cell_classification = evaluation_model(
+            cell_patch, tissue_patch, pair_id, transform=transform
+        )
+
+        for x, y, class_id, prob in cell_classification:
+            predictions.append(
+                {
+                    "name": f"image_{str(pair_id)}",
+                    "point": [int(x), int(y), int(class_id)],
+                    "probability": prob,
+                }
+            )
+    return predictions
+
+
 def predict_and_evaluate(
     model_path: str,
     model_cls,
@@ -234,64 +272,30 @@ def predict_and_evaluate(
     return scores["mF1"]
 
 
-if __name__ == "__main__":
-    # partition = "test"
-    # cell_model_path = "outputs/models/20240314_163849_deeplabv3plus-cell-branch_pretrained-1_lr-1e-04_dropout-0.3_backbone-resnet50_normalization-macenko_id-1_epochs-60.pth"
-    # tissue_model_path = "outputs/models/best/20240313_002829_deeplabv3plus-tissue-branch_pretrained-1_lr-1e-04_dropout-0.1_backbone-resnet50_normalization-macenko_id-5_best.pth"
-
-    # predictions = get_pointwise_prediction(
-    #     data_dir=IDUN_OCELOT_DATA_PATH,
-    #     cell_model_path=cell_model_path,
-    #     tissue_model_path=tissue_model_path,
-    #     model_cls=Deeplabv3TissueCellModel,
-    #     partition=partition,
-    # )
-
-    # gt_path = f"{os.getcwd()}/eval_outputs/cell_gt_{partition}.json"
-    # with open(gt_path, "r") as f:
-    #     gt_json = json.load(f)
-    #     gt_points = gt_json["points"]
-    #     num_images = gt_json["num_images"]
-
-    # scores = calculate_point_based_f1(
-    #     ground_truth=gt_points,
-    #     predictions=predictions,
-    #     num_images=num_images,
-    # )
-    # print(scores)
-
-    partition = "test"
-    cell_model_path = "outputs/models/20240321_140646/deeplabv3plus-cell-only_pretrained-1_lr-5e-05_dropout-0.3_backbone-b3_normalization-off_pretrained_dataset-ade_resize-512_best.pth"
-    tissue_file_folder = f"annotations/{partition}/predicted_cropped_tissue"
-    resize = 512
-    transform = A.Compose(
-        [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
-        additional_targets={"tissue": "image"},
-    )
-
-    predictions = get_pointwise_prediction(
+def predict_and_evaluate_v2(
+    evaluation_model,
+    partition: str,
+    tissue_file_folder: str,
+    transform=None,
+):
+    predictions = get_pointwise_prediction_v2(
         data_dir=IDUN_OCELOT_DATA_PATH,
-        cell_model_path=cell_model_path,
-        tissue_model_path=None,
-        model_cls=SegformerTissueFromFile,
+        evaluation_model=evaluation_model,
         partition=partition,
-        transform=transform,
         tissue_file_folder=tissue_file_folder,
+        transform=transform,
     )
 
-    gt_path = f"{os.getcwd()}/eval_outputs/cell_gt_{partition}.json"
-    with open(gt_path, "r") as f:
-        gt_json = json.load(f)
-        gt_points = gt_json["points"]
-        num_images = gt_json["num_images"]
+    gt_json = get_ground_truth_points(partition=partition)
+    num_images = gt_json["num_images"]
+    gt_points = gt_json["points"]
 
     scores = calculate_point_based_f1(
         ground_truth=gt_points,
         predictions=predictions,
         num_images=num_images,
     )
-
-    print(scores)
+    return scores["mF1"]
 
 
 def calculate_confidence_interval(results: list, metrics: list[str]) -> None:
@@ -337,3 +341,46 @@ def calculate_confidence_interval(results: list, metrics: list[str]) -> None:
                 f"{metric} 95% CI half-width: ±{(scores_ci[1] - scores_ci[0])/2*100:.4f} (%)"
             )
         print()
+
+
+if __name__ == "__main__":
+    partition = "test"
+    cell_model_path = "outputs/models/20240323_184831/segformer-tissue-cell_pretrained-1_lr-1e-04_backbone-b3_normalization-macenko_pretrained_dataset-ade_resize-512_id-1_best.pth"
+    # "outputs/models/20240323_184831/segformer-tissue-cell_pretrained-1_lr-1e-04_backbone-b3_normalization-macenko_pretrained_dataset-ade_resize-512_id-1_best.pth"
+
+    # Getting the metadata
+    metadata_path = os.path.join(IDUN_OCELOT_DATA_PATH, "metadata.json")
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
+    metadata = list(metadata["sample_pairs"].values())[
+        DATASET_PARTITION_OFFSETS[partition] :
+    ]
+
+    tissue_file_folder = f"annotations/{partition}/predicted_cropped_tissue"
+    resize = 512
+    transform = A.Compose(
+        [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
+        additional_targets={"tissue": "image"},
+    )
+
+    # Creating model
+    cell_model = CustomSegformerModel(
+        backbone_name="b3",
+        num_classes=3,
+        num_channels=6,
+    )
+    cell_model.load_state_dict(torch.load(cell_model_path))
+    evaluation_model = SegformerTissueFromFile(
+        metadata=metadata,
+        cell_model=cell_model,
+        tissue_model_path=None,
+    )
+
+    scores = predict_and_evaluate_v2(
+        evaluation_model=evaluation_model,
+        partition=partition,
+        tissue_file_folder=tissue_file_folder,
+        transform=transform,
+    )
+
+    print(f"Scores: {scores}")

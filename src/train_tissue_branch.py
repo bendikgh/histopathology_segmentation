@@ -52,7 +52,7 @@ def main():
     print(f"Device: {device}")
     print(f"Normalization: {normalization}")
     print(f"Id: {id}")
-    print(f"Number of GPUs: {torch.cuda.device_count()}")    
+    print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     train_transform_list = [
         A.GaussianBlur(blur_limit=(3, 7), p=0.5),
@@ -91,7 +91,7 @@ def main():
     val_tissue_image_files, val_tissue_target_files = get_ocelot_files(
         data_dir=data_dir, partition="val", zoom="tissue", macenko=macenko
     )
-    
+
     train_transforms = A.Compose(train_transform_list)
     val_transforms = A.Compose(val_transform_list)
 
@@ -158,8 +158,9 @@ def main():
         checkpoint_interval=checkpoint_interval,
         break_after_one_iteration=break_after_one_iteration,
         scheduler=scheduler,
-        do_save_model_and_plot=do_save,  # NOTE: Important to change this before training
+        do_save_model_and_plot=do_save,
     )
+
 
 if __name__ == "__main__":
     main()

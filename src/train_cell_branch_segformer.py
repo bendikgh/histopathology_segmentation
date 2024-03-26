@@ -17,7 +17,7 @@ from transformers import (
 from dataset import CellTissueDataset
 from models import CustomSegformerModel
 from ocelot23algo.user.inference import SegformerTissueFromFile
-from src.utils.metrics import predict_and_evaluate
+from src.utils.metrics import predict_and_evaluate, predict_and_evaluate_v2
 from utils.training import train
 from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
 from utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
@@ -247,11 +247,17 @@ def main():
         [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
         additional_targets={"tissue": "image"},
     )
+    # val_mf1 = predict_and_evaluate_v2(
+    #     evaluation_model=None,
+    #     partition="val",
+    #     tissue_file_folder="annotations/val/predicted_cropped_tissue",
+    #     transform=transform,
+    # )
     val_mf1 = predict_and_evaluate(
         model_path=best_model_path,
         model_cls=SegformerTissueFromFile,
         partition="val",
-        tissue_file_folder="annotations/val/cropped_tissue",
+        tissue_file_folder="annotations/val/predicted_cropped_tissue",
         tissue_model_path=None,
         transform=transform,
     )
@@ -261,7 +267,7 @@ def main():
         model_path=best_model_path,
         model_cls=SegformerTissueFromFile,
         partition="test",
-        tissue_file_folder="annotations/test/cropped_tissue",
+        tissue_file_folder="annotations/test/predicted_cropped_tissue",
         tissue_model_path=None,
         transform=transform,
     )

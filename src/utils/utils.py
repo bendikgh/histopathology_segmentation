@@ -20,6 +20,7 @@ from torchvision.transforms.v2.functional import resized_crop
 from typing import List, Tuple
 
 from src.utils.constants import (
+    DATASET_PARTITION_OFFSETS,
     DEFAULT_BACKBONE_MODEL,
     DEFAULT_BATCH_SIZE,
     DEFAULT_CHECKPOINT_INTERVAL,
@@ -470,7 +471,9 @@ def get_ocelot_files(
     return image_files, target_files
 
 
-def get_predicted_tissue(data_dir: str, image_train_nums: list, image_val_nums: list) -> tuple:
+def get_predicted_tissue(
+    data_dir: str, image_train_nums: list, image_val_nums: list
+) -> tuple:
     """
     Retrieves paths to predicted tissue annotations for both the train set and the val set.
 
@@ -483,9 +486,9 @@ def get_predicted_tissue(data_dir: str, image_train_nums: list, image_val_nums: 
           for the train set and the val set respectively.
 
     Raises:
-        ValueError: 
+        ValueError:
     """
-    
+
     train_tissue_predicted = glob(
         os.path.join(data_dir, "annotations/train/pred_tissue/*")
     )
@@ -506,6 +509,7 @@ def get_predicted_tissue(data_dir: str, image_train_nums: list, image_val_nums: 
     val_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
 
     return train_tissue_predicted, val_tissue_predicted
+
 
 def validate_numpy_image(image: np.ndarray) -> None:
     """
@@ -622,6 +626,16 @@ def get_point_predictions(softmaxed: torch.Tensor) -> List[Tuple[int, int, int, 
         ids.append(class_id)
 
     return list(zip(xs, ys, ids, probs))
+
+
+def get_metadata_with_offset(data_dir: str, partition: str) -> List:
+    metadata_path = os.path.join(data_dir, "metadata.json")
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
+    metadata = list(metadata["sample_pairs"].values())[
+        DATASET_PARTITION_OFFSETS[partition] :
+    ]
+    return metadata
 
 
 def get_ocelot_args() -> argparse.Namespace:

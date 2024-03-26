@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from torch.nn.functional import interpolate
 from torch import nn
 from tqdm import tqdm
+from typing import Union
 
 from src.utils.constants import (
     DATASET_PARTITION_OFFSETS,
@@ -225,11 +226,13 @@ def train(
     training_func=run_training,
     validation_function=run_validation,
     do_save_model_and_plot: bool = True,
-):
+) -> Union[str, None]:
+
     start = time.time()
     training_losses = []
     val_losses = []
     lowest_val_loss = float("inf")
+    best_model_save_path: Union[str, None] = None
 
     for epoch in range(num_epochs):
         training_loss = training_func(

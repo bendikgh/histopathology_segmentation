@@ -3,6 +3,7 @@ import torch
 import albumentations as A
 import seaborn as sns
 
+
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
@@ -13,9 +14,14 @@ from transformers import (
 from dataset import CellOnlyDataset
 from models import DeepLabV3plusModel
 from ocelot23algo.user.inference import Deeplabv3CellOnlyModel
-from src.utils.metrics import predict_and_evaluate
+from src.utils.metrics import predict_and_evaluate_v2
 from utils.training import train
-from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
+from utils.utils import (
+    get_metadata_with_offset,
+    get_ocelot_files,
+    get_save_name,
+    get_ocelot_args,
+)
 from utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
 
 
@@ -155,26 +161,31 @@ def main():
     )
 
     print("Training complete!")
-    if not (do_save and do_eval):
+    if not do_eval:
         return
+
+    val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
+    val_evaluation_model = Deeplabv3CellOnlyModel(
+        metadata=val_metadata, cell_model=model
+    )
 
     print(f"Best model: {best_model_path}\n")
     print("Calculating validation score:")
-    val_mf1 = predict_and_evaluate(
-        model_path=best_model_path,
-        model_cls=Deeplabv3CellOnlyModel,
+    val_mf1 = predict_and_evaluate_v2(
+        evaluation_model=val_evaluation_model,
         partition="val",
         tissue_file_folder="images/val/tissue_macenko",
-        tissue_model_path=None,
     )
     print(f"Validation mF1: {val_mf1:.4f}")
     print("\nCalculating test score:")
-    test_mf1 = predict_and_evaluate(
-        model_path=best_model_path,
-        model_cls=Deeplabv3CellOnlyModel,
+    test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
+    test_evaluation_model = Deeplabv3CellOnlyModel(
+        metadata=test_metadata, cell_model=model
+    )
+    test_mf1 = predict_and_evaluate_v2(
+        evaluation_model=test_evaluation_model,
         partition="test",
         tissue_file_folder="images/test/tissue_macenko",
-        tissue_model_path=None,
     )
     print(f"Test mF1: {test_mf1:.4f}")
 

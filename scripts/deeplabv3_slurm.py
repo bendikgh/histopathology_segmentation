@@ -70,30 +70,31 @@ python {python_file} \\
 
 
 def main():
-    run_script = True
+    run_script = False
 
     # General parameters
-    job_name = "segformer_cell_branch_cityscapes"
-    python_file = "src/train_cell_branch_segformer.py"
+    job_name = "deeplab_cell_only"
+    python_file = "src/train_cell_branch.py"
     duration_str: str = "0-02:00:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
-    epochs = 30
-    batch_size = 4
+    epochs = 4
+    batch_size = 2
     checkpoint_interval = 10
-    backbone = "b3"
+    backbone = "resnet50"
     dropout = 0.3
     learning_rate = 1e-4
     pretrained = 1
     warmup_epochs = 5
-    do_save = 1
+    do_save = 0
     do_eval = 1
-    break_early = 0
-    resize = 512
-    pretrained_dataset = "cityscapes"
+    break_early = 1
     id_ = 1
     normalization = "macenko"
+    # Segformer
+    resize = 512
+    pretrained_dataset = "cityscapes"
 
     for id_ in range(1, 2):
         script_contents = generate_slurm_script(
