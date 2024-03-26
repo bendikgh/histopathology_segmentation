@@ -9,6 +9,10 @@ from torch.nn.functional import interpolate
 from torch import nn
 from tqdm import tqdm
 
+from src.utils.constants import (
+    DATASET_PARTITION_OFFSETS,
+)
+
 
 def plot_losses(training_losses, val_losses, save_path: str):
     plt.plot(training_losses, label="Training loss")
@@ -85,6 +89,64 @@ def run_validation_segformer(
             if break_after_one_iteration:
                 print("Breaking after one iteration")
                 break
+    if not break_after_one_iteration:
+        val_loss /= len(val_dataloader)
+    return val_loss
+
+def run_training_sharing(
+    model: nn.Module,
+    train_dataloader: DataLoader,
+    optimizer,
+    loss_function,
+    device,
+    break_after_one_iteration: bool = False,
+) -> float:
+    model.train()
+    training_loss = 0.0
+
+    for images, masks, pair_id in tqdm(train_dataloader, total=len(train_dataloader)):
+        images, masks = images.to(device), masks.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(images, pair_id)
+        loss = loss_function(outputs, masks)
+        loss.backward()
+        optimizer.step()
+
+        training_loss += loss.item()
+
+        if break_after_one_iteration:
+            print("Breaking after one iteration")
+            break
+
+    if not break_after_one_iteration:
+        training_loss /= len(train_dataloader)
+
+    return training_loss
+
+def run_validation_sharing(
+    model: nn.Module,
+    val_dataloader: DataLoader,
+    loss_function,
+    device,
+    break_after_one_iteration: bool = False,
+) -> float:
+    model.eval()
+    val_loss = 0.0
+    with torch.no_grad():
+        for images, masks, pair_id in tqdm(val_dataloader, total=len(val_dataloader)):
+            images, masks = images.to(device), masks.to(device)
+
+            id = pair_id + DATASET_PARTITION_OFFSETS["val"]
+
+            outputs = model(images, id)
+            loss = loss_function(outputs, masks)
+
+            val_loss += loss.item()
+            if break_after_one_iteration:
+                print("Breaking after one iteration")
+                break
+
     if not break_after_one_iteration:
         val_loss /= len(val_dataloader)
     return val_loss
