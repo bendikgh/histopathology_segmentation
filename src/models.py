@@ -1,11 +1,12 @@
 import os
 import sys
 import torch
+import torch.nn.functional as F
 
 sys.path.append(os.getcwd())
 
 from torch import nn
-import torch.nn.functional as F
+from typing import Union, Optional
 from src.deeplabv3.network.utils import IntermediateLayerGetter
 from src.deeplabv3.network.backbone import resnet
 
@@ -195,57 +196,61 @@ class CustomSegformerModel(nn.Module):
 
         return logits
 
+
 def setup_segformer(
-        backbone_name: str,
-        num_classes: int,
-        num_channels: int,
-        parameters,
-        pretrained_dataset: str = None,
+    backbone_name: str,
+    num_classes: int,
+    num_channels: int,
+    parameters,
+    pretrained_dataset: Optional[str] = None,
 ):
 
-        # Creating model
-        configuration = SegformerConfig(
-            num_labels=num_classes,
-            num_channels=num_channels,
-            depths=parameters["depths"],
-            hidden_sizes=parameters["hidden_sizes"],
-            decoder_hidden_size=parameters["decoder_hidden_size"],
-            output_hidden_states=True,
+    # Creating model
+    configuration = SegformerConfig(
+        num_labels=num_classes,
+        num_channels=num_channels,
+        depths=parameters["depths"],
+        hidden_sizes=parameters["hidden_sizes"],
+        decoder_hidden_size=parameters["decoder_hidden_size"],
+        output_hidden_states=True,
+    )
+
+    model = SegformerForSemanticSegmentation(configuration)
+
+    # Loading pretrained weights
+    if pretrained_dataset == "ade":
+        pretrained = SegformerModel.from_pretrained(
+            f"nvidia/segformer-{backbone_name}-finetuned-ade-512-512"
+        )
+        model.segformer = pretrained
+    elif pretrained_dataset == "cityscapes":
+        pretrained = SegformerModel.from_pretrained(
+            f"nvidia/segformer-{backbone_name}-finetuned-cityscapes-1024-1024"
+        )
+        model.segformer = pretrained
+
+    if num_channels != 3:
+        input_layer = model.segformer.encoder.patch_embeddings[0].proj
+
+        new_input_layer = nn.Conv2d(
+            num_channels,
+            input_layer.out_channels,
+            kernel_size=input_layer.kernel_size,
+            stride=input_layer.stride,
+            padding=input_layer.padding,
         )
 
-        model = SegformerForSemanticSegmentation(configuration)
+        num_channels_input_layer = input_layer.weight.data.shape[1]
 
-        # Loading pretrained weights
-        if pretrained_dataset == "ade":
-            pretrained = SegformerModel.from_pretrained(
-                f"nvidia/segformer-{backbone_name}-finetuned-ade-512-512"
-            )
-            model.segformer = pretrained
-        elif pretrained_dataset == "cityscapes":
-            pretrained = SegformerModel.from_pretrained(
-                f"nvidia/segformer-{backbone_name}-finetuned-cityscapes-1024-1024"
-            )
-            model.segformer = pretrained
+        new_input_layer.weight.data[:, :num_channels_input_layer] = (
+            input_layer.weight.data
+        )
+        new_input_layer.bias.data[:] = input_layer.bias.data
 
-        if num_channels != 3:
-            input_layer = model.segformer.encoder.patch_embeddings[0].proj
+        model.segformer.encoder.patch_embeddings[0].proj = new_input_layer
 
-            new_input_layer = nn.Conv2d(
-                num_channels, 
-                input_layer.out_channels,
-                kernel_size=input_layer.kernel_size, 
-                stride=input_layer.stride,
-                padding=input_layer.padding)
-            
-            num_channels_input_layer = input_layer.weight.data.shape[1]
-            
-            new_input_layer.weight.data[:, :num_channels_input_layer] = input_layer.weight.data
-            new_input_layer.bias.data[:] = input_layer.bias.data
+    return model
 
-            model.segformer.encoder.patch_embeddings[0].proj = new_input_layer
-
-
-        return model
 
 class TissueCellSharingSegformerModel(nn.Module):
 
@@ -288,12 +293,12 @@ class TissueCellSharingSegformerModel(nn.Module):
         num_classes: int,
         num_channels: int,
         metadata: str,
-        pretrained_dataset: str = None,
+        pretrained_dataset: Union[str, None] = None,
         output_spatial_shape=OCELOT_IMAGE_SIZE,
     ):
         if num_channels < 6:
             raise ValueError("Number of input channels must be at least 6")
-        if num_channels%2 != 0:
+        if num_channels % 2 != 0:
             raise ValueError("Number of input channels must be even")
 
         super().__init__()
@@ -309,7 +314,7 @@ class TissueCellSharingSegformerModel(nn.Module):
         self.model_tissue = setup_segformer(
             backbone_name=backbone_name,
             num_classes=num_classes,
-            num_channels=int(num_channels/2),
+            num_channels=int(num_channels / 2),
             parameters=parameters,
             pretrained_dataset=pretrained_dataset,
         )
@@ -317,7 +322,7 @@ class TissueCellSharingSegformerModel(nn.Module):
         self.model_cell = setup_segformer(
             backbone_name=backbone_name,
             num_classes=num_classes,
-            num_channels=int(num_channels/2),
+            num_channels=int(num_channels / 2),
             parameters=parameters,
             pretrained_dataset=pretrained_dataset,
         )
@@ -336,9 +341,9 @@ class TissueCellSharingSegformerModel(nn.Module):
         )
 
     def forward(self, x, pair_id):
-        
+
         # Assuming the three first channels belong to cell
-        logits_tissue = self.model_tissue(x[:, int(self.num_channels/2):]).logits
+        logits_tissue = self.model_tissue(x[:, int(self.num_channels / 2) :]).logits
 
         scaled_list = []
 
@@ -360,20 +365,22 @@ class TissueCellSharingSegformerModel(nn.Module):
                 y_offset=y_offset,
             )
             scaled_list.append(scaled_tissue.unsqueeze(0))
-        
+
         logits_tissue = torch.concatenate(scaled_list, dim=0)
 
-
-        outputs = self.model_cell_encoder(x[:, :int(self.num_channels/2)], output_hidden_states=True)
+        outputs = self.model_cell_encoder(
+            x[:, : int(self.num_channels / 2)], output_hidden_states=True
+        )
         cell_weights = outputs.hidden_states
 
         cell_encodings = cell_weights[-1]
-        
 
         ## Mixing the features
 
         # Flatten logits_tissue
-        logits_tissue_flat = logits_tissue.reshape(logits_tissue.size(0), -1)  # Flattening
+        logits_tissue_flat = logits_tissue.reshape(
+            logits_tissue.size(0), -1
+        )  # Flattening
 
         # Flatten cell encodings to match the logits_tissue_flat shape
         cell_encodings_flat = cell_encodings.reshape(cell_encodings.size(0), -1)
@@ -384,7 +391,7 @@ class TissueCellSharingSegformerModel(nn.Module):
         reduced_tensor = self.dim_reduction(merged_tensor)
         cell_encodings = reduced_tensor.view_as(cell_encodings)
 
-        cell_weights = (*cell_weights[:len(cell_weights) - 1], cell_encodings)
+        cell_weights = (*cell_weights[: len(cell_weights) - 1], cell_encodings)
 
         logits_cell = self.model_cell_decoder(cell_weights)
 
@@ -403,16 +410,17 @@ class TissueCellSharingSegformerModel(nn.Module):
                 mode="nearest",
                 # align_corners=False,
             )
-        
-        logits_tissue = nn.functional.one_hot(logits_tissue.squeeze(1).long(), num_classes=3).permute(0, 3, 1, 2)
+
+        logits_tissue = nn.functional.one_hot(
+            logits_tissue.squeeze(1).long(), num_classes=3
+        ).permute(0, 3, 1, 2)
         merged_logits = torch.concatenate([logits_cell, logits_tissue], dim=1)
 
         return merged_logits
 
 
-
 if __name__ == "__main__":
-    
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     sharing_model = TissueCellSharingSegformerModel("b2", 3, 6)
@@ -428,4 +436,3 @@ if __name__ == "__main__":
 
     result = sharing_model(x)
     print(result)
-

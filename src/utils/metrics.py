@@ -157,53 +157,7 @@ def calculate_point_based_f1(
     return scores
 
 
-def get_pointwise_prediction(
-    data_dir: str,
-    cell_model_path: str,
-    tissue_model_path: str,
-    model_cls,
-    partition: str = "val",
-    tissue_file_folder: str = "images/val/tissue_macenko",
-    transform=None,
-) -> List:
-    cell_file_path = os.path.join(data_dir, f"images/{partition}/cell_macenko/")
-    tissue_file_path = os.path.join(data_dir, tissue_file_folder)
-
-    # Reading metadata
-    metadata_path = os.path.join(data_dir, "metadata.json")
-    with open(metadata_path, "r") as f:
-        metadata = json.load(f)
-    metadata = list(metadata["sample_pairs"].values())[
-        DATASET_PARTITION_OFFSETS[partition] :
-    ]
-
-    model = model_cls(
-        metadata=metadata,
-        cell_model_path=cell_model_path,
-        tissue_model_path=tissue_model_path,
-    )
-    loader = gcio.CustomDataLoader(cell_file_path, tissue_file_path)
-
-    predictions = []
-    for cell_patch, tissue_patch, pair_id in tqdm(
-        loader, desc="Processing samples: ", total=len(loader)
-    ):
-        cell_classification = model(
-            cell_patch, tissue_patch, pair_id, transform=transform
-        )
-
-        for x, y, class_id, prob in cell_classification:
-            predictions.append(
-                {
-                    "name": f"image_{str(pair_id)}",
-                    "point": [int(x), int(y), int(class_id)],
-                    "probability": prob,
-                }
-            )
-    return predictions
-
-
-def get_pointwise_prediction_v2(
+def get_pointwise_predictions(
     data_dir: str,
     evaluation_model,
     partition: str = "val",
@@ -243,42 +197,12 @@ def get_pointwise_prediction_v2(
 
 
 def predict_and_evaluate(
-    model_path: str,
-    model_cls,
-    partition: str,
-    tissue_file_folder: str,
-    tissue_model_path: str = DEFAULT_TISSUE_MODEL_PATH,
-    transform=None,
-):
-    predictions = get_pointwise_prediction(
-        data_dir=IDUN_OCELOT_DATA_PATH,
-        cell_model_path=model_path,
-        tissue_model_path=tissue_model_path,
-        model_cls=model_cls,
-        partition=partition,
-        tissue_file_folder=tissue_file_folder,
-        transform=transform,
-    )
-
-    gt_json = get_ground_truth_points(partition=partition)
-    num_images = gt_json["num_images"]
-    gt_points = gt_json["points"]
-
-    scores = calculate_point_based_f1(
-        ground_truth=gt_points,
-        predictions=predictions,
-        num_images=num_images,
-    )
-    return scores["mF1"]
-
-
-def predict_and_evaluate_v2(
     evaluation_model,
     partition: str,
     tissue_file_folder: str,
     transform=None,
 ):
-    predictions = get_pointwise_prediction_v2(
+    predictions = get_pointwise_predictions(
         data_dir=IDUN_OCELOT_DATA_PATH,
         evaluation_model=evaluation_model,
         partition=partition,
@@ -376,7 +300,7 @@ if __name__ == "__main__":
         tissue_model_path=None,
     )
 
-    scores = predict_and_evaluate_v2(
+    scores = predict_and_evaluate(
         evaluation_model=evaluation_model,
         partition=partition,
         tissue_file_folder=tissue_file_folder,

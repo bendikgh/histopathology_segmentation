@@ -170,14 +170,12 @@ def main():
         data_dir=data_dir, partition="val", zoom="cell", macenko=macenko
     )
 
-
     train_tissue_image_files, train_tissue_target_files = get_ocelot_files(
         data_dir=data_dir, partition="train", zoom="tissue", macenko=macenko
     )
     val_tissue_image_files, val_tissue_target_files = get_ocelot_files(
         data_dir=data_dir, partition="val", zoom="tissue", macenko=macenko
     )
-
 
     ## Tissue
     train_image_nums = [x.split("/")[-1].split(".")[0] for x in train_cell_image_files]
@@ -210,14 +208,13 @@ def main():
     val_tissue_image_files.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
     train_tissue_target_files.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
     val_tissue_target_files.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
-    
-    
+
     # Create dataset and dataloader
     train_dataset = CellTissueSharingDataset(
         cell_image_files=train_cell_image_files,
         cell_target_files=train_cell_seg_files,
         tissue_image_files=train_tissue_image_files,
-        tissue_target_files=train_tissue_target_files,        
+        tissue_target_files=train_tissue_target_files,
         transform=train_transforms,
         image_shape=(resize, resize) if resize else (1024, 1024),
     )
@@ -296,6 +293,7 @@ def main():
     )
 
     print("Training complete!")
+
 
 if __name__ == "__main__":
     main()

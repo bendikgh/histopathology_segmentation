@@ -79,7 +79,7 @@ def main():
     work_dir = os.getcwd()
 
     # Script-specific parameters
-    epochs = 4
+    epochs = 2
     batch_size = 2
     checkpoint_interval = 10
     backbone = "resnet50"
@@ -123,7 +123,6 @@ def main():
             script_file.write(script_contents)
 
         if run_script:
-            # Submit the script
             subprocess.run(["sbatch", script_filename])
             print(f"Submitted: {script_filename}")
         else:

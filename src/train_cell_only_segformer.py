@@ -16,12 +16,16 @@ from models import CustomSegformerModel
 from ocelot23algo.user.inference import SegformerCellOnlyModel
 from src.utils.metrics import predict_and_evaluate
 from utils.training import train
-from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
+from utils.utils import (
+    get_metadata_with_offset,
+    get_ocelot_files,
+    get_save_name,
+    get_ocelot_args,
+)
 from utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
 
 
 def build_transform(transforms, extra_transform_image):
-
     def transform(image, mask):
         transformed = transforms(image=image, mask=mask)
         transformed_image, transformed_label = transformed["image"], transformed["mask"]
@@ -185,23 +189,28 @@ def main():
     if not (do_save and do_eval):
         return
 
+    val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
+    val_evaluation_model = SegformerCellOnlyModel(
+        metadata=val_metadata, cell_model=model
+    )
+
     print(f"Best model: {best_model_path}\n")
     print("Calculating validation score:")
     val_mf1 = predict_and_evaluate(
-        model_path=best_model_path,
-        model_cls=SegformerCellOnlyModel,
+        evaluation_model=val_evaluation_model,
         partition="val",
         tissue_file_folder="images/val/tissue_macenko",
-        tissue_model_path=None,
     )
     print(f"Validation mF1: {val_mf1:.4f}")
     print("\nCalculating test score:")
+    test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
+    test_evaluation_model = SegformerCellOnlyModel(
+        metadata=test_metadata, cell_model=model
+    )
     test_mf1 = predict_and_evaluate(
-        model_path=best_model_path,
-        model_cls=SegformerCellOnlyModel,
+        evaluation_model=test_evaluation_model,
         partition="test",
         tissue_file_folder="images/test/tissue_macenko",
-        tissue_model_path=None,
     )
     print(f"Test mF1: {test_mf1:.4f}")
 

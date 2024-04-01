@@ -8,6 +8,7 @@ import seaborn as sns
 
 from glob import glob
 from monai.losses import DiceLoss
+from torch import nn
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import (
@@ -17,9 +18,14 @@ from transformers import (
 from dataset import CellTissueDataset
 from models import CustomSegformerModel
 from ocelot23algo.user.inference import SegformerTissueFromFile
-from src.utils.metrics import predict_and_evaluate, predict_and_evaluate_v2
+from src.utils.metrics import predict_and_evaluate
 from utils.training import train
-from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
+from utils.utils import (
+    get_metadata_with_offset,
+    get_ocelot_files,
+    get_save_name,
+    get_ocelot_args,
+)
 from utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
 
 
@@ -48,6 +54,18 @@ def build_transform(transforms, extra_transform_cell_tissue):
         }
 
     return transform
+
+
+def create_evaluation_function(metadata):
+    def evaluate(model: nn.Module, device: torch.device):
+        evaluation_model = SegformerTissueFromFile(
+            metadata=metadata,
+            cell_model=model,
+            tissue_model_path=None,
+        )
+        pass
+
+    return evaluate
 
 
 def main():
@@ -247,28 +265,33 @@ def main():
         [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
         additional_targets={"tissue": "image"},
     )
-    # val_mf1 = predict_and_evaluate_v2(
-    #     evaluation_model=None,
-    #     partition="val",
-    #     tissue_file_folder="annotations/val/predicted_cropped_tissue",
-    #     transform=transform,
-    # )
+
+    val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
+    val_evaluation_model = SegformerTissueFromFile(
+        metadata=val_metadata,
+        cell_model=model,
+        tissue_model_path=None,
+    )
+
     val_mf1 = predict_and_evaluate(
-        model_path=best_model_path,
-        model_cls=SegformerTissueFromFile,
+        evaluation_model=val_evaluation_model,
         partition="val",
         tissue_file_folder="annotations/val/predicted_cropped_tissue",
-        tissue_model_path=None,
         transform=transform,
     )
     print(f"Validation mF1: {val_mf1:.4f}")
+
+    test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
+    test_evaluation_model = SegformerTissueFromFile(
+        metadata=test_metadata,
+        cell_model=model,
+        tissue_model_path=None,
+    )
     print("\nCalculating test score:")
     test_mf1 = predict_and_evaluate(
-        model_path=best_model_path,
-        model_cls=SegformerTissueFromFile,
+        evaluation_model=test_evaluation_model,
         partition="test",
         tissue_file_folder="annotations/test/predicted_cropped_tissue",
-        tissue_model_path=None,
         transform=transform,
     )
     print(f"Test mF1: {test_mf1:.4f}")

@@ -14,10 +14,19 @@ from transformers import get_polynomial_decay_schedule_with_warmup
 from dataset import CellTissueDataset
 from models import DeepLabV3plusModel
 from ocelot23algo.user.inference import Deeplabv3TissueFromFile
-from src.utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
+from src.utils.constants import (
+    CELL_IMAGE_MEAN,
+    CELL_IMAGE_STD,
+    DEFAULT_TISSUE_MODEL_PATH,
+)
 from src.utils.metrics import predict_and_evaluate
 from utils.training import train
-from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
+from utils.utils import (
+    get_metadata_with_offset,
+    get_ocelot_files,
+    get_save_name,
+    get_ocelot_args,
+)
 
 
 def main():
@@ -78,41 +87,6 @@ def main():
         )
         val_transform_list.append(A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD))
 
-    # Find the correct files
-    # train_cell_seg = sorted(
-    #     glob(os.path.join(data_dir, "annotations/train/segmented_cell/*"))
-    # )
-    # train_tissue_seg = []
-    # train_input_img = []
-
-    # for img_path in train_cell_seg:
-    #     ending = img_path.split("/")[-1].split(".")[0]
-    #     tissue_seg_path = glob(
-    #         os.path.join(data_dir, "annotations/train/cropped_tissue/" + ending + "*")
-    #     )[0]
-    #     input_img_path = glob(
-    #         os.path.join(data_dir, "images/train/cell/" + ending + "*")
-    #     )[0]
-    #     train_tissue_seg.append(tissue_seg_path)
-    #     train_input_img.append(input_img_path)
-
-    # val_cell_seg = sorted(
-    #     glob(os.path.join(data_dir, "annotations/val/segmented_cell/*"))
-    # )
-    # val_tissue_seg = []
-    # val_input_img = []
-
-    # for img_path in val_cell_seg:
-    #     ending = img_path.split("/")[-1].split(".")[0]
-    #     tissue_seg_path = glob(
-    #         os.path.join(data_dir, "annotations/val/cropped_tissue/" + ending + "*")
-    #     )[0]
-    #     input_img_path = glob(
-    #         os.path.join(data_dir, "images/val/cell/" + ending + "*")
-    #     )[0]
-    #     val_tissue_seg.append(tissue_seg_path)
-    #     val_input_img.append(input_img_path)
-
     # Getting cell files
     train_cell_image_files, train_cell_target_files = get_ocelot_files(
         data_dir=data_dir, partition="train", zoom="cell", macenko=macenko
@@ -146,22 +120,6 @@ def main():
 
     train_tissue_cropped_target.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
     val_tissue_cropped_target.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
-
-    # # Create dataset and dataloader
-    # train_transforms = A.Compose(
-    #     [
-    #         A.GaussianBlur(blur_limit=(3, 7), p=0.5),
-    #         A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
-    #         A.ColorJitter(brightness=0.2, contrast=0.3, saturation=0.2, hue=0.1, p=1),
-    #         A.HorizontalFlip(p=0.5),
-    #         A.RandomRotate90(p=0.5),
-    #         A.Normalize(),
-    #     ],
-    #     additional_targets={"mask1": "mask", "mask2": "mask"},
-    # )
-    # val_transforms = A.Compose(
-    #     [A.Normalize()], additional_targets={"mask1": "mask", "mask2": "mask"}
-    # )
 
     # Create dataset and dataloader
     train_transforms = A.Compose(
@@ -245,26 +203,38 @@ def main():
     )
 
     print("Training complete!")
-    if not (do_save and do_eval):
+    if not do_eval:
         return
+
+    val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
+    val_evaluation_model = Deeplabv3TissueFromFile(
+        metadata=val_metadata,
+        cell_model=model,
+        tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
+    )
 
     print(f"Best model: {best_model_path}\n")
     print("Calculating validation score:")
+
     val_mf1 = predict_and_evaluate(
-        model_path=best_model_path,
-        model_cls=Deeplabv3TissueFromFile,
+        evaluation_model=val_evaluation_model,
         partition="val",
         tissue_file_folder="annotations/val/cropped_tissue",
-        tissue_model_path=None,
     )
     print(f"Validation mF1: {val_mf1:.4f}")
+
+    test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
+    test_evaluation_model = Deeplabv3TissueFromFile(
+        metadata=test_metadata,
+        cell_model=model,
+        tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
+    )
+
     print("\nCalculating test score:")
     test_mf1 = predict_and_evaluate(
-        model_path=best_model_path,
-        model_cls=Deeplabv3TissueFromFile,
+        evaluation_model=test_evaluation_model,
         partition="test",
         tissue_file_folder="annotations/test/cropped_tissue",
-        tissue_model_path=None,
     )
     print(f"Test mF1: {test_mf1:.4f}")
 

@@ -14,7 +14,7 @@ from transformers import (
 from dataset import CellOnlyDataset
 from models import DeepLabV3plusModel
 from ocelot23algo.user.inference import Deeplabv3CellOnlyModel
-from src.utils.metrics import predict_and_evaluate_v2
+from src.utils.metrics import predict_and_evaluate
 from utils.training import train
 from utils.utils import (
     get_metadata_with_offset,
@@ -171,7 +171,7 @@ def main():
 
     print(f"Best model: {best_model_path}\n")
     print("Calculating validation score:")
-    val_mf1 = predict_and_evaluate_v2(
+    val_mf1 = predict_and_evaluate(
         evaluation_model=val_evaluation_model,
         partition="val",
         tissue_file_folder="images/val/tissue_macenko",
@@ -182,7 +182,7 @@ def main():
     test_evaluation_model = Deeplabv3CellOnlyModel(
         metadata=test_metadata, cell_model=model
     )
-    test_mf1 = predict_and_evaluate_v2(
+    test_mf1 = predict_and_evaluate(
         evaluation_model=test_evaluation_model,
         partition="test",
         tissue_file_folder="images/test/tissue_macenko",

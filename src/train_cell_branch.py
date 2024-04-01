@@ -26,9 +26,27 @@ from utils.constants import (
     CELL_IMAGE_STD,
     DEFAULT_TISSUE_MODEL_PATH,
 )
-from utils.metrics import predict_and_evaluate, predict_and_evaluate_v2
-from ocelot23algo.user.inference import Deeplabv3TissueCellModel
+from utils.metrics import predict_and_evaluate
+from ocelot23algo.user.inference import Deeplabv3TissueCellModel, EvaluationModel
 from dataset import CellTissueDataset
+
+
+def create_evaluation_function(
+    evaluation_model: EvaluationModel, tissue_file_folder: str
+):
+
+    def evaluation_function(
+        partition: str = "val",
+    ):  # , break_after_one_iteration: bool):
+        result = predict_and_evaluate(
+            evaluation_model=evaluation_model,
+            partition=partition,
+            tissue_file_folder=tissue_file_folder,
+            transform=None,
+        )
+        return result
+
+    return evaluation_function
 
 
 def main():
@@ -185,6 +203,19 @@ def main():
     )
     print(f"Save name: {save_name}")
 
+    # Creating evaluation model
+    val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
+    val_evaluation_model = Deeplabv3TissueCellModel(
+        metadata=val_metadata,
+        cell_model=model,
+        tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
+    )
+
+    validation_function = create_evaluation_function(
+        evaluation_model=val_evaluation_model,
+        tissue_file_folder="images/val/tissue_macenko",
+    )
+
     best_model_path = train(
         num_epochs=num_epochs,
         train_dataloader=train_cell_tissue_dataloader,
@@ -198,23 +229,17 @@ def main():
         break_after_one_iteration=break_after_one_iteration,
         scheduler=scheduler,
         do_save_model_and_plot=do_save,
+        validation_function=validation_function,
     )
 
     print("Training complete!")
     if not do_eval:
         return
 
-    val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
-    val_evaluation_model = Deeplabv3TissueCellModel(
-        metadata=val_metadata,
-        cell_model=model,
-        tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
-    )
-
     print(f"Best model: {best_model_path}\n")
     print("Calculating validation score:")
 
-    val_mf1 = predict_and_evaluate_v2(
+    val_mf1 = predict_and_evaluate(
         evaluation_model=val_evaluation_model,
         partition="val",
         tissue_file_folder="images/val/tissue_macenko",
@@ -228,7 +253,7 @@ def main():
         tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
     )
     print("\nCalculating test score:")
-    test_mf1 = predict_and_evaluate_v2(
+    test_mf1 = predict_and_evaluate(
         evaluation_model=test_evaluation_model,
         partition="test",
         tissue_file_folder="images/test/tissue_macenko",
