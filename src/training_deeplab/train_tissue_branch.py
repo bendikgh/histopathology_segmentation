@@ -1,21 +1,28 @@
 import argparse
+import os
+import sys
 import torch
 import albumentations as A
 import seaborn as sns
 
-from glob import glob
+
 from torch.utils.data import DataLoader
-from loss import DiceLossWrapper
 from torch.optim import AdamW
 from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
 
-from dataset import TissueDataset
-from models import DeepLabV3plusModel
-from utils.training import train
-from utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
-from utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
+sys.path.append(os.getcwd())
+
+from src.dataset import TissueDataset
+from src.loss import DiceLossWrapper
+from src.models import DeepLabV3plusModel
+from src.utils.training import train
+from src.utils.utils import get_ocelot_files, get_save_name, get_ocelot_args
+from src.utils.metrics import (
+    create_tissue_evaluation_function,
+)
+from src.utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
 
 
 def main():
@@ -136,6 +143,14 @@ def main():
         num_training_steps=num_epochs,
         power=1,
     )
+
+    val_evaluation_function = create_tissue_evaluation_function(
+        model=model,
+        dataloader=val_tissue_dataloader,
+        loss_function=loss_function,
+        device=device,
+    )
+
     save_name = get_save_name(
         model_name="deeplabv3plus-tissue-branch",
         pretrained=pretrained,
@@ -149,7 +164,7 @@ def main():
     train(
         num_epochs=num_epochs,
         train_dataloader=train_tissue_dataloader,
-        val_dataloader=val_tissue_dataloader,
+        validation_function=val_evaluation_function,
         model=model,
         loss_function=loss_function,
         optimizer=optimizer,

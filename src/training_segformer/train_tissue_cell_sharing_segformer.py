@@ -1,71 +1,69 @@
 import argparse
 import cv2
+import json
 import os
+import sys
 import torch
 
 import albumentations as A
 import seaborn as sns
 
-from glob import glob
-from monai.losses import DiceLoss
-from torch import nn
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
 
-from dataset import CellTissueDataset
-from models import CustomSegformerModel
-from ocelot23algo.user.inference import SegformerTissueFromFile
-from src.utils.metrics import predict_and_evaluate
-from utils.training import train
-from utils.utils import (
+sys.path.append(os.getcwd())
+
+from src.dataset import CellTissueSharingDataset
+from src.models import TissueCellSharingSegformerModel
+from src.utils.metrics import create_cellwise_evaluation_function
+from src.utils.training import train, run_training_sharing, run_validation_sharing
+from src.utils.utils import (
     get_metadata_with_offset,
     get_ocelot_files,
     get_save_name,
     get_ocelot_args,
 )
-from utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
+from src.utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
+from src.loss import DiceLossForTissueCellSharing
+
+from ocelot23algo.user.inference import SegformerTissueFromFile
 
 
 def build_transform(transforms, extra_transform_cell_tissue):
 
-    def transform(image, mask1, mask2):
-        transformed = transforms(image=image, mask1=mask1, mask2=mask2)
-        transformed_cell, transformed_label, transformed_tissue = (
-            transformed["image"],
-            transformed["mask1"],
-            transformed["mask2"],
+    def transform(image, tissue_image, cell_label, tissue_label):
+
+        transformed = transforms(
+            image=image,
+            tissue_image=tissue_image,
+            cell_label=cell_label,
+            tissue_label=tissue_label,
         )
 
+        transformed_cell_image = transformed["image"]
+        transformed_cell_label = transformed["cell_label"]
+        transformed_tissue_image = transformed["tissue_image"]
+        transformed_tissue_label = transformed["tissue_label"]
+
         transformed = extra_transform_cell_tissue(
-            image=transformed_cell, extra_image=transformed_tissue
+            image=transformed_cell_image, tissue_image=transformed_tissue_image
         )
-        transformed_cell, transformed_tissue = (
+        transformed_cell_image, transformed_tissue_image = (
             transformed["image"],
-            transformed["extra_image"],
+            transformed["tissue_image"],
         )
 
         return {
-            "image": transformed_cell,
-            "mask1": transformed_label,
-            "mask2": transformed_tissue,
+            "image": transformed_cell_image,
+            "cell_label": transformed_cell_label,
+            "tissue_image": transformed_tissue_image,
+            "tissue_label": transformed_tissue_label,
         }
 
     return transform
-
-
-def create_evaluation_function(metadata):
-    def evaluate(model: nn.Module, device: torch.device):
-        evaluation_model = SegformerTissueFromFile(
-            metadata=metadata,
-            cell_model=model,
-            tissue_model_path=None,
-        )
-        pass
-
-    return evaluate
 
 
 def main():
@@ -111,6 +109,7 @@ def main():
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Find the correct files
+
     train_transform_list = [
         A.GaussianBlur(),
         A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
@@ -131,14 +130,27 @@ def main():
         val_transform_list.append(A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD))
 
     train_transforms = A.Compose(
-        train_transform_list, additional_targets={"mask1": "mask", "mask2": "mask"}
+        train_transform_list,
+        additional_targets={
+            "tissue_image": "image",
+            "cell_label": "mask",
+            "tissue_label": "mask",
+        },
     )
-    val_transforms = A.Compose(val_transform_list)
+    val_transforms = A.Compose(
+        val_transform_list,
+        additional_targets={
+            "tissue_image": "image",
+            "cell_label": "mask",
+            "tissue_label": "mask",
+        },
+    )
 
     if resize is not None:
+
         extra_transform_cell_tissue = A.Compose(
             [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
-            additional_targets={"extra_image": "image"},
+            additional_targets={"tissue_image": "image"},
         )
 
         train_transforms = build_transform(
@@ -157,45 +169,61 @@ def main():
         data_dir=data_dir, partition="val", zoom="cell", macenko=macenko
     )
 
+    train_tissue_image_files, train_tissue_target_files = get_ocelot_files(
+        data_dir=data_dir, partition="train", zoom="tissue", macenko=macenko
+    )
+    val_tissue_image_files, val_tissue_target_files = get_ocelot_files(
+        data_dir=data_dir, partition="val", zoom="tissue", macenko=macenko
+    )
+
+    ## Tissue
     train_image_nums = [x.split("/")[-1].split(".")[0] for x in train_cell_image_files]
     val_image_nums = [x.split("/")[-1].split(".")[0] for x in val_cell_image_files]
 
-    # Getting tissue files
-    train_tissue_predicted = glob(
-        os.path.join(data_dir, "annotations/train/predicted_cropped_tissue/*")
-    )
-    val_tissue_predicted = glob(
-        os.path.join(data_dir, "annotations/val/predicted_cropped_tissue/*")
-    )
-
     # Making sure only the appropriate numbers are used
-    train_tissue_predicted = [
+    train_tissue_image_files = [
         file
-        for file in train_tissue_predicted
+        for file in train_tissue_image_files
         if file.split("/")[-1].split(".")[0] in train_image_nums
     ]
-    val_tissue_predicted = [
+    val_tissue_image_files = [
         file
-        for file in val_tissue_predicted
+        for file in val_tissue_image_files
         if file.split("/")[-1].split(".")[0] in val_image_nums
     ]
 
-    train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
-    val_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+    train_tissue_target_files = [
+        file
+        for file in train_tissue_target_files
+        if file.split("/")[-1].split(".")[0] in train_image_nums
+    ]
+    val_tissue_target_files = [
+        file
+        for file in val_tissue_target_files
+        if file.split("/")[-1].split(".")[0] in val_image_nums
+    ]
+
+    train_tissue_image_files.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+    val_tissue_image_files.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+    train_tissue_target_files.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+    val_tissue_target_files.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
 
     # Create dataset and dataloader
-    train_dataset = CellTissueDataset(
+    train_dataset = CellTissueSharingDataset(
         cell_image_files=train_cell_image_files,
         cell_target_files=train_cell_seg_files,
+        tissue_image_files=train_tissue_image_files,
+        tissue_target_files=train_tissue_target_files,
         transform=train_transforms,
-        tissue_pred_files=train_tissue_predicted,
         image_shape=(resize, resize) if resize else (1024, 1024),
     )
-    val_dataset = CellTissueDataset(
+
+    val_dataset = CellTissueSharingDataset(
         cell_image_files=val_cell_image_files,
         cell_target_files=val_cell_seg_files,
-        transform=val_transforms,
-        tissue_pred_files=val_tissue_predicted,
+        tissue_image_files=val_tissue_image_files,
+        tissue_target_files=val_tissue_target_files,
+        transform=train_transforms,
         image_shape=(resize, resize) if resize else (1024, 1024),
     )
 
@@ -211,15 +239,21 @@ def main():
         drop_last=True,
     )
 
-    model = CustomSegformerModel(
+    metadata_path = os.path.join(data_dir, "metadata.json")
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
+
+    model = TissueCellSharingSegformerModel(
         backbone_name=backbone_model,
         num_classes=3,
         num_channels=6,
         pretrained_dataset=pretrained_dataset,
+        metadata=list(metadata["sample_pairs"].values()),
     )
     model.to(device)
 
-    loss_function = DiceLoss(softmax=True)
+    loss_function = DiceLossForTissueCellSharing(softmax=True)
+
     optimizer = AdamW(model.parameters(), lr=learning_rate)
     scheduler = get_polynomial_decay_schedule_with_warmup(
         optimizer,
@@ -227,10 +261,36 @@ def main():
         num_training_steps=num_epochs,
         power=1,
     )
+
+    val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
+    test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
+
+    val_evaluation_model = SegformerTissueFromFile(
+        metadata=val_metadata, cell_model=model, tissue_model_path=None
+    )
+    test_evaluation_model = SegformerTissueFromFile(
+        metadata=test_metadata, cell_model=model, tissue_model_path=None
+    )
+    transform = A.Compose(
+        [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
+        additional_targets={"tissue": "image"},
+    )
+    val_evaluation_function = create_cellwise_evaluation_function(
+        evaluation_model=val_evaluation_model,
+        tissue_file_folder="annotations/val/predicted_cropped_tissue",
+        transform=transform,
+    )
+    test_evaluation_function = create_cellwise_evaluation_function(
+        evaluation_model=test_evaluation_model,
+        tissue_file_folder="annotations/test/predicted_cropped_tissue",
+        transform=transform,
+    )
+
     save_name = get_save_name(
-        model_name="segformer-tissue-cell",
+        model_name="segformer-tissue-cell-sharing",
         pretrained=pretrained,
         learning_rate=learning_rate,
+        dropout_rate=dropout_rate,
         backbone_model=backbone_model,
         normalization=normalization,
         pretrained_dataset=pretrained_dataset,
@@ -242,7 +302,7 @@ def main():
     best_model_path = train(
         num_epochs=num_epochs,
         train_dataloader=train_dataloader,
-        val_dataloader=val_dataloader,
+        validation_function=val_evaluation_function,
         model=model,
         loss_function=loss_function,
         optimizer=optimizer,
@@ -252,67 +312,22 @@ def main():
         break_after_one_iteration=break_after_one_iteration,
         scheduler=scheduler,
         do_save_model_and_plot=do_save,
+        training_func=run_training_sharing,
     )
 
     print("Training complete!")
-    if not (do_save and do_eval):
+    if not do_eval:
         return
 
     print(f"Best model: {best_model_path}\n")
-    print("Calculating validation score:")
-
-    transform = A.Compose(
-        [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
-        additional_targets={"tissue": "image"},
-    )
-
-    val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
-    val_evaluation_model = SegformerTissueFromFile(
-        metadata=val_metadata,
-        cell_model=model,
-        tissue_model_path=None,
-    )
-
-    val_mf1 = predict_and_evaluate(
-        evaluation_model=val_evaluation_model,
-        partition="val",
-        tissue_file_folder="annotations/val/predicted_cropped_tissue",
-        transform=transform,
-    )
+    print(f"Calculating validation score")
+    val_mf1 = val_evaluation_function(partition="val")
     print(f"Validation mF1: {val_mf1:.4f}")
 
-    test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
-    test_evaluation_model = SegformerTissueFromFile(
-        metadata=test_metadata,
-        cell_model=model,
-        tissue_model_path=None,
-    )
-    print("\nCalculating test score:")
-    test_mf1 = predict_and_evaluate(
-        evaluation_model=test_evaluation_model,
-        partition="test",
-        tissue_file_folder="annotations/test/predicted_cropped_tissue",
-        transform=transform,
-    )
+    print(f"\nCalculating test score")
+    test_mf1 = test_evaluation_function(partition="test")
     print(f"Test mF1: {test_mf1:.4f}")
 
 
 if __name__ == "__main__":
     main()
-
-"""
-python src/train_cell_branch_segformer.py \
-    --epochs 20 \
-    --batch-size 2 \
-    --checkpoint-interval 10 \
-    --backbone b3 \
-    --learning-rate 5e-5 \
-    --pretrained 1 \
-    --warmup-epochs 0 \
-    --do-save 1 \
-    --do-eval 1 \
-    --break-early 0 \
-    --normalization macenko \
-    --resize 512 \
-    --pretrained-dataset ade 
-"""

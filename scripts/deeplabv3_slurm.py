@@ -73,8 +73,8 @@ def main():
     run_script = False
 
     # General parameters
-    job_name = "deeplab_cell_only"
-    python_file = "src/train_cell_branch.py"
+    job_name = ""
+    python_file = "src/training_segformer/train_tissue_cell_sharing_segformer.py"
     duration_str: str = "0-02:00:00"
     work_dir = os.getcwd()
 
@@ -82,7 +82,7 @@ def main():
     epochs = 2
     batch_size = 2
     checkpoint_interval = 10
-    backbone = "resnet50"
+    backbone = "b0"
     dropout = 0.3
     learning_rate = 1e-4
     pretrained = 1

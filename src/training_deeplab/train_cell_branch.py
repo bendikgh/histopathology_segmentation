@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 import torch
 import albumentations as A
 import seaborn as sns
@@ -13,40 +14,24 @@ from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
 
-from models import DeepLabV3plusModel
-from utils.training import train
-from utils.utils import (
+sys.path.append(os.getcwd())
+
+from src.models import DeepLabV3plusModel
+from src.dataset import CellTissueDataset
+from src.utils.training import train
+from src.utils.utils import (
     get_metadata_with_offset,
     get_ocelot_files,
     get_save_name,
     get_ocelot_args,
 )
-from utils.constants import (
+from src.utils.constants import (
     CELL_IMAGE_MEAN,
     CELL_IMAGE_STD,
     DEFAULT_TISSUE_MODEL_PATH,
 )
-from utils.metrics import predict_and_evaluate
-from ocelot23algo.user.inference import Deeplabv3TissueCellModel, EvaluationModel
-from dataset import CellTissueDataset
-
-
-def create_evaluation_function(
-    evaluation_model: EvaluationModel, tissue_file_folder: str
-):
-
-    def evaluation_function(
-        partition: str = "val",
-    ):  # , break_after_one_iteration: bool):
-        result = predict_and_evaluate(
-            evaluation_model=evaluation_model,
-            partition=partition,
-            tissue_file_folder=tissue_file_folder,
-            transform=None,
-        )
-        return result
-
-    return evaluation_function
+from src.utils.metrics import create_cellwise_evaluation_function
+from ocelot23algo.user.inference import Deeplabv3TissueCellModel
 
 
 def main():
@@ -112,19 +97,11 @@ def main():
     train_cell_image_files, train_cell_target_files = get_ocelot_files(
         data_dir=data_dir, partition="train", zoom="cell", macenko=macenko
     )
-    val_cell_image_files, val_cell_target_files = get_ocelot_files(
-        data_dir=data_dir, partition="val", zoom="cell", macenko=macenko
-    )
-
     train_image_nums = [x.split("/")[-1].split(".")[0] for x in train_cell_image_files]
-    val_image_nums = [x.split("/")[-1].split(".")[0] for x in val_cell_image_files]
 
     # Getting tissue files
     train_tissue_predicted = glob(
         os.path.join(data_dir, "annotations/train/predicted_cropped_tissue/*")
-    )
-    val_tissue_predicted = glob(
-        os.path.join(data_dir, "annotations/val/predicted_cropped_tissue/*")
     )
 
     # Making sure only the appropriate numbers are used
@@ -133,22 +110,13 @@ def main():
         for file in train_tissue_predicted
         if file.split("/")[-1].split(".")[0] in train_image_nums
     ]
-    val_tissue_predicted = [
-        file
-        for file in val_tissue_predicted
-        if file.split("/")[-1].split(".")[0] in val_image_nums
-    ]
 
     train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
-    val_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
 
     # Create dataset and dataloader
     train_transforms = A.Compose(
         train_transform_list,
         additional_targets={"mask1": "mask", "mask2": "mask"},
-    )
-    val_transforms = A.Compose(
-        val_transform_list, additional_targets={"mask1": "mask", "mask2": "mask"}
     )
 
     train_cell_tissue_dataset = CellTissueDataset(
@@ -157,21 +125,12 @@ def main():
         tissue_pred_files=train_tissue_predicted,
         transform=train_transforms,
     )
-    val_cell_tissue_dataset = CellTissueDataset(
-        cell_image_files=val_cell_image_files,
-        cell_target_files=val_cell_target_files,
-        tissue_pred_files=val_tissue_predicted,
-        transform=val_transforms,
-    )
 
     train_cell_tissue_dataloader = DataLoader(
         dataset=train_cell_tissue_dataset,
         batch_size=batch_size,
         drop_last=True,
         shuffle=True,
-    )
-    val_cell_tissue_dataloader = DataLoader(
-        dataset=val_cell_tissue_dataset, batch_size=batch_size
     )
 
     model: nn.Module = DeepLabV3plusModel(
@@ -192,6 +151,29 @@ def main():
         power=1,
     )
 
+    # Creating evaluation models
+    val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
+    test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
+
+    val_evaluation_model = Deeplabv3TissueCellModel(
+        metadata=val_metadata,
+        cell_model=model,
+        tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
+    )
+    test_evaluation_model = Deeplabv3TissueCellModel(
+        metadata=test_metadata,
+        cell_model=model,
+        tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
+    )
+
+    val_evaluation_function = create_cellwise_evaluation_function(
+        evaluation_model=val_evaluation_model,
+        tissue_file_folder="images/val/tissue_macenko",
+    )
+    test_evaluation_function = create_cellwise_evaluation_function(
+        evaluation_model=test_evaluation_model,
+        tissue_file_folder="images/test/tissue_macenko",
+    )
     save_name = get_save_name(
         model_name="deeplabv3plus-cell-branch",
         pretrained=pretrained,
@@ -203,23 +185,9 @@ def main():
     )
     print(f"Save name: {save_name}")
 
-    # Creating evaluation model
-    val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
-    val_evaluation_model = Deeplabv3TissueCellModel(
-        metadata=val_metadata,
-        cell_model=model,
-        tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
-    )
-
-    validation_function = create_evaluation_function(
-        evaluation_model=val_evaluation_model,
-        tissue_file_folder="images/val/tissue_macenko",
-    )
-
     best_model_path = train(
         num_epochs=num_epochs,
         train_dataloader=train_cell_tissue_dataloader,
-        val_dataloader=val_cell_tissue_dataloader,
         model=model,
         loss_function=loss_function,
         optimizer=optimizer,
@@ -229,35 +197,19 @@ def main():
         break_after_one_iteration=break_after_one_iteration,
         scheduler=scheduler,
         do_save_model_and_plot=do_save,
-        validation_function=validation_function,
+        validation_function=val_evaluation_function,
     )
-
     print("Training complete!")
     if not do_eval:
         return
 
     print(f"Best model: {best_model_path}\n")
-    print("Calculating validation score:")
-
-    val_mf1 = predict_and_evaluate(
-        evaluation_model=val_evaluation_model,
-        partition="val",
-        tissue_file_folder="images/val/tissue_macenko",
-    )
+    print(f"Calculating validation score")
+    val_mf1 = val_evaluation_function(partition="val")
     print(f"Validation mF1: {val_mf1:.4f}")
 
-    test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
-    test_evaluation_model = Deeplabv3TissueCellModel(
-        metadata=test_metadata,
-        cell_model=model,
-        tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
-    )
-    print("\nCalculating test score:")
-    test_mf1 = predict_and_evaluate(
-        evaluation_model=test_evaluation_model,
-        partition="test",
-        tissue_file_folder="images/test/tissue_macenko",
-    )
+    print(f"\nCalculating test score")
+    test_mf1 = test_evaluation_function(partition="test")
     print(f"Test mF1: {test_mf1:.4f}")
 
 

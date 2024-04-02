@@ -1,8 +1,9 @@
 import argparse
+import os
+import sys
 import torch
 import albumentations as A
 import seaborn as sns
-from copy import copy
 
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
@@ -11,18 +12,21 @@ from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
 
-from dataset import CellOnlyDataset
-from models import CustomSegformerModel
-from ocelot23algo.user.inference import SegformerCellOnlyModel
-from src.utils.metrics import predict_and_evaluate
-from utils.training import train
-from utils.utils import (
+sys.path.append(os.getcwd())
+
+from src.dataset import CellOnlyDataset
+from src.models import CustomSegformerModel
+from src.utils.metrics import create_cellwise_evaluation_function, predict_and_evaluate
+from src.utils.training import train
+from src.utils.utils import (
     get_metadata_with_offset,
     get_ocelot_files,
     get_save_name,
     get_ocelot_args,
 )
-from utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
+from src.utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
+
+from ocelot23algo.user.inference import SegformerCellOnlyModel
 
 
 def build_transform(transforms, extra_transform_image):
@@ -84,20 +88,16 @@ def main():
         A.HorizontalFlip(p=0.5),
         A.RandomRotate90(p=0.5),
     ]
-    val_transform_list = []
 
     macenko = "macenko" in normalization
     if "imagenet" in normalization:
         train_transform_list.append(A.Normalize())
-        val_transform_list.append(A.Normalize())
     elif "cell" in normalization:
         train_transform_list.append(
             A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD)
         )
-        val_transform_list.append(A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD))
 
     train_transforms = A.Compose(train_transform_list)
-    val_transforms = A.Compose(val_transform_list)
 
     if resize is not None:
         extra_transform_image = A.Resize(height=resize, width=resize)
@@ -105,15 +105,9 @@ def main():
         train_transforms = build_transform(
             transforms=train_transforms, extra_transform_image=extra_transform_image
         )
-        val_transforms = build_transform(
-            transforms=val_transforms, extra_transform_image=extra_transform_image
-        )
 
     train_image_files, train_seg_files = get_ocelot_files(
         data_dir=data_dir, partition="train", zoom="cell", macenko=macenko
-    )
-    val_image_files, val_seg_files = get_ocelot_files(
-        data_dir=data_dir, partition="val", zoom="cell", macenko=macenko
     )
 
     # Create dataset and dataloader
@@ -123,22 +117,11 @@ def main():
         transform=train_transforms,
         image_shape=(resize, resize) if resize else (1024, 1024),
     )
-    val_dataset = CellOnlyDataset(
-        cell_image_files=val_image_files,
-        cell_target_files=val_seg_files,
-        transform=val_transforms,
-        image_shape=(resize, resize) if resize else (1024, 1024),
-    )
 
     train_dataloader = DataLoader(
         dataset=train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        drop_last=True,
-    )
-    val_dataloader = DataLoader(
-        dataset=val_dataset,
-        batch_size=batch_size,
         drop_last=True,
     )
 
@@ -158,6 +141,26 @@ def main():
         num_training_steps=num_epochs,
         power=1,
     )
+
+    val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
+    test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
+
+    val_evaluation_model = SegformerCellOnlyModel(
+        metadata=val_metadata, cell_model=model
+    )
+    test_evaluation_model = SegformerCellOnlyModel(
+        metadata=test_metadata, cell_model=model
+    )
+
+    val_evaluation_function = create_cellwise_evaluation_function(
+        evaluation_model=val_evaluation_model,
+        tissue_file_folder="images/val/tissue_macenko",
+    )
+    test_evaluation_function = create_cellwise_evaluation_function(
+        evaluation_model=test_evaluation_model,
+        tissue_file_folder="images/test/tissue_macenko",
+    )
+
     save_name = get_save_name(
         model_name="deeplabv3plus-cell-only",
         pretrained=pretrained,
@@ -173,7 +176,7 @@ def main():
     best_model_path = train(
         num_epochs=num_epochs,
         train_dataloader=train_dataloader,
-        val_dataloader=val_dataloader,
+        validation_function=val_evaluation_function,
         model=model,
         loss_function=loss_function,
         optimizer=optimizer,
@@ -186,32 +189,16 @@ def main():
     )
 
     print("Training complete!")
-    if not (do_save and do_eval):
+    if not do_eval:
         return
 
-    val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
-    val_evaluation_model = SegformerCellOnlyModel(
-        metadata=val_metadata, cell_model=model
-    )
-
     print(f"Best model: {best_model_path}\n")
-    print("Calculating validation score:")
-    val_mf1 = predict_and_evaluate(
-        evaluation_model=val_evaluation_model,
-        partition="val",
-        tissue_file_folder="images/val/tissue_macenko",
-    )
+    print(f"Calculating validation score")
+    val_mf1 = val_evaluation_function(partition="val")
     print(f"Validation mF1: {val_mf1:.4f}")
-    print("\nCalculating test score:")
-    test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
-    test_evaluation_model = SegformerCellOnlyModel(
-        metadata=test_metadata, cell_model=model
-    )
-    test_mf1 = predict_and_evaluate(
-        evaluation_model=test_evaluation_model,
-        partition="test",
-        tissue_file_folder="images/test/tissue_macenko",
-    )
+
+    print(f"\nCalculating test score")
+    test_mf1 = test_evaluation_function(partition="test")
     print(f"Test mF1: {test_mf1:.4f}")
 
 

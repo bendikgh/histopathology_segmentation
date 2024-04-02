@@ -238,7 +238,7 @@ def train(
     start = time.time()
     training_losses = []
     val_scores = []
-    lowest_val_loss = float("inf")
+    highest_val_score = -float("inf")
     best_model_save_path: Union[str, None] = None
 
     for epoch in range(num_epochs):
@@ -255,12 +255,14 @@ def train(
         if scheduler is not None:
             scheduler.step()
 
-        val_score = validation_function(partition="val")
+        val_score = validation_function(
+            partition="val", break_after_one_iteration=break_after_one_iteration
+        )
         val_scores.append(val_score)
 
         # Plotting results and saving model
-        if val_score < lowest_val_loss and do_save_model_and_plot:
-            lowest_val_loss = val_score
+        if val_score > highest_val_score and do_save_model_and_plot:
+            highest_val_score = val_score
             best_model_save_path = f"outputs/models/{save_name}_best.pth"
             os.makedirs(os.path.dirname(best_model_save_path), exist_ok=True)
             torch.save(model.state_dict(), best_model_save_path)

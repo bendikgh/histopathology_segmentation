@@ -33,6 +33,7 @@ from ocelot23algo.evaluation.eval import (
 from ocelot23algo.util import gcio
 
 from ocelot23algo.user.inference import (
+    EvaluationModel,
     SegformerTissueFromFile,
 )
 
@@ -163,6 +164,7 @@ def get_pointwise_predictions(
     partition: str = "val",
     tissue_file_folder: str = "images/val/tissue_macenko",
     transform=None,
+    break_after_one_iteration=False,
 ) -> List:
     cell_file_path = os.path.join(data_dir, f"images/{partition}/cell_macenko/")
     tissue_file_path = os.path.join(data_dir, tissue_file_folder)
@@ -193,21 +195,32 @@ def get_pointwise_predictions(
                     "probability": prob,
                 }
             )
+
+        if break_after_one_iteration:
+            print("Breaking after one iteration!")
+            break
     return predictions
 
 
 def predict_and_evaluate(
-    evaluation_model,
+    evaluation_model: EvaluationModel,
     partition: str,
     tissue_file_folder: str,
     transform=None,
-):
+    break_after_one_iteration: bool = False,
+) -> float:
+    """
+    Predict and evaluate a model on a particular partition with a given
+    tissue_file_folder and transform. Reads the ground truth from file and
+    compares it to the predictions. Returns the mF1 score.
+    """
     predictions = get_pointwise_predictions(
         data_dir=IDUN_OCELOT_DATA_PATH,
         evaluation_model=evaluation_model,
         partition=partition,
         tissue_file_folder=tissue_file_folder,
         transform=transform,
+        break_after_one_iteration=break_after_one_iteration,
     )
 
     gt_json = get_ground_truth_points(partition=partition)
@@ -265,6 +278,64 @@ def calculate_confidence_interval(results: list, metrics: list[str]) -> None:
                 f"{metric} 95% CI half-width: ±{(scores_ci[1] - scores_ci[0])/2*100:.4f} (%)"
             )
         print()
+
+
+def create_tissue_evaluation_function(model, dataloader, loss_function, device):
+    """
+    Creates an evaluation function that iterates over a given dataloader and
+    calculates the complement of the loss (i.e. 1 - loss) of the model on the
+    given data. Notice how a bigger score is better.
+
+    Note:
+    - "partition" is an argument just so that it fits the signature of the
+        other evaluation functions.
+    """
+
+    def evaluation_function(
+        partition: str = "val", break_after_one_iteration: bool = False
+    ) -> float:
+        model.eval()
+        total_loss = 0.0
+        with torch.no_grad():
+            for images, masks in tqdm(dataloader):
+                images, masks = images.to(device), masks.to(device)
+
+                outputs = model(images)
+                loss = loss_function(outputs, masks)
+
+                total_loss += loss.item()
+                if break_after_one_iteration:
+                    print("Breaking after one iteration!")
+                    break
+        if not break_after_one_iteration:
+            total_loss /= len(dataloader)
+
+        return 1 - loss
+
+    return evaluation_function
+
+
+def create_cellwise_evaluation_function(
+    evaluation_model: EvaluationModel, tissue_file_folder: str, transform=None
+):
+    """
+    Creates a function for evaluating a model using the cell-wise f1 score.
+    Notice how a bigger score is better.
+    """
+
+    def evaluation_function(
+        partition: str = "val", break_after_one_iteration: bool = False
+    ) -> float:
+        result = predict_and_evaluate(
+            evaluation_model=evaluation_model,
+            partition=partition,
+            tissue_file_folder=tissue_file_folder,
+            transform=transform,
+            break_after_one_iteration=break_after_one_iteration,
+        )
+        return result
+
+    return evaluation_function
 
 
 if __name__ == "__main__":
