@@ -1,10 +1,13 @@
 import argparse
+import cv2
 import os
 import sys
 import torch
+
 import albumentations as A
 import seaborn as sns
 
+from glob import glob
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
@@ -14,9 +17,9 @@ from transformers import (
 
 sys.path.append(os.getcwd())
 
-from src.dataset import CellOnlyDataset
+from src.dataset import CellTissueDataset
 from src.models import CustomSegformerModel
-from src.utils.metrics import create_cellwise_evaluation_function, predict_and_evaluate
+from src.utils.metrics import create_cellwise_evaluation_function
 from src.utils.training import train
 from src.utils.utils import (
     get_metadata_with_offset,
@@ -25,16 +28,32 @@ from src.utils.utils import (
     get_ocelot_args,
 )
 from src.utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
+from ocelot23algo.user.inference import SegformerTissueFromFile
 
-from ocelot23algo.user.inference import SegformerCellOnlyModel
 
+def build_transform(transforms, extra_transform_cell_tissue):
 
-def build_transform(transforms, extra_transform_image):
-    def transform(image, mask):
-        transformed = transforms(image=image, mask=mask)
-        transformed_image, transformed_label = transformed["image"], transformed["mask"]
-        transformed_image = extra_transform_image(image=transformed_image)["image"]
-        return {"image": transformed_image, "mask": transformed_label}
+    def transform(image, mask1, mask2):
+        # First transforms
+        transformed = transforms(image=image, mask1=mask1, mask2=mask2)
+
+        transformed_cell = transformed["image"]
+        transformed_label = transformed["mask1"]
+        transformed_tissue = transformed["mask2"]
+
+        # Additional transforms (usually resize)
+        transformed = extra_transform_cell_tissue(
+            image=transformed_cell, extra_image=transformed_tissue
+        )
+
+        transformed_cell = transformed["image"]
+        transformed_tissue = transformed["extra_image"]
+
+        return {
+            "image": transformed_cell,
+            "mask1": transformed_label,
+            "mask2": transformed_tissue,
+        }
 
     return transform
 
@@ -49,6 +68,7 @@ def main():
     data_dir: str = args.data_dir
     checkpoint_interval: int = args.checkpoint_interval
     backbone_model: str = args.backbone
+    dropout_rate: float = args.dropout
     learning_rate: float = args.learning_rate
     pretrained: bool = args.pretrained
     warmup_epochs: int = args.warmup_epochs
@@ -65,6 +85,7 @@ def main():
     print(f"Number of epochs: {num_epochs}")
     print(f"Batch size: {batch_size}")
     print(f"Backbone model: {backbone_model}")
+    print(f"Dropout rate: {dropout_rate}")
     print(f"Learning rate: {learning_rate}")
     print(f"Checkpoint interval: {checkpoint_interval}")
     print(f"Pretrained: {pretrained}")
@@ -80,7 +101,6 @@ def main():
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
     # Find the correct files
-
     train_transform_list = [
         A.GaussianBlur(),
         A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
@@ -97,25 +117,52 @@ def main():
             A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD)
         )
 
-    train_transforms = A.Compose(train_transform_list)
+    train_transforms = A.Compose(
+        train_transform_list, additional_targets={"mask1": "mask", "mask2": "mask"}
+    )
 
     if resize is not None:
-        extra_transform_image = A.Resize(height=resize, width=resize)
 
-        train_transforms = build_transform(
-            transforms=train_transforms, extra_transform_image=extra_transform_image
+        if resize == (512, 512) and pretrained_dataset != "ade":
+            raise ValueError("Resize to 512 is only supported for ADE20K.")
+
+        extra_transform_cell_tissue = A.Compose(
+            [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
+            additional_targets={"extra_image": "image"},
         )
 
-    train_image_files, train_seg_files = get_ocelot_files(
+        train_transforms = build_transform(
+            transforms=train_transforms,
+            extra_transform_cell_tissue=extra_transform_cell_tissue,
+        )
+
+    train_cell_image_files, train_cell_seg_files = get_ocelot_files(
         data_dir=data_dir, partition="train", zoom="cell", macenko=macenko
     )
 
+    train_image_nums = [x.split("/")[-1].split(".")[0] for x in train_cell_image_files]
+
+    # Getting tissue files
+    train_tissue_predicted = glob(
+        os.path.join(data_dir, "annotations/train/cropped_tissue/*")
+    )
+
+    # Making sure only the appropriate numbers are used
+    train_tissue_predicted = [
+        file
+        for file in train_tissue_predicted
+        if file.split("/")[-1].split(".")[0] in train_image_nums
+    ]
+
+    train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+
     # Create dataset and dataloader
     image_shape = (resize, resize) if resize else (1024, 1024)
-    train_dataset = CellOnlyDataset(
-        cell_image_files=train_image_files,
-        cell_target_files=train_seg_files,
+    train_dataset = CellTissueDataset(
+        cell_image_files=train_cell_image_files,
+        cell_target_files=train_cell_seg_files,
         transform=train_transforms,
+        tissue_pred_files=train_tissue_predicted,
         image_shape=image_shape,
     )
 
@@ -129,7 +176,7 @@ def main():
     model = CustomSegformerModel(
         backbone_name=backbone_model,
         num_classes=3,
-        num_channels=3,
+        num_channels=6,
         pretrained_dataset=pretrained_dataset,
     )
     model.to(device)
@@ -146,24 +193,34 @@ def main():
     val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
     test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
 
-    val_evaluation_model = SegformerCellOnlyModel(
-        metadata=val_metadata, cell_model=model
+    val_evaluation_model = SegformerTissueFromFile(
+        metadata=val_metadata,
+        cell_model=model,
+        tissue_model_path=None,
     )
-    test_evaluation_model = SegformerCellOnlyModel(
-        metadata=test_metadata, cell_model=model
+    test_evaluation_model = SegformerTissueFromFile(
+        metadata=test_metadata,
+        cell_model=model,
+        tissue_model_path=None,
     )
 
+    transform = A.Compose(
+        [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
+        additional_targets={"tissue": "image"},
+    )
     val_evaluation_function = create_cellwise_evaluation_function(
         evaluation_model=val_evaluation_model,
-        tissue_file_folder="images/val/tissue_macenko",
+        tissue_file_folder="annotations/val/cropped_tissue",
+        transform=transform,
     )
     test_evaluation_function = create_cellwise_evaluation_function(
         evaluation_model=test_evaluation_model,
-        tissue_file_folder="images/test/tissue_macenko",
+        tissue_file_folder="annotations/test/cropped_tissue",
+        transform=transform,
     )
 
     save_name = get_save_name(
-        model_name="deeplabv3plus-cell-only",
+        model_name="segformer-tissue-leaking",
         pretrained=pretrained,
         learning_rate=learning_rate,
         backbone_model=backbone_model,

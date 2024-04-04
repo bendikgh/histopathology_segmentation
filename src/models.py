@@ -159,6 +159,11 @@ class CustomSegformerModel(nn.Module):
                 f"nvidia/segformer-{backbone_name}-finetuned-cityscapes-1024-1024"
             )
             model.segformer = pretrained
+        elif pretrained_dataset == "imagenet":
+            pretrained = SegformerModel.from_pretrained(f"nvidia/mit-{backbone_name}")
+            model.segformer = pretrained
+        else:
+            raise ValueError(f"Invalid pretrained dataset: {pretrained_dataset}")
 
         if num_channels != 3:
             input_layer = model.segformer.encoder.patch_embeddings[0].proj

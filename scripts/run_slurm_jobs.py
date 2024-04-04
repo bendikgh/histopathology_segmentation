@@ -4,7 +4,11 @@ import subprocess
 
 
 def generate_slurm_script(
-    epoch,
+    job_name: str,
+    python_file: str,
+    duration_str: str,
+    work_dir: str,
+    epochs,
     batch_size,
     checkpoint_interval,
     backbone,
@@ -13,27 +17,30 @@ def generate_slurm_script(
     pretrained,
     warmup_epochs,
     do_save,
+    do_eval,
     break_early,
     normalization,
+    resize,
+    pretrained_dataset,
     id_,
 ):
     current_time = datetime.datetime.now().strftime("%Y-%m-%d")
+    output_str = f"{current_time}/{job_name}_normalize_{normalization.replace('+', '_').replace(' ', '')}_id-{id_}"
     return f"""#!/bin/sh
 
-#SBATCH --job-name=ocelot_cell_only_training_{normalization.replace("+","_").replace(" ", "")}_{id_}    
+#SBATCH --job-name={job_name}
 #SBATCH --account=ie-idi               
-#SBATCH --time=0-06:00:00               
+#SBATCH --time={duration_str}               
 
 #SBATCH --partition=GPUQ               
 #SBATCH --gres=gpu:a100                
 #SBATCH --nodes=1                      
 #SBATCH --mem=32G                        
 
-#SBATCH --output=outputs/logs/output_deeplab_cell_only_normalize_{normalization.replace("+","_").replace(" ", "")}_{current_time}_id-{id_}.txt           
-#SBATCH --error=outputs/logs/output_deeplab_cell_only_normalize_{normalization.replace("+","_").replace(" ", "")}_{current_time}_id-{id_}.err            
+#SBATCH --output=outputs/logs/{output_str}.txt           
+#SBATCH --error=outputs/logs/{output_str}.err            
 
-WORKDIR=/cluster/work/jssaethe/histopathology_segmentation
-cd ${{WORKDIR}}
+cd {work_dir}
 
 echo "Job was submitted from this directory: $SLURM_SUBMIT_DIR."
 echo "The name of the job is: $SLURM_JOB_NAME."
@@ -44,8 +51,8 @@ module purge
 module load Anaconda3/2022.10
 conda activate specialization_project
 
-python src/training_cell_only.py \\
-  --epochs {epoch} \\
+python {python_file} \\
+  --epochs {epochs} \\
   --batch-size {batch_size} \\
   --checkpoint-interval {checkpoint_interval} \\
   --backbone {backbone} \\
@@ -54,59 +61,76 @@ python src/training_cell_only.py \\
   --pretrained {pretrained} \\
   --warmup-epochs {warmup_epochs} \\
   --do-save {do_save} \\
+  --do-eval {do_eval} \\
   --break-early {break_early} \\
   --normalization "{normalization}" \\
+  --resize "{resize}" \\
+  --pretrained-dataset "{pretrained_dataset}" \\
   --id {id_}"""
 
 
 def main():
-    epochs = 100
+    run_script = True
+
+    # General parameters
+    job_name = "exp3_cell_only_cityscapes"
+    python_file = "src/training_segformer/train_cell_only.py"
+    duration_str: str = "0-04:00:00"
+    work_dir = os.getcwd()
+
+    # Script-specific parameters
+    epochs = 50
     batch_size = 4
-    checkpoint_interval = 30
-    backbone = "resnet50"
+    checkpoint_interval = 10
+    backbone = "b3"
     dropout = 0.3
     learning_rate = 1e-4
     pretrained = 1
-    warmup_epochs = 10
+    warmup_epochs = 5
     do_save = 1
+    do_eval = 1
     break_early = 0
-    ids = ["1", "2", "3", "4", "5"]
-    normalizations = [
-        "off",
-        "imagenet",
-        "cell",
-        "macenko",
-        "macenko + cell",
-        "macenko + imagenet",
-    ]
+    id_ = 1
+    normalization = "macenko"
+    # Segformer
+    resize = 1024
+    pretrained_dataset = "imagenet"
 
-    for normalization in normalizations:
-        for id_ in ids:
-            script_contents = generate_slurm_script(
-                epochs,
-                batch_size,
-                checkpoint_interval,
-                backbone,
-                dropout,
-                learning_rate,
-                pretrained,
-                warmup_epochs,
-                do_save,
-                break_early,
-                normalization,
-                id_,
-            )
-            script_filename = f"scripts/slurm_script_id{id_}.sh"
-            with open(script_filename, "w") as script_file:
-                script_file.write(script_contents)
+    for id_ in range(1, 2):
+        script_contents = generate_slurm_script(
+            job_name=job_name,
+            python_file=python_file,
+            duration_str=duration_str,
+            work_dir=work_dir,
+            epochs=epochs,
+            batch_size=batch_size,
+            checkpoint_interval=checkpoint_interval,
+            backbone=backbone,
+            dropout=dropout,
+            learning_rate=learning_rate,
+            pretrained=pretrained,
+            warmup_epochs=warmup_epochs,
+            do_save=do_save,
+            do_eval=do_eval,
+            break_early=break_early,
+            normalization=normalization,
+            resize=resize,
+            pretrained_dataset=pretrained_dataset,
+            id_=id_,
+        )
+        script_filename = f"scripts/slurm_script_id{id_}.sh"
+        with open(script_filename, "w") as script_file:
+            script_file.write(script_contents)
 
-            # Submit the script
+        if run_script:
             subprocess.run(["sbatch", script_filename])
             print(f"Submitted: {script_filename}")
+        else:
+            print(script_contents)
 
-            # Delete the script file
-            os.remove(script_filename)
-            print(f"Deleted: {script_filename}")
+        # Delete the script file
+        os.remove(script_filename)
+        print(f"Deleted: {script_filename}")
 
 
 if __name__ == "__main__":

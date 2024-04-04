@@ -629,6 +629,12 @@ def get_point_predictions(softmaxed: torch.Tensor) -> List[Tuple[int, int, int, 
 
 
 def get_metadata_with_offset(data_dir: str, partition: str) -> List:
+    """
+    Note: This returns everything from the offset point and beyond. 
+    This means that train will yield all 600+ samples, not just the first 
+    400, and that val will yield 260+ samples, not just the 137 that belong 
+    to val.  
+    """
     metadata_path = os.path.join(data_dir, "metadata.json")
     with open(metadata_path, "r") as f:
         metadata = json.load(f)

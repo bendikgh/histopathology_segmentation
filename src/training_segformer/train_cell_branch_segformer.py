@@ -34,20 +34,20 @@ from ocelot23algo.user.inference import SegformerTissueFromFile
 def build_transform(transforms, extra_transform_cell_tissue):
 
     def transform(image, mask1, mask2):
+        # First transforms
         transformed = transforms(image=image, mask1=mask1, mask2=mask2)
-        transformed_cell, transformed_label, transformed_tissue = (
-            transformed["image"],
-            transformed["mask1"],
-            transformed["mask2"],
-        )
 
+        transformed_cell = transformed["image"]
+        transformed_label = transformed["mask1"]
+        transformed_tissue = transformed["mask2"]
+
+        # Additional transforms (usually resize)
         transformed = extra_transform_cell_tissue(
             image=transformed_cell, extra_image=transformed_tissue
         )
-        transformed_cell, transformed_tissue = (
-            transformed["image"],
-            transformed["extra_image"],
-        )
+
+        transformed_cell = transformed["image"]
+        transformed_tissue = transformed["extra_image"]
 
         return {
             "image": transformed_cell,
@@ -122,6 +122,10 @@ def main():
     )
 
     if resize is not None:
+
+        if resize == (512, 512) and pretrained_dataset != "ade":
+            raise ValueError("Resize to 512 is only supported for ADE20K.")
+
         extra_transform_cell_tissue = A.Compose(
             [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
             additional_targets={"extra_image": "image"},
@@ -153,12 +157,13 @@ def main():
     train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
 
     # Create dataset and dataloader
+    image_shape = (resize, resize) if resize else (1024, 1024)
     train_dataset = CellTissueDataset(
         cell_image_files=train_cell_image_files,
         cell_target_files=train_cell_seg_files,
         transform=train_transforms,
         tissue_pred_files=train_tissue_predicted,
-        image_shape=(resize, resize) if resize else (1024, 1024),
+        image_shape=image_shape,
     )
 
     train_dataloader = DataLoader(

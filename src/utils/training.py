@@ -19,11 +19,11 @@ from src.utils.constants import (
 def plot_losses(training_losses: List, val_losses: List, save_path: str):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    plt.plot(training_losses, label="Training loss")
-    plt.plot(val_losses, label="Validation loss")
+    plt.plot(training_losses, label="Training Loss")
+    plt.plot(val_losses, label="Validation Score")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.title("Training and validation loss")
+    plt.title("Training loss and validation score")
     plt.legend()
 
     plt.savefig(save_path)
