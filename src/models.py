@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import torch
@@ -332,18 +333,11 @@ class TissueCellSharingSegformerModel(nn.Module):
             pretrained_dataset=pretrained_dataset,
         )
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model_cell_encoder = self.model_cell.segformer
         self.model_cell_decoder = self.model_cell.decode_head
 
         self.metadata = metadata
-
-        self.dim_reduction = nn.Sequential(
-            nn.Linear(147456, 4096),
-            nn.ReLU(),
-            nn.Linear(4096, 131072),
-            nn.ReLU(),
-        )
+        self.dim_reduction = None
 
     def forward(self, x, pair_id):
 
@@ -393,6 +387,14 @@ class TissueCellSharingSegformerModel(nn.Module):
         # Step 3: Concatenate flatten arrays
         merged_tensor = torch.cat((cell_encodings_flat, logits_tissue_flat), dim=1)
 
+        if self.dim_reduction is None:
+            self.dim_reduction = nn.Sequential(
+                nn.Linear(merged_tensor.shape[1], 4096),
+                nn.ReLU(),
+                nn.Linear(4096, cell_encodings_flat.shape[1]),
+                nn.ReLU(),
+            )
+
         reduced_tensor = self.dim_reduction(merged_tensor)
         cell_encodings = reduced_tensor.view_as(cell_encodings)
 
@@ -426,18 +428,23 @@ class TissueCellSharingSegformerModel(nn.Module):
 
 if __name__ == "__main__":
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    data_dir = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
 
-    sharing_model = TissueCellSharingSegformerModel("b2", 3, 6)
-    sharing_model.to(device)
+    metadata_path = os.path.join(data_dir, "metadata.json")
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
+
+    sharing_model = TissueCellSharingSegformerModel("b1", 3, 6, metadata=list(metadata["sample_pairs"].values()),)
+    # sharing_model.to(device)
 
     batch_size = 2
     channels = 6
-    height = 64
-    width = 64
+    height = 512
+    width = 512
 
     x = torch.ones(batch_size, channels, height, width)
-    x = x.to(device)
+    # x = x.to(device)
 
-    result = sharing_model(x)
+    result = sharing_model(x, pair_id=(0,1))
     print(result)

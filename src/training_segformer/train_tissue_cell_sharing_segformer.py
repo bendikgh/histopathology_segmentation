@@ -233,11 +233,11 @@ def main():
         shuffle=True,
         drop_last=True,
     )
-    val_dataloader = DataLoader(
-        dataset=val_dataset,
-        batch_size=batch_size,
-        drop_last=True,
-    )
+    # val_dataloader = DataLoader(
+    #     dataset=val_dataset,
+    #     batch_size=batch_size,
+    #     drop_last=True,
+    # )
 
     metadata_path = os.path.join(data_dir, "metadata.json")
     with open(metadata_path, "r") as f:
@@ -271,19 +271,22 @@ def main():
     test_evaluation_model = SegformerTissueFromFile(
         metadata=test_metadata, cell_model=model, tissue_model_path=None
     )
-    transform = A.Compose(
-        [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
-        additional_targets={"tissue": "image"},
-    )
+
+    transform_val_test = None
+    if resize:
+        transform_val_test = A.Compose(
+            [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
+            additional_targets={"tissue": "image"},
+        )
     val_evaluation_function = create_cellwise_evaluation_function(
         evaluation_model=val_evaluation_model,
         tissue_file_folder="annotations/val/predicted_cropped_tissue",
-        transform=transform,
+        transform=transform_val_test,
     )
     test_evaluation_function = create_cellwise_evaluation_function(
         evaluation_model=test_evaluation_model,
         tissue_file_folder="annotations/test/predicted_cropped_tissue",
-        transform=transform,
+        transform=transform_val_test,
     )
 
     save_name = get_save_name(
