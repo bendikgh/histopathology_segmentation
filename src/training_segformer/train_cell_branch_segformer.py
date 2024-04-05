@@ -61,7 +61,6 @@ def build_transform(transforms, extra_transform_cell_tissue):
 
 def main():
     sns.set_theme()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     args: argparse.Namespace = get_ocelot_args()
     num_epochs: int = args.epochs
@@ -79,6 +78,7 @@ def main():
     normalization: str = args.normalization
     pretrained_dataset: str = args.pretrained_dataset
     resize: int = args.resize
+    device = torch.device(args.device)
     id: str = args.id
 
     print("Training with the following parameters:")
