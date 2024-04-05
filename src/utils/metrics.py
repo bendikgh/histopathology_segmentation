@@ -341,6 +341,7 @@ def create_cellwise_evaluation_function(
 if __name__ == "__main__":
     partition = "test"
     cell_model_path = "outputs/models/20240323_184831/segformer-tissue-cell_pretrained-1_lr-1e-04_backbone-b3_normalization-macenko_pretrained_dataset-ade_resize-512_id-1_best.pth"
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # "outputs/models/20240323_184831/segformer-tissue-cell_pretrained-1_lr-1e-04_backbone-b3_normalization-macenko_pretrained_dataset-ade_resize-512_id-1_best.pth"
 
     # Getting the metadata
@@ -369,6 +370,7 @@ if __name__ == "__main__":
         metadata=metadata,
         cell_model=cell_model,
         tissue_model_path=None,
+        device=device,
     )
 
     scores = predict_and_evaluate(

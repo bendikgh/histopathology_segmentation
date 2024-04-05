@@ -198,26 +198,31 @@ def main():
         metadata=val_metadata,
         cell_model=model,
         tissue_model_path=None,
+        device=device,
     )
     test_evaluation_model = SegformerTissueFromFile(
         metadata=test_metadata,
         cell_model=model,
         tissue_model_path=None,
+        device=device,
     )
 
-    transform = A.Compose(
-        [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
-        additional_targets={"tissue": "image"},
-    )
+    val_test_transform = None
+    
+    if resize:
+        val_test_transform = A.Compose(
+            [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
+            additional_targets={"tissue": "image"},
+        )
     val_evaluation_function = create_cellwise_evaluation_function(
         evaluation_model=val_evaluation_model,
         tissue_file_folder="annotations/val/predicted_cropped_tissue",
-        transform=transform,
+        transform=val_test_transform,
     )
     test_evaluation_function = create_cellwise_evaluation_function(
         evaluation_model=test_evaluation_model,
         tissue_file_folder="annotations/test/predicted_cropped_tissue",
-        transform=transform,
+        transform=val_test_transform,
     )
 
     save_name = get_save_name(

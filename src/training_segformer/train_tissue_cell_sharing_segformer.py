@@ -68,7 +68,7 @@ def build_transform(transforms, extra_transform_cell_tissue):
 
 def main():
     sns.set_theme()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     args: argparse.Namespace = get_ocelot_args()
     num_epochs: int = args.epochs
@@ -86,6 +86,7 @@ def main():
     normalization: str = args.normalization
     pretrained_dataset: str = args.pretrained_dataset
     resize: int = args.resize
+    device: int = torch.device(args.device)
     id: str = args.id
 
     print("Training with the following parameters:")
@@ -266,10 +267,10 @@ def main():
     test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
 
     val_evaluation_model = SegformerTissueFromFile(
-        metadata=val_metadata, cell_model=model, tissue_model_path=None
+        metadata=val_metadata, cell_model=model, device=device, tissue_model_path=None
     )
     test_evaluation_model = SegformerTissueFromFile(
-        metadata=test_metadata, cell_model=model, tissue_model_path=None
+        metadata=test_metadata, cell_model=model, device=device, tissue_model_path=None
     )
 
     transform_val_test = None

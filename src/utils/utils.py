@@ -755,6 +755,16 @@ def get_ocelot_args() -> argparse.Namespace:
         default=None,
         help="The dataset the model should be pretrained on",
     )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda",
+        help="The device to run the training on",
+         choices=[
+            "cpu",
+            "cuda"
+        ]
+    )
 
     args: argparse.Namespace = parser.parse_args()
     return args

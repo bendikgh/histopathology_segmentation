@@ -198,11 +198,13 @@ def main():
         metadata=val_metadata,
         cell_model=model,
         tissue_model_path=None,
+        device=device,
     )
     test_evaluation_model = SegformerTissueFromFile(
         metadata=test_metadata,
         cell_model=model,
         tissue_model_path=None,
+        device=device,
     )
 
     transform = A.Compose(
