@@ -5,27 +5,30 @@ import torch
 import albumentations as A
 import torch.nn as nn
 
+from abc import ABC, abstractmethod
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
-from typing import Union
+from typing import Union, Optional
+
 
 sys.path.append(os.getcwd())
 
 # Local imports
-from ocelot23algo.user.inference import Deeplabv3CellOnlyModel
+from ocelot23algo.user.inference import Deeplabv3CellOnlyModel, EvaluationModel
 
 from src.dataset import CellOnlyDataset
 from src.utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD, IDUN_OCELOT_DATA_PATH
+from src.utils.metrics import create_cellwise_evaluation_function
 from src.utils.utils import get_metadata_with_offset, get_ocelot_files
 from src.utils import training
 from src.models import DeepLabV3plusModel
 
 
-class Trainable:
+class Trainable(ABC):
 
     name: str
     macenko_normalize: bool
@@ -34,6 +37,8 @@ class Trainable:
     batch_size: int
     model: nn.Module
     dataloader: DataLoader
+
+    tissue_file_folder: str
 
     def train(
         self,
@@ -60,6 +65,7 @@ class Trainable:
             break_after_one_iteration=break_after_one_iteration,
             scheduler=scheduler,
             do_save_model_and_plot=do_save_model_and_plot,
+            validation_function=self.get_evaluation_function(partition="val"),
         )
 
         return best_model_path
@@ -97,6 +103,25 @@ class Trainable:
 
         return result
 
+    @abstractmethod
+    def create_dataloader(self, data_dir: str) -> DataLoader:
+        pass
+
+    @abstractmethod
+    def create_model(self, backbone_model: str, pretrained: bool) -> nn.Module:
+        pass
+
+    @abstractmethod
+    def create_evaluation_model(self, partition: str) -> EvaluationModel:
+        pass
+
+    def get_evaluation_function(self, partition: str):
+        evaluation_function = create_cellwise_evaluation_function(
+            evaluation_model=self.create_evaluation_model(partition=partition),
+            tissue_file_folder=self.tissue_file_folder,
+        )
+        return evaluation_function
+
     def __str__(self):
         return f"Trainable: {self.name}"
 
@@ -119,6 +144,7 @@ class DeeplabCellOnlyTrainable(Trainable):
         self.macenko_normalize = "macenko" in normalization
         self.batch_size = batch_size
         self.pretrained = pretrained
+        self.tissue_file_folder = "images/val/tissue_macenko"
 
         self.transforms = self.create_transforms(normalization)
         self.dataloader = self.create_dataloader(IDUN_OCELOT_DATA_PATH)
@@ -152,7 +178,11 @@ class DeeplabCellOnlyTrainable(Trainable):
         return dataloader
 
     def create_model(
-        self, backbone_model: str, pretrained: bool, dropout_rate: float = 0.3
+        self,
+        backbone_model: str,
+        pretrained: bool,
+        dropout_rate: float = 0.3,
+        model_path: Optional[str] = None,
     ):
         model = DeepLabV3plusModel(
             backbone_name=backbone_model,
@@ -161,6 +191,8 @@ class DeeplabCellOnlyTrainable(Trainable):
             pretrained=pretrained,
             dropout_rate=dropout_rate,
         )
+        if model_path is not None:
+            model.load_state_dict(torch.load(model_path))
         return model
 
     def create_evaluation_model(self, partition: str):
@@ -174,7 +206,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda")
 
-    trainer = DeeplabCellOnlyTrainable(
+    trainable = DeeplabCellOnlyTrainable(
         normalization="imagenet + macenko",
         batch_size=2,
         pretrained=True,
@@ -183,7 +215,7 @@ if __name__ == "__main__":
 
     loss_function = DiceLoss(softmax=True)
     learning_rate = 1e-4
-    optimizer = AdamW(trainer.model.parameters(), lr=learning_rate)
+    optimizer = AdamW(trainable.model.parameters(), lr=learning_rate)
     scheduler = get_polynomial_decay_schedule_with_warmup(
         optimizer,
         num_warmup_steps=0,
@@ -191,7 +223,7 @@ if __name__ == "__main__":
         power=1,
     )
 
-    model_path = trainer.train(
+    model_path = trainable.train(
         num_epochs=1,
         loss_function=loss_function,
         optimizer=optimizer,
@@ -200,4 +232,3 @@ if __name__ == "__main__":
         break_after_one_iteration=True,
         scheduler=scheduler,
     )
-    print(trainer)
