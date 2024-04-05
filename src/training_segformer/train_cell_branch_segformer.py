@@ -14,6 +14,7 @@ from torch.optim import AdamW
 from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
+from time import time
 
 sys.path.append(os.getcwd())
 
@@ -231,6 +232,7 @@ def main():
     )
     print(f"Save name: {save_name}")
 
+    start_time = time.now()
     best_model_path = train(
         num_epochs=num_epochs,
         train_dataloader=train_dataloader,
@@ -245,8 +247,8 @@ def main():
         scheduler=scheduler,
         do_save_model_and_plot=do_save,
     )
-
-    print("Training complete!")
+    end_time = time.now()
+    print(f"Training complete! Took: {end_time - start_time:.2f} seconds.")
     if not do_eval:
         return
 
