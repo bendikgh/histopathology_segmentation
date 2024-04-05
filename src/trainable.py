@@ -6,22 +6,33 @@ import albumentations as A
 import torch.nn as nn
 
 from abc import ABC, abstractmethod
+from glob import glob
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
-from typing import Union, Optional
+from typing import Union, Optional, List
 
 
 sys.path.append(os.getcwd())
 
 # Local imports
-from ocelot23algo.user.inference import Deeplabv3CellOnlyModel, EvaluationModel
+from ocelot23algo.user.inference import (
+    Deeplabv3CellOnlyModel,
+    Deeplabv3TissueCellModel,
+    Deeplabv3TissueFromFile,
+    EvaluationModel,
+)
 
-from src.dataset import CellOnlyDataset
-from src.utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD, IDUN_OCELOT_DATA_PATH
+from src.dataset import CellOnlyDataset, CellTissueDataset
+from src.utils.constants import (
+    CELL_IMAGE_MEAN,
+    CELL_IMAGE_STD,
+    DEFAULT_TISSUE_MODEL_PATH,
+    IDUN_OCELOT_DATA_PATH,
+)
 from src.utils.metrics import create_cellwise_evaluation_function
 from src.utils.utils import get_metadata_with_offset, get_ocelot_files
 from src.utils import training
@@ -37,8 +48,6 @@ class Trainable(ABC):
     batch_size: int
     model: nn.Module
     dataloader: DataLoader
-
-    tissue_file_folder: str
 
     def train(
         self,
@@ -70,8 +79,8 @@ class Trainable(ABC):
 
         return best_model_path
 
-    def create_transforms(self, normalization):
-        train_transform_list = [
+    def _create_transform_list(self, normalization) -> List:
+        transform_list = [
             A.GaussianBlur(),
             A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
             A.ColorJitter(
@@ -80,14 +89,15 @@ class Trainable(ABC):
             A.HorizontalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
         ]
-
         if "imagenet" in normalization:
-            train_transform_list.append(A.Normalize())
+            transform_list.append(A.Normalize())
         elif "cell" in normalization:
-            train_transform_list.append(
-                A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD)
-            )
-        return A.Compose(train_transform_list)
+            transform_list.append(A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD))
+        return transform_list
+
+    def create_transforms(self, normalization):
+        transform_list = self._create_transform_list(normalization)
+        return A.Compose(transform_list)
 
     def get_save_name(self, **kwargs) -> str:
         result: str = ""
@@ -104,21 +114,26 @@ class Trainable(ABC):
         return result
 
     @abstractmethod
-    def create_dataloader(self, data_dir: str) -> DataLoader:
+    def create_train_dataloader(self, data_dir: str) -> DataLoader:
         pass
 
     @abstractmethod
-    def create_model(self, backbone_model: str, pretrained: bool) -> nn.Module:
+    def create_model(
+        self, backbone_model: str, pretrained: bool, device: torch.device
+    ) -> nn.Module:
         pass
 
     @abstractmethod
     def create_evaluation_model(self, partition: str) -> EvaluationModel:
         pass
 
+    def get_tissue_folder(self, partition: str) -> str:
+        return f"images/{partition}/tissue_macenko"
+
     def get_evaluation_function(self, partition: str):
         evaluation_function = create_cellwise_evaluation_function(
             evaluation_model=self.create_evaluation_model(partition=partition),
-            tissue_file_folder=self.tissue_file_folder,
+            tissue_file_folder=self.get_tissue_folder(partition=partition),
         )
         return evaluation_function
 
@@ -144,16 +159,15 @@ class DeeplabCellOnlyTrainable(Trainable):
         self.macenko_normalize = "macenko" in normalization
         self.batch_size = batch_size
         self.pretrained = pretrained
-        self.tissue_file_folder = "images/val/tissue_macenko"
+        self.device = device
 
         self.transforms = self.create_transforms(normalization)
-        self.dataloader = self.create_dataloader(IDUN_OCELOT_DATA_PATH)
+        self.dataloader = self.create_train_dataloader(IDUN_OCELOT_DATA_PATH)
         self.model = self.create_model(
-            backbone_model="resnet50", pretrained=self.pretrained
+            backbone_model="resnet50", pretrained=self.pretrained, device=self.device
         )
-        self.model.to(device)
 
-    def create_dataloader(self, data_dir: str):
+    def create_train_dataloader(self, data_dir: str):
         image_files, target_files = get_ocelot_files(
             data_dir=data_dir,
             partition="train",
@@ -181,6 +195,7 @@ class DeeplabCellOnlyTrainable(Trainable):
         self,
         backbone_model: str,
         pretrained: bool,
+        device: torch.device,
         dropout_rate: float = 0.3,
         model_path: Optional[str] = None,
     ):
@@ -193,6 +208,7 @@ class DeeplabCellOnlyTrainable(Trainable):
         )
         if model_path is not None:
             model.load_state_dict(torch.load(model_path))
+        model.to(device)
         return model
 
     def create_evaluation_model(self, partition: str):
@@ -202,11 +218,114 @@ class DeeplabCellOnlyTrainable(Trainable):
         return Deeplabv3CellOnlyModel(metadata=metadata, cell_model=self.model)
 
 
-if __name__ == "__main__":
+class DeeplabTissueCellTrainable(Trainable):
+
+    def __init__(
+        self,
+        normalization: str,
+        batch_size: int,
+        pretrained: bool,
+        device: torch.device,
+    ):
+        super().__init__()
+
+        self.name = "DeeplabV3+ Tissue-Cell"
+        self.macenko_normalize = "macenko" in normalization
+        self.batch_size = batch_size
+        self.pretrained = pretrained
+        self.device = device
+
+        self.transforms = self.create_transforms(normalization)
+        self.dataloader = self.create_train_dataloader(IDUN_OCELOT_DATA_PATH)
+        self.model = self.create_model(
+            backbone_model="resnet50", pretrained=self.pretrained, device=self.device
+        )
+
+    def create_transforms(self, normalization):
+        transform_list = self._create_transform_list(normalization)
+        return A.Compose(
+            transform_list,
+            additional_targets={"mask1": "mask", "mask2": "mask"},
+        )
+
+    def create_train_dataloader(self, data_dir: str):
+        # Getting cell files
+        train_cell_image_files, train_cell_target_files = get_ocelot_files(
+            data_dir=data_dir,
+            partition="train",
+            zoom="cell",
+            macenko=self.macenko_normalize,
+        )
+        train_image_nums = [
+            x.split("/")[-1].split(".")[0] for x in train_cell_image_files
+        ]
+
+        # Getting tissue files
+        train_tissue_predicted = glob(
+            os.path.join(data_dir, "annotations/train/predicted_cropped_tissue/*")
+        )
+
+        # Making sure only the appropriate numbers are used
+        train_tissue_predicted = [
+            file
+            for file in train_tissue_predicted
+            if file.split("/")[-1].split(".")[0] in train_image_nums
+        ]
+
+        train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+
+        train_dataset = CellTissueDataset(
+            cell_image_files=train_cell_image_files,
+            cell_target_files=train_cell_target_files,
+            tissue_pred_files=train_tissue_predicted,
+            transform=self.transforms,
+        )
+
+        train_dataloader = DataLoader(
+            dataset=train_dataset,
+            batch_size=self.batch_size,
+            drop_last=True,
+            shuffle=True,
+        )
+        return train_dataloader
+
+    def create_model(
+        self,
+        backbone_model: str,
+        pretrained: bool,
+        device: torch.device,
+        model_path: Optional[str] = None,
+    ):
+        model = DeepLabV3plusModel(
+            backbone_name=backbone_model,
+            num_classes=3,
+            num_channels=6,
+            pretrained=pretrained,
+            dropout_rate=0.3,
+        )
+        if model_path is not None:
+            model.load_state_dict(torch.load(model_path))
+        model.to(device)
+        return model
+
+    def create_evaluation_model(self, partition: str):
+        metadata = get_metadata_with_offset(
+            data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
+        )
+        return Deeplabv3TissueCellModel(
+            metadata=metadata,
+            cell_model=self.model,
+            tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
+        )
+
+
+def main():
+    do_save: bool = False
+    do_eval: bool = True
 
     device = torch.device("cuda")
 
-    trainable = DeeplabCellOnlyTrainable(
+    trainable = DeeplabTissueCellTrainable(
         normalization="imagenet + macenko",
         batch_size=2,
         pretrained=True,
@@ -232,3 +351,18 @@ if __name__ == "__main__":
         break_after_one_iteration=True,
         scheduler=scheduler,
     )
+
+    if not do_eval:
+        return
+
+    # Evaluation
+    val_evaluation_function = trainable.get_evaluation_function(partition="val")
+    test_evaluation_function = trainable.get_evaluation_function(partition="test")
+    val_score = val_evaluation_function("val")
+    print(f"val score: {val_score}")
+    test_score = test_evaluation_function("test")
+    print(f"test score: {test_score}")
+
+
+if __name__ == "__main__":
+    main()
