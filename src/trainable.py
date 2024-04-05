@@ -11,6 +11,7 @@ from torch.optim import AdamW
 from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
+from typing import Union
 
 sys.path.append(os.getcwd())
 
@@ -20,7 +21,7 @@ from ocelot23algo.user.inference import Deeplabv3CellOnlyModel
 from src.dataset import CellOnlyDataset
 from src.utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD, IDUN_OCELOT_DATA_PATH
 from src.utils.utils import get_metadata_with_offset, get_ocelot_files
-from src.utils.training import train
+from src.utils import training
 from src.models import DeepLabV3plusModel
 
 
@@ -28,6 +29,7 @@ class Trainable:
 
     name: str
     macenko_normalize: bool
+    pretrained: bool
     device: torch.device
     batch_size: int
     model: nn.Module
@@ -43,20 +45,24 @@ class Trainable:
         break_after_one_iteration: bool,
         scheduler,
         do_save_model_and_plot: bool = True,
-    ):
-        train(
+    ) -> Union[str, None]:
+        """Returns the path of the best model."""
+
+        best_model_path = training.train(
             num_epochs=num_epochs,
             train_dataloader=self.dataloader,
             model=self.model,
             loss_function=loss_function,
             optimizer=optimizer,
-            save_name="",  # TODO
+            save_name=self.get_save_name(),  # TODO
             device=device,
             checkpoint_interval=checkpoint_interval,
             break_after_one_iteration=break_after_one_iteration,
             scheduler=scheduler,
             do_save_model_and_plot=do_save_model_and_plot,
         )
+
+        return best_model_path
 
     def create_transforms(self, normalization):
         train_transform_list = [
@@ -77,6 +83,20 @@ class Trainable:
             )
         return A.Compose(train_transform_list)
 
+    def get_save_name(self, **kwargs) -> str:
+        result: str = ""
+        result += f"{self.name}"
+
+        for key, value in kwargs.items():
+            if value is None:
+                continue
+            result += f"_{key}-{value}"
+
+        result = result.replace(" ", "_")
+        result = result.replace("+", "and")
+
+        return result
+
     def __str__(self):
         return f"Trainable: {self.name}"
 
@@ -86,16 +106,25 @@ class Trainable:
 
 class DeeplabCellOnlyTrainable(Trainable):
 
-    def __init__(self, normalization: str, batch_size: int, device):
+    def __init__(
+        self,
+        normalization: str,
+        batch_size: int,
+        pretrained: bool,
+        device: torch.device,
+    ):
         super().__init__()
 
         self.name = "DeeplabV3+ Cell-Only"
         self.macenko_normalize = "macenko" in normalization
         self.batch_size = batch_size
+        self.pretrained = pretrained
 
         self.transforms = self.create_transforms(normalization)
         self.dataloader = self.create_dataloader(IDUN_OCELOT_DATA_PATH)
-        self.model = self.create_model(backbone_model="resnet50", pretrained=True)
+        self.model = self.create_model(
+            backbone_model="resnet50", pretrained=self.pretrained
+        )
         self.model.to(device)
 
     def create_dataloader(self, data_dir: str):
@@ -145,7 +174,12 @@ if __name__ == "__main__":
 
     device = torch.device("cuda")
 
-    trainer = DeeplabCellOnlyTrainable("imagenet + macenko", 2, device)
+    trainer = DeeplabCellOnlyTrainable(
+        normalization="imagenet + macenko",
+        batch_size=2,
+        pretrained=True,
+        device=device,
+    )
 
     loss_function = DiceLoss(softmax=True)
     learning_rate = 1e-4
@@ -157,7 +191,7 @@ if __name__ == "__main__":
         power=1,
     )
 
-    trainer.train(
+    model_path = trainer.train(
         num_epochs=1,
         loss_function=loss_function,
         optimizer=optimizer,

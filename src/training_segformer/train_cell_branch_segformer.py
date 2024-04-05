@@ -124,8 +124,8 @@ def main():
 
     if resize is not None:
 
-        if resize == (512, 512) and pretrained_dataset != "ade":
-            raise ValueError("Resize to 512 is only supported for ADE20K.")
+        # if resize == (512, 512) and pretrained_dataset != "ade":
+        #     raise ValueError("Resize to 512 is only supported for ADE20K.")
 
         extra_transform_cell_tissue = A.Compose(
             [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
@@ -232,7 +232,7 @@ def main():
     )
     print(f"Save name: {save_name}")
 
-    start_time = time.now()
+    start_time = time()
     best_model_path = train(
         num_epochs=num_epochs,
         train_dataloader=train_dataloader,
@@ -247,10 +247,14 @@ def main():
         scheduler=scheduler,
         do_save_model_and_plot=do_save,
     )
-    end_time = time.now()
+    end_time = time()
     print(f"Training complete! Took: {end_time - start_time:.2f} seconds.")
     if not do_eval:
         return
+
+    # Use the best model for evaluation, if it was saved
+    if do_save:
+        model.load_state_dict(torch.load(best_model_path))
 
     print(f"Best model: {best_model_path}\n")
     print(f"Calculating validation score")

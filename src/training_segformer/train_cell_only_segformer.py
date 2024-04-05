@@ -175,7 +175,7 @@ def main():
     )
     print(f"Save name: {save_name}")
 
-    start_time = time.now()
+    start_time = time()
 
     best_model_path = train(
         num_epochs=num_epochs,
@@ -192,11 +192,15 @@ def main():
         do_save_model_and_plot=do_save,
     )
 
-    end_time = time.now()
+    end_time = time()
 
     print(f"Training complete! Took: {end_time - start_time:.2f} seconds.")
     if not do_eval:
         return
+
+    # Use the best model for evaluation, if it was saved
+    if do_save:
+        model.load_state_dict(torch.load(best_model_path))
 
     print(f"Best model: {best_model_path}\n")
     print(f"Calculating validation score")

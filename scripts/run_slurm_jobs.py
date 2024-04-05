@@ -64,7 +64,7 @@ python {python_file} \\
   --do-eval {do_eval} \\
   --break-early {break_early} \\
   --normalization "{normalization}" \\
-  --resize "{resize}" \\
+  --resize {resize} \\
   --pretrained-dataset "{pretrained_dataset}" \\
   --id {id_}"""
 
@@ -73,8 +73,8 @@ def main():
     run_script = True
 
     # General parameters
-    job_name = "exp3_cell_only_cityscapes"
-    python_file = "src/training_segformer/train_cell_only.py"
+    job_name = "exp3_imagenet_cell_only"
+    python_file = "src/training_segformer/train_cell_only_segformer.py"
     duration_str: str = "0-04:00:00"
     work_dir = os.getcwd()
 
@@ -93,7 +93,7 @@ def main():
     id_ = 1
     normalization = "macenko"
     # Segformer
-    resize = 1024
+    resize = 512
     pretrained_dataset = "imagenet"
 
     for id_ in range(1, 2):
