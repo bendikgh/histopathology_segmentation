@@ -29,7 +29,7 @@ from src.utils.utils import (
 from src.utils.constants import CELL_IMAGE_MEAN, CELL_IMAGE_STD
 from src.loss import DiceLossForTissueCellSharing
 
-from ocelot23algo.user.inference import SegformerTissueFromFile
+from ocelot23algo.user.inference import SegformerSharingTissueFromFile
 
 
 def build_transform(transforms, extra_transform_cell_tissue):
@@ -265,10 +265,10 @@ def main():
     val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
     test_metadata = get_metadata_with_offset(data_dir=data_dir, partition="test")
 
-    val_evaluation_model = SegformerTissueFromFile(
+    val_evaluation_model = SegformerSharingTissueFromFile(
         metadata=val_metadata, cell_model=model, device=device, tissue_model_path=None
     )
-    test_evaluation_model = SegformerTissueFromFile(
+    test_evaluation_model = SegformerSharingTissueFromFile(
         metadata=test_metadata, cell_model=model, device=device, tissue_model_path=None
     )
 
