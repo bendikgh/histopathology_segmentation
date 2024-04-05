@@ -319,13 +319,118 @@ class DeeplabTissueCellTrainable(Trainable):
         )
 
 
+class DeeplabTissueLeakingTrainable(Trainable):
+    def __init__(
+        self,
+        normalization: str,
+        batch_size: int,
+        pretrained: bool,
+        device: torch.device,
+    ):
+        super().__init__()
+
+        # TODO: Consider removing this entire class and just adding a
+        # field called "leak_labels" or something to the tissue-cell model?
+
+        self.name = "DeeplabV3+ Tissue-Leaking"
+        self.macenko_normalize = "macenko" in normalization
+        self.batch_size = batch_size
+        self.pretrained = pretrained
+        self.device = device
+
+        self.transforms = self.create_transforms(normalization)
+        self.dataloader = self.create_train_dataloader(IDUN_OCELOT_DATA_PATH)
+        self.model = self.create_model(
+            backbone_model="resnet50", pretrained=self.pretrained, device=self.device
+        )
+
+    def create_transforms(self, normalization):
+        transform_list = self._create_transform_list(normalization)
+        return A.Compose(
+            transform_list,
+            additional_targets={"mask1": "mask", "mask2": "mask"},
+        )
+
+    def get_tissue_folder(self, partition: str) -> str:
+        return f"annotations/{partition}/cropped_tissue"
+
+    def create_train_dataloader(self, data_dir: str):
+        # Getting cell files
+        train_cell_image_files, train_cell_target_files = get_ocelot_files(
+            data_dir=data_dir,
+            partition="train",
+            zoom="cell",
+            macenko=self.macenko_normalize,
+        )
+        train_image_nums = [
+            x.split("/")[-1].split(".")[0] for x in train_cell_image_files
+        ]
+
+        # Getting tissue files
+        train_tissue_predicted = glob(
+            os.path.join(data_dir, "annotations/train/cropped_tissue/*")
+        )
+
+        # Making sure only the appropriate numbers are used
+        train_tissue_predicted = [
+            file
+            for file in train_tissue_predicted
+            if file.split("/")[-1].split(".")[0] in train_image_nums
+        ]
+
+        train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+
+        train_dataset = CellTissueDataset(
+            cell_image_files=train_cell_image_files,
+            cell_target_files=train_cell_target_files,
+            tissue_pred_files=train_tissue_predicted,
+            transform=self.transforms,
+        )
+
+        train_dataloader = DataLoader(
+            dataset=train_dataset,
+            batch_size=self.batch_size,
+            drop_last=True,
+            shuffle=True,
+        )
+        return train_dataloader
+
+    def create_model(
+        self,
+        backbone_model: str,
+        pretrained: bool,
+        device: torch.device,
+        model_path: Optional[str] = None,
+    ):
+        model = DeepLabV3plusModel(
+            backbone_name=backbone_model,
+            num_classes=3,
+            num_channels=6,
+            pretrained=pretrained,
+            dropout_rate=0.3,
+        )
+        if model_path is not None:
+            model.load_state_dict(torch.load(model_path))
+        model.to(device)
+        return model
+
+    def create_evaluation_model(self, partition: str):
+        metadata = get_metadata_with_offset(
+            data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
+        )
+        return Deeplabv3TissueFromFile(
+            metadata=metadata,
+            cell_model=self.model,
+        )
+
+
 def main():
     do_save: bool = False
     do_eval: bool = True
 
     device = torch.device("cuda")
 
-    trainable = DeeplabTissueCellTrainable(
+    trainable = DeeplabTissueLeakingTrainable(
         normalization="imagenet + macenko",
         batch_size=2,
         pretrained=True,
