@@ -24,6 +24,7 @@ from ocelot23algo.user.inference import (
     Deeplabv3TissueCellModel,
     Deeplabv3TissueFromFile,
     EvaluationModel,
+    SegformerCellOnlyModel,
 )
 
 from src.dataset import CellOnlyDataset, CellTissueDataset
@@ -36,7 +37,7 @@ from src.utils.constants import (
 from src.utils.metrics import create_cellwise_evaluation_function
 from src.utils.utils import get_metadata_with_offset, get_ocelot_files
 from src.utils import training
-from src.models import DeepLabV3plusModel
+from src.models import CustomSegformerModel, DeepLabV3plusModel
 
 
 class Trainable(ABC):
@@ -48,6 +49,29 @@ class Trainable(ABC):
     batch_size: int
     model: nn.Module
     dataloader: DataLoader
+    backbone_model: str
+
+    def __init__(
+        self,
+        normalization: str,
+        batch_size: int,
+        pretrained: bool,
+        device: torch.device,
+        backbone_model: str,
+    ):
+        self.macenko_normalize = "macenko" in normalization
+        self.batch_size = batch_size
+        self.pretrained = pretrained
+        self.device = device
+        self.backbone_model = backbone_model
+
+        self.transforms = self.create_transforms(normalization)
+        self.dataloader = self.create_train_dataloader(IDUN_OCELOT_DATA_PATH)
+        self.model = self.create_model(
+            backbone_name=self.backbone_model,
+            pretrained=self.pretrained,
+            device=self.device,
+        )
 
     def train(
         self,
@@ -119,7 +143,7 @@ class Trainable(ABC):
 
     @abstractmethod
     def create_model(
-        self, backbone_model: str, pretrained: bool, device: torch.device
+        self, backbone_name: str, pretrained: bool, device: torch.device
     ) -> nn.Module:
         pass
 
@@ -153,18 +177,13 @@ class DeeplabCellOnlyTrainable(Trainable):
         pretrained: bool,
         device: torch.device,
     ):
-        super().__init__()
-
         self.name = "DeeplabV3+ Cell-Only"
-        self.macenko_normalize = "macenko" in normalization
-        self.batch_size = batch_size
-        self.pretrained = pretrained
-        self.device = device
-
-        self.transforms = self.create_transforms(normalization)
-        self.dataloader = self.create_train_dataloader(IDUN_OCELOT_DATA_PATH)
-        self.model = self.create_model(
-            backbone_model="resnet50", pretrained=self.pretrained, device=self.device
+        super().__init__(
+            normalization=normalization,
+            batch_size=batch_size,
+            pretrained=pretrained,
+            device=device,
+            backbone_model="resnet50",
         )
 
     def create_train_dataloader(self, data_dir: str):
@@ -193,14 +212,14 @@ class DeeplabCellOnlyTrainable(Trainable):
 
     def create_model(
         self,
-        backbone_model: str,
+        backbone_name: str,
         pretrained: bool,
         device: torch.device,
         dropout_rate: float = 0.3,
         model_path: Optional[str] = None,
     ):
         model = DeepLabV3plusModel(
-            backbone_name=backbone_model,
+            backbone_name=backbone_name,
             num_classes=3,
             num_channels=3,
             pretrained=pretrained,
@@ -226,19 +245,23 @@ class DeeplabTissueCellTrainable(Trainable):
         batch_size: int,
         pretrained: bool,
         device: torch.device,
+        leak_labels: bool = False,
     ):
-        super().__init__()
-
-        self.name = "DeeplabV3+ Tissue-Cell"
-        self.macenko_normalize = "macenko" in normalization
-        self.batch_size = batch_size
-        self.pretrained = pretrained
-        self.device = device
-
-        self.transforms = self.create_transforms(normalization)
-        self.dataloader = self.create_train_dataloader(IDUN_OCELOT_DATA_PATH)
-        self.model = self.create_model(
-            backbone_model="resnet50", pretrained=self.pretrained, device=self.device
+        self.leak_labels = leak_labels
+        if self.leak_labels:
+            self.name = "DeeplabV3+ Tissue-Leaking"
+            self.tissue_training_file_path = "annotations/train/cropped_tissue/*"
+        else:
+            self.name = "DeeplabV3+ Tissue-Cell"
+            self.tissue_training_file_path = (
+                "annotations/train/predicted_cropped_tissue/*"
+            )
+        super().__init__(
+            normalization=normalization,
+            batch_size=batch_size,
+            pretrained=pretrained,
+            device=device,
+            backbone_model="resnet50",
         )
 
     def create_transforms(self, normalization):
@@ -262,7 +285,7 @@ class DeeplabTissueCellTrainable(Trainable):
 
         # Getting tissue files
         train_tissue_predicted = glob(
-            os.path.join(data_dir, "annotations/train/predicted_cropped_tissue/*")
+            os.path.join(data_dir, self.tissue_training_file_path)
         )
 
         # Making sure only the appropriate numbers are used
@@ -291,13 +314,13 @@ class DeeplabTissueCellTrainable(Trainable):
 
     def create_model(
         self,
-        backbone_model: str,
+        backbone_name: str,
         pretrained: bool,
         device: torch.device,
         model_path: Optional[str] = None,
     ):
         model = DeepLabV3plusModel(
-            backbone_name=backbone_model,
+            backbone_name=backbone_name,
             num_classes=3,
             num_channels=6,
             pretrained=pretrained,
@@ -312,116 +335,119 @@ class DeeplabTissueCellTrainable(Trainable):
         metadata = get_metadata_with_offset(
             data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
         )
-        return Deeplabv3TissueCellModel(
-            metadata=metadata,
-            cell_model=self.model,
-            tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
-        )
+        if self.leak_labels:
+            return Deeplabv3TissueFromFile(
+                metadata=metadata,
+                cell_model=self.model,
+            )
+        else:
+            return Deeplabv3TissueCellModel(
+                metadata=metadata,
+                cell_model=self.model,
+                tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
+            )
 
 
-class DeeplabTissueLeakingTrainable(Trainable):
+class SegformerCellOnlyTrainable(Trainable):
+
     def __init__(
         self,
         normalization: str,
         batch_size: int,
         pretrained: bool,
         device: torch.device,
+        backbone_model: str,
+        pretrained_dataset: str,
+        resize: Optional[int],
     ):
-        super().__init__()
-
-        # TODO: Consider removing this entire class and just adding a
-        # field called "leak_labels" or something to the tissue-cell model?
-
-        self.name = "DeeplabV3+ Tissue-Leaking"
-        self.macenko_normalize = "macenko" in normalization
-        self.batch_size = batch_size
-        self.pretrained = pretrained
-        self.device = device
-
-        self.transforms = self.create_transforms(normalization)
-        self.dataloader = self.create_train_dataloader(IDUN_OCELOT_DATA_PATH)
-        self.model = self.create_model(
-            backbone_model="resnet50", pretrained=self.pretrained, device=self.device
+        self.name = "Segformer Cell-Only"
+        self.pretrained_dataset = pretrained_dataset
+        self.resize = resize
+        super().__init__(
+            normalization=normalization,
+            batch_size=batch_size,
+            pretrained=pretrained,
+            device=device,
+            backbone_model=backbone_model,
         )
+
+    def build_transform_function_with_extra_transforms(
+        self, transforms, extra_transform_image
+    ):
+
+        def transform(image, mask):
+            transformed = transforms(image=image, mask=mask)
+            transformed_image, transformed_label = (
+                transformed["image"],
+                transformed["mask"],
+            )
+            transformed_image = extra_transform_image(image=transformed_image)["image"]
+            return {"image": transformed_image, "mask": transformed_label}
+
+        return transform
 
     def create_transforms(self, normalization):
         transform_list = self._create_transform_list(normalization)
-        return A.Compose(
-            transform_list,
-            additional_targets={"mask1": "mask", "mask2": "mask"},
-        )
+        transforms = A.Compose(transform_list)
 
-    def get_tissue_folder(self, partition: str) -> str:
-        return f"annotations/{partition}/cropped_tissue"
+        if self.resize is not None:
+            extra_transform_image = A.Resize(height=self.resize, width=self.resize)
+            transforms = self.build_transform_function_with_extra_transforms(
+                transforms=transforms, extra_transform_image=extra_transform_image
+            )
 
-    def create_train_dataloader(self, data_dir: str):
-        # Getting cell files
-        train_cell_image_files, train_cell_target_files = get_ocelot_files(
+        return transforms
+
+    def create_train_dataloader(self, data_dir: str) -> DataLoader:
+        train_image_files, train_seg_files = get_ocelot_files(
             data_dir=data_dir,
             partition="train",
             zoom="cell",
             macenko=self.macenko_normalize,
         )
-        train_image_nums = [
-            x.split("/")[-1].split(".")[0] for x in train_cell_image_files
-        ]
+        if self.resize is not None:
+            image_shape = (self.resize, self.resize)
+        else:
+            image_shape = (1024, 1024)
 
-        # Getting tissue files
-        train_tissue_predicted = glob(
-            os.path.join(data_dir, "annotations/train/cropped_tissue/*")
-        )
-
-        # Making sure only the appropriate numbers are used
-        train_tissue_predicted = [
-            file
-            for file in train_tissue_predicted
-            if file.split("/")[-1].split(".")[0] in train_image_nums
-        ]
-
-        train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
-
-        train_dataset = CellTissueDataset(
-            cell_image_files=train_cell_image_files,
-            cell_target_files=train_cell_target_files,
-            tissue_pred_files=train_tissue_predicted,
+        train_dataset = CellOnlyDataset(
+            cell_image_files=train_image_files,
+            cell_target_files=train_seg_files,
             transform=self.transforms,
+            image_shape=image_shape,
         )
-
         train_dataloader = DataLoader(
             dataset=train_dataset,
             batch_size=self.batch_size,
-            drop_last=True,
             shuffle=True,
+            drop_last=True,
         )
+
         return train_dataloader
 
     def create_model(
         self,
-        backbone_model: str,
+        backbone_name: str,
         pretrained: bool,
         device: torch.device,
         model_path: Optional[str] = None,
-    ):
-        model = DeepLabV3plusModel(
-            backbone_name=backbone_model,
+    ) -> nn.Module:
+        model = CustomSegformerModel(
+            backbone_name=backbone_name,
             num_classes=3,
-            num_channels=6,
-            pretrained=pretrained,
-            dropout_rate=0.3,
+            num_channels=3,
+            pretrained_dataset=self.pretrained_dataset,
         )
         if model_path is not None:
             model.load_state_dict(torch.load(model_path))
         model.to(device)
         return model
 
-    def create_evaluation_model(self, partition: str):
+    def create_evaluation_model(self, partition: str) -> EvaluationModel:
         metadata = get_metadata_with_offset(
             data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
         )
-        return Deeplabv3TissueFromFile(
-            metadata=metadata,
-            cell_model=self.model,
-        )
+        return SegformerCellOnlyModel(metadata=metadata, cell_model=self.model)
 
 
 def main():
@@ -430,11 +456,14 @@ def main():
 
     device = torch.device("cuda")
 
-    trainable = DeeplabTissueLeakingTrainable(
+    trainable = SegformerCellOnlyTrainable(
         normalization="imagenet + macenko",
         batch_size=2,
         pretrained=True,
         device=device,
+        backbone_model="b3",
+        pretrained_dataset="ade",
+        resize=512,
     )
 
     loss_function = DiceLoss(softmax=True)
