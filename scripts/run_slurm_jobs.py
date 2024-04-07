@@ -34,6 +34,7 @@ def generate_slurm_script(
 
 #SBATCH --partition=GPUQ               
 #SBATCH --gres=gpu:1              
+#SBATCH --constraint="gpu32g|gpu40g|gpu80g"              
 #SBATCH --nodes=1                      
 #SBATCH --mem=32G                        
 
@@ -73,28 +74,28 @@ def main():
     run_script = True
 
     # General parameters
-    job_name = "exp3_cityscapes_cell_only_b3"
+    job_name = "imagenet_size_tryout"
     python_file = "src/training_segformer/train_cell_only_segformer.py"
     duration_str: str = "0-02:00:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
-    epochs = 50
-    batch_size = 4
+    epochs = 5
+    batch_size = 2
     checkpoint_interval = 10
     backbone = "b3"
     dropout = 0.3
     learning_rate = 1e-4
     pretrained = 1
-    warmup_epochs = 5
-    do_save = 1
+    warmup_epochs = 0
+    do_save = 0
     do_eval = 1
     break_early = 0
     id_ = 1
     normalization = "macenko"
     # Segformer
-    resize = 512
-    pretrained_dataset = "cityscapes"
+    resize = 1024
+    pretrained_dataset = "imagenet"
 
     for id_ in range(1, 2):
         script_contents = generate_slurm_script(
