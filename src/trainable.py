@@ -1,5 +1,7 @@
+import cv2
 import os
 import sys
+import time
 import torch
 
 import albumentations as A
@@ -25,6 +27,7 @@ from ocelot23algo.user.inference import (
     Deeplabv3TissueFromFile,
     EvaluationModel,
     SegformerCellOnlyModel,
+    SegformerTissueFromFile,
 )
 
 from src.dataset import CellOnlyDataset, CellTissueDataset
@@ -65,7 +68,8 @@ class Trainable(ABC):
         self.device = device
         self.backbone_model = backbone_model
 
-        self.transforms = self.create_transforms(normalization)
+        self.train_transforms = self.create_transforms(normalization)
+        self.val_transforms = self.create_transforms(normalization, partition="val")
         self.dataloader = self.create_train_dataloader(IDUN_OCELOT_DATA_PATH)
         self.model = self.create_model(
             backbone_name=self.backbone_model,
@@ -103,24 +107,27 @@ class Trainable(ABC):
 
         return best_model_path
 
-    def _create_transform_list(self, normalization) -> List:
-        transform_list = [
-            A.GaussianBlur(),
-            A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
-            A.ColorJitter(
-                brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05, p=0.5
-            ),
-            A.HorizontalFlip(p=0.5),
-            A.RandomRotate90(p=0.5),
-        ]
+    def _create_transform_list(self, normalization, partition: str = "train") -> List:
+        if partition == "train":
+            transform_list = [
+                A.GaussianBlur(),
+                A.GaussNoise(var_limit=(0.1, 0.3), p=0.5),
+                A.ColorJitter(
+                    brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05, p=0.5
+                ),
+                A.HorizontalFlip(p=0.5),
+                A.RandomRotate90(p=0.5),
+            ]
+        else:
+            transform_list = []
         if "imagenet" in normalization:
             transform_list.append(A.Normalize())
         elif "cell" in normalization:
             transform_list.append(A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD))
         return transform_list
 
-    def create_transforms(self, normalization):
-        transform_list = self._create_transform_list(normalization)
+    def create_transforms(self, normalization, partition: str = "train"):
+        transform_list = self._create_transform_list(normalization, partition=partition)
         return A.Compose(transform_list)
 
     def get_save_name(self, **kwargs) -> str:
@@ -158,6 +165,7 @@ class Trainable(ABC):
         evaluation_function = create_cellwise_evaluation_function(
             evaluation_model=self.create_evaluation_model(partition=partition),
             tissue_file_folder=self.get_tissue_folder(partition=partition),
+            transform=self.val_transforms,
         )
         return evaluation_function
 
@@ -198,7 +206,7 @@ class DeeplabCellOnlyTrainable(Trainable):
         dataset = CellOnlyDataset(
             cell_image_files=image_files,
             cell_target_files=target_files,
-            transform=self.transforms,
+            transform=self.train_transforms,
         )
 
         dataloader = DataLoader(
@@ -264,8 +272,8 @@ class DeeplabTissueCellTrainable(Trainable):
             backbone_model="resnet50",
         )
 
-    def create_transforms(self, normalization):
-        transform_list = self._create_transform_list(normalization)
+    def create_transforms(self, normalization, partition: str = "train"):
+        transform_list = self._create_transform_list(normalization, partition=partition)
         return A.Compose(
             transform_list,
             additional_targets={"mask1": "mask", "mask2": "mask"},
@@ -301,7 +309,7 @@ class DeeplabTissueCellTrainable(Trainable):
             cell_image_files=train_cell_image_files,
             cell_target_files=train_cell_target_files,
             tissue_pred_files=train_tissue_predicted,
-            transform=self.transforms,
+            transform=self.train_transforms,
         )
 
         train_dataloader = DataLoader(
@@ -386,8 +394,8 @@ class SegformerCellOnlyTrainable(Trainable):
 
         return transform
 
-    def create_transforms(self, normalization):
-        transform_list = self._create_transform_list(normalization)
+    def create_transforms(self, normalization, partition: str = "train"):
+        transform_list = self._create_transform_list(normalization, partition=partition)
         transforms = A.Compose(transform_list)
 
         if self.resize is not None:
@@ -413,7 +421,7 @@ class SegformerCellOnlyTrainable(Trainable):
         train_dataset = CellOnlyDataset(
             cell_image_files=train_image_files,
             cell_target_files=train_seg_files,
-            transform=self.transforms,
+            transform=self.train_transforms,
             image_shape=image_shape,
         )
         train_dataloader = DataLoader(
@@ -450,20 +458,189 @@ class SegformerCellOnlyTrainable(Trainable):
         return SegformerCellOnlyModel(metadata=metadata, cell_model=self.model)
 
 
+class SegformerTissueCellTrainable(Trainable):
+
+    def __init__(
+        self,
+        normalization: str,
+        batch_size: int,
+        pretrained: bool,
+        device: torch.device,
+        backbone_model: str,
+        pretrained_dataset: str,
+        resize: Optional[int],
+        leak_labels: bool = False,
+    ):
+        self.leak_labels = leak_labels
+        if self.leak_labels:
+            self.name = "Segformer Tissue-Leaking"
+            self.tissue_training_file_path = "annotations/train/cropped_tissue/*"
+        else:
+            self.name = "Segformer Tissue-Cell"
+            self.tissue_training_file_path = (
+                "annotations/train/predicted_cropped_tissue/*"
+            )
+        self.pretrained_dataset = pretrained_dataset
+        self.resize = resize
+        super().__init__(
+            normalization=normalization,
+            batch_size=batch_size,
+            pretrained=pretrained,
+            device=device,
+            backbone_model=backbone_model,
+        )
+
+    def build_transform_function_with_extra_transforms(
+        self, transforms, extra_transform_cell_tissue
+    ):
+        def transform(image, mask1, mask2):
+            # First transforms
+            transformed = transforms(image=image, mask1=mask1, mask2=mask2)
+
+            transformed_cell = transformed["image"]
+            transformed_label = transformed["mask1"]
+            transformed_tissue = transformed["mask2"]
+
+            # Additional transforms (usually resize)
+            transformed = extra_transform_cell_tissue(
+                image=transformed_cell, extra_image=transformed_tissue
+            )
+
+            transformed_cell = transformed["image"]
+            transformed_tissue = transformed["extra_image"]
+
+            return {
+                "image": transformed_cell,
+                "mask1": transformed_label,
+                "mask2": transformed_tissue,
+            }
+
+        return transform
+
+    def create_transforms(self, normalization, partition: str = "train"):
+        transform_list = self._create_transform_list(normalization, partition=partition)
+        transforms = A.Compose(transform_list)
+
+        if self.resize is not None:
+            extra_transform_cell_tissue = A.Compose(
+                [
+                    A.Resize(
+                        height=self.resize,
+                        width=self.resize,
+                        interpolation=cv2.INTER_NEAREST,
+                    )
+                ],
+                additional_targets={"extra_image": "image"},
+            )
+
+            transforms = self.build_transform_function_with_extra_transforms(
+                transforms=transforms,
+                extra_transform_cell_tissue=extra_transform_cell_tissue,
+            )
+
+        return transforms
+
+    def create_train_dataloader(self, data_dir: str) -> DataLoader:
+        train_cell_image_files, train_cell_seg_files = get_ocelot_files(
+            data_dir=data_dir,
+            partition="train",
+            zoom="cell",
+            macenko=self.macenko_normalize,
+        )
+
+        train_image_nums = [
+            x.split("/")[-1].split(".")[0] for x in train_cell_image_files
+        ]
+
+        train_tissue_predicted = glob(
+            os.path.join(data_dir, self.tissue_training_file_path)
+        )
+
+        train_tissue_predicted = [
+            file
+            for file in train_tissue_predicted
+            if file.split("/")[-1].split(".")[0] in train_image_nums
+        ]
+
+        train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+
+        if self.resize is not None:
+            image_shape = (self.resize, self.resize)
+        else:
+            image_shape = (1024, 1024)
+
+        train_dataset = CellTissueDataset(
+            cell_image_files=train_cell_image_files,
+            cell_target_files=train_cell_seg_files,
+            transform=self.train_transforms,
+            tissue_pred_files=train_tissue_predicted,
+            image_shape=image_shape,
+        )
+
+        train_dataloader = DataLoader(
+            dataset=train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            drop_last=True,
+        )
+        return train_dataloader
+
+    def create_model(
+        self,
+        backbone_name: str,
+        pretrained: bool,
+        device: torch.device,
+        model_path: Optional[str] = None,
+    ) -> nn.Module:
+
+        model = CustomSegformerModel(
+            backbone_name=backbone_name,
+            num_classes=3,
+            num_channels=6,
+            pretrained_dataset=self.pretrained_dataset,
+        )
+
+        if model_path is not None:
+            model.load_state_dict(torch.load(model_path))
+
+        model.to(device)
+        return model
+
+    def create_evaluation_model(self, partition: str) -> EvaluationModel:
+        metadata = get_metadata_with_offset(
+            data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
+        )
+        return SegformerTissueFromFile(
+            metadata=metadata,
+            cell_model=self.model,
+            tissue_model_path=None,
+            device=self.device,
+        )
+
+
 def main():
     do_save: bool = False
     do_eval: bool = True
 
+    batch_size = 2
+    normalization = "imagenet + macenko"
+    pretrained = True
+    backbone_model = "b2"
+    pretrained_dataset = "ade"
+    resize = 512
+    leak_labels = True
+
     device = torch.device("cuda")
 
     trainable = SegformerCellOnlyTrainable(
-        normalization="imagenet + macenko",
-        batch_size=2,
-        pretrained=True,
+        normalization=normalization,
+        batch_size=batch_size,
+        pretrained=pretrained,
         device=device,
-        backbone_model="b3",
-        pretrained_dataset="ade",
-        resize=512,
+        backbone_model=backbone_model,
+        pretrained_dataset=pretrained_dataset,
+        resize=resize,
+        # leak_labels=leak_labels,
     )
 
     loss_function = DiceLoss(softmax=True)
@@ -476,22 +653,38 @@ def main():
         power=1,
     )
 
-    model_path = trainable.train(
+    start = time.time()
+    best_model_path = trainable.train(
         num_epochs=1,
         loss_function=loss_function,
         optimizer=optimizer,
         device=torch.device("cuda"),
         checkpoint_interval=1,
-        break_after_one_iteration=True,
+        break_after_one_iteration=False,
         scheduler=scheduler,
     )
+    end = time.time()
+
+    print(f"Training finished! Took {end - start:.2f} seconds.")
 
     if not do_eval:
         return
 
+    if do_save:
+        trainable.model = trainable.create_model(
+            backbone_name=backbone_model,
+            pretrained=pretrained,
+            device=trainable.device,
+            model_path=best_model_path,
+        )
+        print(f"Updated model with the best from training.")
+
     # Evaluation
+    trainable.model.eval()
     val_evaluation_function = trainable.get_evaluation_function(partition="val")
     test_evaluation_function = trainable.get_evaluation_function(partition="test")
+    val_score = val_evaluation_function("val")
+    print(f"val score: {val_score}")
     val_score = val_evaluation_function("val")
     print(f"val score: {val_score}")
     test_score = test_evaluation_function("test")

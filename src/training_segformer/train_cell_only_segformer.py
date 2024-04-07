@@ -31,11 +31,20 @@ from ocelot23algo.user.inference import SegformerCellOnlyModel
 
 
 def build_transform(transforms, extra_transform_image):
-    def transform(image, mask):
-        transformed = transforms(image=image, mask=mask)
-        transformed_image, transformed_label = transformed["image"], transformed["mask"]
-        transformed_image = extra_transform_image(image=transformed_image)["image"]
-        return {"image": transformed_image, "mask": transformed_label}
+    def transform(image, mask=None):
+        if mask is not None:
+            transformed = transforms(image=image, mask=mask)
+            transformed_image, transformed_label = (
+                transformed["image"],
+                transformed["mask"],
+            )
+            transformed_image = extra_transform_image(image=transformed_image)["image"]
+            return {"image": transformed_image, "mask": transformed_label}
+        else:
+            transformed = transforms(image=image)
+            transformed_image = transformed["image"]
+            transformed_image = extra_transform_image(image=transformed_image)["image"]
+            return {"image": transformed_image}
 
     return transform
 
@@ -99,12 +108,16 @@ def main():
         )
 
     train_transforms = A.Compose(train_transform_list)
+    val_transforms = A.Compose([])
 
     if resize is not None:
         extra_transform_image = A.Resize(height=resize, width=resize)
 
         train_transforms = build_transform(
             transforms=train_transforms, extra_transform_image=extra_transform_image
+        )
+        val_transforms = build_transform(
+            transforms=val_transforms, extra_transform_image=extra_transform_image
         )
 
     train_image_files, train_seg_files = get_ocelot_files(
@@ -157,10 +170,12 @@ def main():
     val_evaluation_function = create_cellwise_evaluation_function(
         evaluation_model=val_evaluation_model,
         tissue_file_folder="images/val/tissue_macenko",
+        transform=val_transforms,
     )
     test_evaluation_function = create_cellwise_evaluation_function(
         evaluation_model=test_evaluation_model,
         tissue_file_folder="images/test/tissue_macenko",
+        transform=val_transforms,
     )
 
     save_name = get_save_name(
@@ -176,7 +191,6 @@ def main():
     print(f"Save name: {save_name}")
 
     start_time = time()
-
     best_model_path = train(
         num_epochs=num_epochs,
         train_dataloader=train_dataloader,
@@ -191,7 +205,6 @@ def main():
         scheduler=scheduler,
         do_save_model_and_plot=do_save,
     )
-
     end_time = time()
 
     print(f"Training complete! Took: {end_time - start_time:.2f} seconds.")
@@ -199,10 +212,12 @@ def main():
         return
 
     # Use the best model for evaluation, if it was saved
+    print(f"Best model: {best_model_path}\n")
     if do_save:
+        print(f"Loading the best model!")
         model.load_state_dict(torch.load(best_model_path))
 
-    print(f"Best model: {best_model_path}\n")
+    model.eval()
     print(f"Calculating validation score")
     val_mf1 = val_evaluation_function(partition="val")
     print(f"Validation mF1: {val_mf1:.4f}")
