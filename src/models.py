@@ -279,6 +279,7 @@ class TissueCellSharingSegformerModel(nn.Module):
 
         self.metadata = metadata
         self.dim_reduction = None
+        self.device = device
 
     def forward(self, x, pair_id):
 
@@ -313,7 +314,7 @@ class TissueCellSharingSegformerModel(nn.Module):
                 x_offset=x_offset,
                 y_offset=y_offset,
             )
-            scaled_list.append(scaled_tissue.unsqueeze(0))
+            cell_weights = outputs.hidden_states
 
         logits_tissue = torch.cat(scaled_list, dim=0)
 
@@ -325,7 +326,8 @@ class TissueCellSharingSegformerModel(nn.Module):
         cell_weights = outputs.hidden_states
         cell_encodings = cell_weights[-1]
 
-        ## Mixing the features
+        # Flatten cell encodings to match the logits_tissue_flat shape
+        cell_encodings_flat = cell_encodings.reshape(cell_encodings.size(0), -1)
 
         # Flatten logits_tissue (B, C*H*W)
         # (B, H*W*C)
@@ -350,14 +352,6 @@ class TissueCellSharingSegformerModel(nn.Module):
 
         logits_tissue_flat = logits_tissue.reshape(logits_tissue.size(0), -1)
 
-        # Flatten cell encodings to match the logits_tissue_flat shape
-        cell_encodings_flat = cell_encodings.reshape(cell_encodings.size(0), -1)
-
-        # (B, 512, image_size / 32, image_size / 32)
-
-        # Step 3: Concatenate flattened arrays
-        merged_tensor = torch.cat((cell_encodings_flat, logits_tissue_flat), dim=1)
-
         if self.dim_reduction is None:
             self.dim_reduction = nn.Sequential(
                 nn.Linear(merged_tensor.shape[1], 4096),
@@ -365,9 +359,12 @@ class TissueCellSharingSegformerModel(nn.Module):
                 nn.Linear(4096, cell_encodings_flat.shape[1]),
                 nn.ReLU(),
             )
+            self.dim_reduction.to(self.device)
 
-        reduced_tensor = self.dim_reduction(merged_tensor)
-        cell_encodings = reduced_tensor.view_as(cell_encodings)
+        # (B, 512, image_size / 32, image_size / 32)
+
+        # Step 3: Concatenate flattened arrays
+        merged_tensor = torch.cat((cell_encodings_flat, logits_tissue_flat), dim=1)
 
         cell_weights = (*cell_weights[: len(cell_weights) - 1], cell_encodings)
 
@@ -503,8 +500,8 @@ if __name__ == "__main__":
 
     batch_size = 2
     channels = 6
-    height = 512
-    width = 512
+    height = 1024
+    width = 1024
 
     x = torch.ones(batch_size, channels, height, width)
     x = x.to(device)

@@ -218,14 +218,14 @@ def main():
         image_shape=(resize, resize) if resize else (1024, 1024),
     )
 
-    val_dataset = CellTissueSharingDataset(
-        cell_image_files=val_cell_image_files,
-        cell_target_files=val_cell_seg_files,
-        tissue_image_files=val_tissue_image_files,
-        tissue_target_files=val_tissue_target_files,
-        transform=train_transforms,
-        image_shape=(resize, resize) if resize else (1024, 1024),
-    )
+    # val_dataset = CellTissueSharingDataset(
+    #     cell_image_files=val_cell_image_files,
+    #     cell_target_files=val_cell_seg_files,
+    #     tissue_image_files=val_tissue_image_files,
+    #     tissue_target_files=val_tissue_target_files,
+    #     transform=train_transforms,
+    #     image_shape=(resize, resize) if resize else (1024, 1024),
+    # )
 
     train_dataloader = DataLoader(
         dataset=train_dataset,
@@ -249,6 +249,7 @@ def main():
         num_channels=6,
         pretrained_dataset=pretrained_dataset,
         metadata=list(metadata["sample_pairs"].values()),
+        device=device,
     )
     model.to(device)
 
