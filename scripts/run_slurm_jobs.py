@@ -8,6 +8,7 @@ def generate_slurm_script(
     python_file: str,
     duration_str: str,
     work_dir: str,
+    model_architecture: str,
     epochs,
     batch_size,
     checkpoint_interval,
@@ -53,6 +54,7 @@ module load Anaconda3/2022.10
 conda activate specialization_project
 
 python {python_file} \\
+  --model-architecture "{model_architecture}" \\
   --epochs {epochs} \\
   --batch-size {batch_size} \\
   --checkpoint-interval {checkpoint_interval} \\
@@ -71,19 +73,20 @@ python {python_file} \\
 
 
 def main():
-    run_script = True
+    run_script = False
 
     # General parameters
-    job_name = "imagenet_size_tryout"
-    python_file = "src/training_segformer/train_cell_only_segformer.py"
-    duration_str: str = "0-02:00:00"
+    job_name = ""
+    python_file = "src/run_trainable.py"
+    duration_str: str = "0-1:00:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
+    model_architecture = "segformer_cell_branch"
     epochs = 5
     batch_size = 2
     checkpoint_interval = 10
-    backbone = "b3"
+    backbone = "b2"
     dropout = 0.3
     learning_rate = 1e-4
     pretrained = 1
@@ -94,8 +97,8 @@ def main():
     id_ = 1
     normalization = "macenko"
     # Segformer
-    resize = 1024
-    pretrained_dataset = "imagenet"
+    resize = 512
+    pretrained_dataset = "ade"
 
     for id_ in range(1, 2):
         script_contents = generate_slurm_script(
@@ -103,6 +106,7 @@ def main():
             python_file=python_file,
             duration_str=duration_str,
             work_dir=work_dir,
+            model_architecture=model_architecture,
             epochs=epochs,
             batch_size=batch_size,
             checkpoint_interval=checkpoint_interval,

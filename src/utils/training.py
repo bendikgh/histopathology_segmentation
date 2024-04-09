@@ -242,6 +242,7 @@ def train(
     best_model_save_path: Union[str, None] = None
 
     for epoch in range(num_epochs):
+        model.train()
         training_loss = training_func(
             model=model,
             train_dataloader=train_dataloader,
@@ -255,6 +256,7 @@ def train(
         if scheduler is not None:
             scheduler.step()
 
+        model.eval()
         val_score = validation_function(
             partition="val", break_after_one_iteration=break_after_one_iteration
         )

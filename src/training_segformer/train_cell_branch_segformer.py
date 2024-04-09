@@ -208,7 +208,7 @@ def main():
     )
 
     val_test_transform = None
-    
+
     if resize:
         val_test_transform = A.Compose(
             [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],
@@ -259,7 +259,10 @@ def main():
 
     # Use the best model for evaluation, if it was saved
     if do_save:
+        print(f"Loading best model from file!")
         model.load_state_dict(torch.load(best_model_path))
+
+    model.eval()
 
     print(f"Best model: {best_model_path}\n")
     print(f"Calculating validation score")

@@ -8,6 +8,7 @@ import albumentations as A
 import torch.nn as nn
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 from glob import glob
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
@@ -131,8 +132,11 @@ class Trainable(ABC):
         return A.Compose(transform_list)
 
     def get_save_name(self, **kwargs) -> str:
-        result: str = ""
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        result: str = f"{current_time}/"
         result += f"{self.name}"
+        result += f"_backbone-{self.backbone_model}"
 
         for key, value in kwargs.items():
             if value is None:
@@ -503,11 +507,11 @@ class SegformerTissueCellTrainable(Trainable):
 
             # Additional transforms (usually resize)
             transformed = extra_transform_cell_tissue(
-                image=transformed_cell, extra_image=transformed_tissue
+                image=transformed_cell, tissue=transformed_tissue
             )
 
             transformed_cell = transformed["image"]
-            transformed_tissue = transformed["extra_image"]
+            transformed_tissue = transformed["tissue"]
 
             return {
                 "image": transformed_cell,
@@ -530,7 +534,7 @@ class SegformerTissueCellTrainable(Trainable):
                         interpolation=cv2.INTER_NEAREST,
                     )
                 ],
-                additional_targets={"extra_image": "image"},
+                additional_targets={"tissue": "image"},
             )
 
             transforms = self.build_transform_function_with_extra_transforms(
@@ -619,15 +623,22 @@ class SegformerTissueCellTrainable(Trainable):
 
 
 def main():
+    # General training params
     do_save: bool = False
     do_eval: bool = True
-
+    num_epochs = 10
     batch_size = 2
-    normalization = "imagenet + macenko"
+    warmup_epochs = 0
+    learning_rate = 1e-4
+    checkpoint_interval = 10
+    break_after_one_iteration = False
+
+    # Model specific params
+    normalization = "macenko"
     pretrained = True
-    backbone_model = "b2"
-    pretrained_dataset = "ade"
-    resize = 512
+    backbone_model = "b3"
+    pretrained_dataset = "cityscapes"
+    resize = 1024
     leak_labels = True
 
     device = torch.device("cuda")
@@ -644,27 +655,26 @@ def main():
     )
 
     loss_function = DiceLoss(softmax=True)
-    learning_rate = 1e-4
     optimizer = AdamW(trainable.model.parameters(), lr=learning_rate)
     scheduler = get_polynomial_decay_schedule_with_warmup(
         optimizer,
-        num_warmup_steps=0,
-        num_training_steps=1,
+        num_warmup_steps=warmup_epochs,
+        num_training_steps=num_epochs,
         power=1,
     )
 
+    print(f"num_epochs: {num_epochs}")
     start = time.time()
     best_model_path = trainable.train(
-        num_epochs=1,
+        num_epochs=num_epochs,
         loss_function=loss_function,
         optimizer=optimizer,
         device=torch.device("cuda"),
-        checkpoint_interval=1,
-        break_after_one_iteration=False,
+        checkpoint_interval=checkpoint_interval,
+        break_after_one_iteration=break_after_one_iteration,
         scheduler=scheduler,
     )
     end = time.time()
-
     print(f"Training finished! Took {end - start:.2f} seconds.")
 
     if not do_eval:
@@ -683,8 +693,7 @@ def main():
     trainable.model.eval()
     val_evaluation_function = trainable.get_evaluation_function(partition="val")
     test_evaluation_function = trainable.get_evaluation_function(partition="test")
-    val_score = val_evaluation_function("val")
-    print(f"val score: {val_score}")
+
     val_score = val_evaluation_function("val")
     print(f"val score: {val_score}")
     test_score = test_evaluation_function("test")

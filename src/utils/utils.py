@@ -19,22 +19,7 @@ from torchvision.transforms import PILToTensor, InterpolationMode
 from torchvision.transforms.v2.functional import resized_crop
 from typing import List, Tuple
 
-from src.utils.constants import (
-    DATASET_PARTITION_OFFSETS,
-    DEFAULT_BACKBONE_MODEL,
-    DEFAULT_BATCH_SIZE,
-    DEFAULT_CHECKPOINT_INTERVAL,
-    DEFAULT_DATA_DIR,
-    DEFAULT_DO_EVALUATE,
-    DEFAULT_DROPOUT_RATE,
-    DEFAULT_EPOCHS,
-    DEFAULT_LEARNING_RATE,
-    DEFAULT_PRETRAINED,
-    DEFAULT_WARMUP_EPOCHS,
-    DEFAULT_BREAK_AFTER_ONE_ITERATION,
-    DEFAULT_DO_SAVE,
-    DEFAULT_NORMALIZATION,
-)
+from src.utils.constants import *
 
 
 # def crop_and_upscale_tissue(
@@ -630,10 +615,10 @@ def get_point_predictions(softmaxed: torch.Tensor) -> List[Tuple[int, int, int, 
 
 def get_metadata_with_offset(data_dir: str, partition: str) -> List:
     """
-    Note: This returns everything from the offset point and beyond. 
-    This means that train will yield all 600+ samples, not just the first 
-    400, and that val will yield 260+ samples, not just the 137 that belong 
-    to val.  
+    Note: This returns everything from the offset point and beyond.
+    This means that train will yield all 600+ samples, not just the first
+    400, and that val will yield 260+ samples, not just the 137 that belong
+    to val.
     """
     metadata_path = os.path.join(data_dir, "metadata.json")
     with open(metadata_path, "r") as f:
@@ -679,6 +664,12 @@ def get_ocelot_args() -> argparse.Namespace:
         "--backbone",
         type=str,
         default=DEFAULT_BACKBONE_MODEL,
+        help="Backbone model",
+    )
+    parser.add_argument(
+        "--model-architecture",
+        default=DEFAULT_MODEL_ARCHITECTURE,
+        type=str,
         help="Backbone model",
     )
     parser.add_argument(
@@ -760,10 +751,13 @@ def get_ocelot_args() -> argparse.Namespace:
         type=str,
         default="cuda",
         help="The device to run the training on",
-         choices=[
-            "cpu",
-            "cuda"
-        ]
+        choices=["cpu", "cuda"],
+    )
+    parser.add_argument(
+        "--leak-labels",
+        type=int,
+        default=0,
+        help="Whether to use tissue-leaking or not",
     )
 
     args: argparse.Namespace = parser.parse_args()
