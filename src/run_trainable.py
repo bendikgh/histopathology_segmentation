@@ -119,6 +119,7 @@ def main():
     print(f"Normalization: {normalization}")
     print(f"Resize: {resize}")
     print(f"pretrained dataset: {pretrained_dataset}")
+    print(f"Leak labels: {leak_labels}")
     print(f"ID: {id}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 

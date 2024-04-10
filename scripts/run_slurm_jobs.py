@@ -23,6 +23,7 @@ def generate_slurm_script(
     normalization,
     resize,
     pretrained_dataset,
+    leak_labels,
     id_,
 ):
     current_time = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -69,6 +70,7 @@ python {python_file} \\
   --normalization "{normalization}" \\
   --resize {resize} \\
   --pretrained-dataset "{pretrained_dataset}" \\
+  --leak-labels {leak_labels} \\
   --id {id_}"""
 
 
@@ -78,15 +80,15 @@ def main():
     # General parameters
     job_name = ""
     python_file = "src/run_trainable.py"
-    duration_str: str = "0-1:00:00"
+    duration_str: str = "0-8:00:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
     model_architecture = "segformer_cell_branch"
-    epochs = 5
+    epochs = 2
     batch_size = 2
     checkpoint_interval = 10
-    backbone = "b2"
+    backbone = "b3"
     dropout = 0.3
     learning_rate = 1e-4
     pretrained = 1
@@ -96,6 +98,7 @@ def main():
     break_early = 0
     id_ = 1
     normalization = "macenko"
+    leak_labels = 1
     # Segformer
     resize = 512
     pretrained_dataset = "ade"
@@ -121,6 +124,7 @@ def main():
             normalization=normalization,
             resize=resize,
             pretrained_dataset=pretrained_dataset,
+            leak_labels=leak_labels,
             id_=id_,
         )
         script_filename = f"scripts/slurm_script_id{id_}.sh"

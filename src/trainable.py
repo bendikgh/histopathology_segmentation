@@ -276,6 +276,12 @@ class DeeplabTissueCellTrainable(Trainable):
             backbone_model="resnet50",
         )
 
+    def get_tissue_folder(self, partition: str) -> str:
+        if self.leak_labels:
+            return f"annotations/{partition}/cropped_tissue"
+        else:
+            return f"annotations/{partition}/predicted_cropped_tissue"
+
     def create_transforms(self, normalization, partition: str = "train"):
         transform_list = self._create_transform_list(normalization, partition=partition)
         return A.Compose(
@@ -347,17 +353,10 @@ class DeeplabTissueCellTrainable(Trainable):
         metadata = get_metadata_with_offset(
             data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
         )
-        if self.leak_labels:
-            return Deeplabv3TissueFromFile(
-                metadata=metadata,
-                cell_model=self.model,
-            )
-        else:
-            return Deeplabv3TissueCellModel(
-                metadata=metadata,
-                cell_model=self.model,
-                tissue_model_path=DEFAULT_TISSUE_MODEL_PATH,
-            )
+        return Deeplabv3TissueFromFile(
+            metadata=metadata,
+            cell_model=self.model,
+        )
 
 
 class SegformerCellOnlyTrainable(Trainable):
@@ -493,6 +492,12 @@ class SegformerTissueCellTrainable(Trainable):
             device=device,
             backbone_model=backbone_model,
         )
+
+    def get_tissue_folder(self, partition: str) -> str:
+        if self.leak_labels:
+            return f"annotations/{partition}/cropped_tissue"
+        else:
+            return f"annotations/{partition}/predicted_cropped_tissue"
 
     def build_transform_function_with_extra_transforms(
         self, transforms, extra_transform_cell_tissue
