@@ -10,7 +10,7 @@ import torch.nn as nn
 from abc import ABC, abstractmethod
 from datetime import datetime
 from glob import glob
-from monai.losses import DiceLoss
+from monai.losses import DiceLoss, DiceCELoss
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import (
@@ -30,8 +30,9 @@ from ocelot23algo.user.inference import (
     SegformerCellOnlyModel,
     SegformerTissueFromFile,
 )
+from ocelot23algo.user.inference import SegformerSharingModel as SegformerSharingModule
 
-from src.dataset import CellOnlyDataset, CellTissueDataset
+from src.dataset import CellOnlyDataset, CellTissueDataset, SegformerSharingDataset
 from src.utils.constants import (
     CELL_IMAGE_MEAN,
     CELL_IMAGE_STD,
@@ -39,9 +40,14 @@ from src.utils.constants import (
     IDUN_OCELOT_DATA_PATH,
 )
 from src.utils.metrics import create_cellwise_evaluation_function
-from src.utils.utils import get_metadata_with_offset, get_ocelot_files
+from src.utils.utils import (
+    get_metadata_dict,
+    get_metadata_with_offset,
+    get_ocelot_files,
+)
 from src.utils import training
-from src.models import CustomSegformerModel, DeepLabV3plusModel
+from src.utils.training import run_training_sharing2
+from src.models import CustomSegformerModel, DeepLabV3plusModel, SegformerSharingModel
 
 
 class Trainable(ABC):
@@ -473,8 +479,10 @@ class SegformerTissueCellTrainable(Trainable):
         pretrained_dataset: str,
         resize: Optional[int],
         leak_labels: bool = False,
+        debug: bool = False,
     ):
         self.leak_labels = leak_labels
+        self.debug = debug
         if self.leak_labels:
             self.name = "Segformer Tissue-Leaking"
             self.tissue_training_file_path = "annotations/train/cropped_tissue/*"
@@ -550,7 +558,7 @@ class SegformerTissueCellTrainable(Trainable):
         return transforms
 
     def create_train_dataloader(self, data_dir: str) -> DataLoader:
-        train_cell_image_files, train_cell_seg_files = get_ocelot_files(
+        train_cell_image_files, train_cell_target_files = get_ocelot_files(
             data_dir=data_dir,
             partition="train",
             zoom="cell",
@@ -580,10 +588,11 @@ class SegformerTissueCellTrainable(Trainable):
 
         train_dataset = CellTissueDataset(
             cell_image_files=train_cell_image_files,
-            cell_target_files=train_cell_seg_files,
-            transform=self.train_transforms,
+            cell_target_files=train_cell_target_files,
             tissue_pred_files=train_tissue_predicted,
+            transform=self.train_transforms,
             image_shape=image_shape,
+            debug=self.debug,
         )
 
         train_dataloader = DataLoader(
@@ -627,6 +636,221 @@ class SegformerTissueCellTrainable(Trainable):
         )
 
 
+class SegformerSharingTrainable(Trainable):
+
+    def __init__(
+        self,
+        normalization: str,
+        batch_size: int,
+        pretrained: bool,
+        device: torch.device,
+        backbone_model: str,
+        pretrained_dataset: str,
+        resize: Optional[int],
+        debug: bool = False,
+    ):
+        self.pretrained_dataset = pretrained_dataset
+        self.resize = resize
+        self.name = "Segformer Sharing"
+        super().__init__(
+            normalization=normalization,
+            batch_size=batch_size,
+            pretrained=pretrained,
+            device=device,
+            backbone_model=backbone_model,
+        )
+
+    def create_train_dataloader(self, data_dir: str) -> DataLoader:
+        train_cell_image_files, train_cell_target_files = get_ocelot_files(
+            data_dir=data_dir,
+            partition="train",
+            zoom="cell",
+            macenko=self.macenko_normalize,
+        )
+        train_tissue_image_files, train_tissue_target_files = get_ocelot_files(
+            data_dir=data_dir,
+            partition="train",
+            zoom="tissue",
+            macenko=self.macenko_normalize,
+        )
+
+        # Removing image numbers from tissue images to match cell and tissue
+        image_numbers = [x.split("/")[-1].split(".")[0] for x in train_cell_image_files]
+        train_tissue_image_files = [
+            file
+            for file in train_tissue_image_files
+            if file.split("/")[-1].split(".")[0] in image_numbers
+        ]
+        train_tissue_target_files = [
+            file
+            for file in train_tissue_target_files
+            if file.split("/")[-1].split(".")[0] in image_numbers
+        ]
+        len1 = len(train_cell_image_files)
+        len2 = len(train_cell_target_files)
+        len3 = len(train_tissue_image_files)
+        len4 = len(train_tissue_target_files)
+        assert len1 == len2 == len3 == len4
+
+        metadata = get_metadata_dict(data_dir=data_dir)
+
+        train_dataset = SegformerSharingDataset(
+            cell_image_files=train_cell_image_files,
+            cell_target_files=train_cell_target_files,
+            tissue_image_files=train_tissue_image_files,
+            tissue_target_files=train_tissue_target_files,
+            metadata=metadata,
+            transform=self.train_transforms,
+        )
+
+        train_dataloader = DataLoader(
+            dataset=train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            drop_last=True,
+        )
+        return train_dataloader
+
+    def create_model(
+        self,
+        backbone_name: str,
+        pretrained: bool,
+        device: torch.device,
+        model_path: Optional[str] = None,
+    ) -> nn.Module:
+
+        model = SegformerSharingModel(
+            backbone_model=backbone_name,
+            pretrained_dataset=self.pretrained_dataset,
+            input_image_size=self.resize,
+            output_image_size=1024,
+        )
+        if model_path is not None:
+            model.load_state_dict(torch.load(model_path))
+
+        model.to(device)
+        return model
+
+    def create_evaluation_model(self, partition: str) -> EvaluationModel:
+        metadata = get_metadata_with_offset(
+            data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
+        )
+        return SegformerSharingModule(
+            metadata=metadata, cell_model=self.model, tissue_model_path=None
+        )
+
+    def build_transform_function_with_extra_transforms(
+        self, transforms, extra_transform_cell_tissue
+    ):
+        """
+        Builds a transform function that takes in one image and two masks,
+        in such a way that it applies resize only to the image and second
+        mask
+
+        Args:
+            transforms: Regular transforms including both geometric and
+                pixel-level transforms that should be applied to all images
+            extra_transform_cell_tissue: Additional transforms that should
+                be applied to the cell image and tissue image only
+        """
+
+        def transform(cell_image, cell_label, tissue_image, tissue_label):
+            """
+            Performs resize and pixel-level transformations only on cell_image
+            and tissue_image, but performs other geometric transformations, such
+            as flips and rotations, on all inputs.
+            """
+
+            transformed = transforms(
+                image=cell_image,
+                cell_label=cell_label,
+                tissue_image=tissue_image,
+                tissue_label=tissue_label,
+            )
+            cell_image = transformed["image"]
+            cell_label = transformed["cell_label"]
+            tissue_image = transformed["tissue_image"]
+            tissue_label = transformed["tissue_label"]
+
+            # Perform additional transforms (usually resize)
+            transformed = extra_transform_cell_tissue(
+                image=cell_image,
+                tissue_image=tissue_image,
+            )
+            cell_image = transformed["image"]
+            tissue_image = transformed["tissue_image"]
+
+            return {
+                "cell_image": cell_image,
+                "cell_label": cell_label,
+                "tissue_image": tissue_image,
+                "tissue_label": tissue_label,
+            }
+
+        return transform
+
+    def create_transforms(self, normalization, partition: str = "train"):
+        transform_list = self._create_transform_list(normalization, partition=partition)
+        transforms = A.Compose(
+            transform_list,
+            additional_targets={
+                "image": "image",
+                "cell_label": "mask",
+                "tissue_image": "image",
+                "tissue_label": "mask",
+            },
+        )
+
+        if self.resize is not None:
+            extra_transform_cell_tissue = A.Compose(
+                [
+                    A.Resize(
+                        height=self.resize,
+                        width=self.resize,
+                        interpolation=cv2.INTER_NEAREST,
+                    )
+                ],
+                additional_targets={"image": "image", "tissue_image": "image"},
+            )
+            transforms = self.build_transform_function_with_extra_transforms(
+                transforms=transforms,
+                extra_transform_cell_tissue=extra_transform_cell_tissue,
+            )
+
+        return transforms
+
+    def train(
+        self,
+        num_epochs: int,
+        loss_function,
+        optimizer,
+        device: torch.device,
+        checkpoint_interval: int,
+        break_after_one_iteration: bool,
+        scheduler,
+        do_save_model_and_plot: bool = True,
+    ) -> Union[str, None]:
+        """Returns the path of the best model."""
+
+        best_model_path = training.train(
+            num_epochs=num_epochs,
+            train_dataloader=self.dataloader,
+            model=self.model,
+            loss_function=loss_function,
+            optimizer=optimizer,
+            save_name=self.get_save_name(),  # TODO
+            device=device,
+            checkpoint_interval=checkpoint_interval,
+            break_after_one_iteration=break_after_one_iteration,
+            scheduler=scheduler,
+            do_save_model_and_plot=do_save_model_and_plot,
+            validation_function=self.get_evaluation_function(partition="val"),
+            training_func=run_training_sharing2,
+        )
+
+        return best_model_path
+
+
 def main():
     # General training params
     do_save: bool = False
@@ -642,13 +866,13 @@ def main():
     normalization = "macenko"
     pretrained = True
     backbone_model = "b3"
-    pretrained_dataset = "cityscapes"
-    resize = 1024
+    pretrained_dataset = "ade"
+    resize = 512
     leak_labels = True
 
     device = torch.device("cuda")
 
-    trainable = SegformerCellOnlyTrainable(
+    trainable = SegformerSharingTrainable(
         normalization=normalization,
         batch_size=batch_size,
         pretrained=pretrained,
@@ -656,10 +880,9 @@ def main():
         backbone_model=backbone_model,
         pretrained_dataset=pretrained_dataset,
         resize=resize,
-        # leak_labels=leak_labels,
     )
 
-    loss_function = DiceLoss(softmax=True)
+    loss_function = DiceCELoss(softmax=True)
     optimizer = AdamW(trainable.model.parameters(), lr=learning_rate)
     scheduler = get_polynomial_decay_schedule_with_warmup(
         optimizer,
@@ -678,6 +901,7 @@ def main():
         checkpoint_interval=checkpoint_interval,
         break_after_one_iteration=break_after_one_iteration,
         scheduler=scheduler,
+        do_save_model_and_plot=do_save,
     )
     end = time.time()
     print(f"Training finished! Took {end - start:.2f} seconds.")

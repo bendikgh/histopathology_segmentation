@@ -78,14 +78,14 @@ def main():
     run_script = False
 
     # General parameters
-    job_name = ""
+    job_name = "exp4_tc_segformer_cell_branch"
     python_file = "src/run_trainable.py"
-    duration_str: str = "0-8:00:00"
+    duration_str: str = "0-10:00:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
     model_architecture = "segformer_cell_branch"
-    epochs = 2
+    epochs = 10
     batch_size = 2
     checkpoint_interval = 10
     backbone = "b3"
@@ -98,9 +98,9 @@ def main():
     break_early = 0
     id_ = 1
     normalization = "macenko"
-    leak_labels = 1
+    leak_labels = 0
     # Segformer
-    resize = 512
+    resize = 1024
     pretrained_dataset = "ade"
 
     for id_ in range(1, 2):

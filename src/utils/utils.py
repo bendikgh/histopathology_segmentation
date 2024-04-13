@@ -7,16 +7,15 @@ import torch
 
 sys.path.append(os.getcwd())
 
-import pandas as pd
 import numpy as np
 
 from datetime import datetime
 from glob import glob
-from monai.transforms import SpatialCrop, Resize
 from PIL import Image
 from skimage.feature import peak_local_max
-from torchvision.transforms import PILToTensor, InterpolationMode
+from torchvision.transforms import InterpolationMode
 from torchvision.transforms.v2.functional import resized_crop
+from torch import nn
 from typing import List, Tuple
 
 from src.utils.constants import *
@@ -308,6 +307,71 @@ def create_segmented_data(data: dict, annotation_path: str):
 #     return torch.stack(cell_channels_with_tissue_annotations)
 
 
+class CropAndResizeTransform(nn.Module):
+
+    def __init__(
+        self, tissue_mpp: float, cell_mpp: float, y_offset: float, x_offset: float
+    ):
+        super(CropAndResizeTransform, self).__init__()
+
+        if not (0 <= x_offset <= 1) or not (0 <= y_offset <= 1):
+            raise ValueError(
+                f"Offsets are not in the range [0, 1]: {x_offset}, {y_offset}"
+            )
+
+        if tissue_mpp < cell_mpp:
+            raise ValueError(
+                f"Tissue mpp is less than cell mpp: {tissue_mpp} < {cell_mpp}"
+            )
+
+        self.tissue_mpp = tissue_mpp
+        self.cell_mpp = cell_mpp
+        self.y_offset = y_offset
+        self.x_offset = x_offset
+
+        self.scaling_value = self.cell_mpp / self.tissue_mpp
+        assert 0 <= self.scaling_value <= 1
+
+    def forward(self, image):
+        if len(image.shape) != 2:
+            raise ValueError(f"Input image is not 2D, but {image.shape}")
+
+        input_height = image.shape[0]
+        input_width = image.shape[1]
+
+        # Calculating crop size and position
+
+        crop_height = int(input_height * self.scaling_value)
+        crop_width = int(input_width * self.scaling_value)
+
+        # Note that the offset is the center of the cropped image
+        top = int(self.y_offset * input_height - crop_height / 2)
+        left = int(self.x_offset * input_width - crop_width / 2)
+
+        if top < 0 or top + crop_height > input_height:
+            raise ValueError(
+                f"Top + crop height is not in the range [0, {input_height}]: {top}"
+            )
+        if left < 0 or left + crop_width > input_width:
+            raise ValueError(
+                f"Left + crop width is not in the range [0, {input_width}]: {left}"
+            )
+
+        image = image.unsqueeze(0)
+        cropped_image = resized_crop(
+            inpt=image,
+            top=top,
+            left=left,
+            height=crop_height,
+            width=crop_width,
+            size=(input_height, input_width),
+            interpolation=InterpolationMode.NEAREST,
+        )
+        cropped_image = cropped_image.squeeze(0)
+
+        return cropped_image
+
+
 def crop_and_resize_tissue_patch(
     image: torch.Tensor,
     tissue_mpp: float,
@@ -371,6 +435,42 @@ def crop_and_resize_tissue_patch(
         raise ValueError(
             f"Left + crop width is not in the range [0, {input_width}]: {left}"
         )
+
+    image = image.unsqueeze(0)
+    crop: torch.Tensor = resized_crop(
+        inpt=image,
+        top=top,
+        left=left,
+        height=crop_height,
+        width=crop_width,
+        size=(input_height, input_width),
+        interpolation=InterpolationMode.NEAREST,
+    )
+    crop = crop.squeeze(0)
+
+    return crop
+
+
+def crop_and_resize_tissue_faster(
+    image: torch.Tensor,
+    x_offset: float,
+    y_offset: float,
+    scaling_value: float = 0.25,
+) -> torch.Tensor:
+    """
+    Takes in an input image of a tissue patch and crops and resizes it,
+    based on the given MPPs and offsets. Does the same as above, but without
+    all the checks, making it a little faster.
+    """
+
+    input_height, input_width = image.shape[-2:]
+
+    crop_height = int(input_height * scaling_value)
+    crop_width = int(input_width * scaling_value)
+
+    # Note that the offset is the center of the cropped image
+    top = int(y_offset * input_height - crop_height / 2)
+    left = int(x_offset * input_width - crop_width / 2)
 
     image = image.unsqueeze(0)
     crop: torch.Tensor = resized_crop(
@@ -626,6 +726,13 @@ def get_metadata_with_offset(data_dir: str, partition: str) -> List:
     metadata = list(metadata["sample_pairs"].values())[
         DATASET_PARTITION_OFFSETS[partition] :
     ]
+    return metadata
+
+
+def get_metadata_dict(data_dir: str) -> dict:
+    metadata_path = os.path.join(data_dir, "metadata.json")
+    with open(metadata_path, "r") as f:
+        metadata = json.load(f)
     return metadata
 
 

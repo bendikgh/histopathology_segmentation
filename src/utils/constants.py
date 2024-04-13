@@ -34,3 +34,36 @@ CELL_IMAGE_STD: list = [0.1899926, 0.2419049, 0.18382073]
 OCELOT_IMAGE_SIZE = (1024, 1024)
 
 DEFAULT_TISSUE_MODEL_PATH = "outputs/models/best/20240313_002829_deeplabv3plus-tissue-branch_pretrained-1_lr-1e-04_dropout-0.1_backbone-resnet50_normalization-macenko_id-5_best.pth"
+
+SEGFORMER_ARCHITECTURES = {
+    "b0": {
+        "depths": [2, 2, 2, 2],
+        "hidden_sizes": [32, 64, 160, 256],
+        "decoder_hidden_size": 256,
+    },
+    "b1": {
+        "depths": [2, 2, 2, 2],
+        "hidden_sizes": [64, 128, 320, 512],
+        "decoder_hidden_size": 256,
+    },
+    "b2": {
+        "depths": [3, 4, 6, 3],
+        "hidden_sizes": [64, 128, 320, 512],
+        "decoder_hidden_size": 768,
+    },
+    "b3": {
+        "depths": [3, 4, 18, 3],
+        "hidden_sizes": [64, 128, 320, 512],
+        "decoder_hidden_size": 768,
+    },
+    "b4": {
+        "depths": [3, 8, 27, 3],
+        "hidden_sizes": [64, 128, 320, 512],
+        "decoder_hidden_size": 768,
+    },
+    "b5": {
+        "depths": [3, 6, 40, 3],
+        "hidden_sizes": [64, 128, 320, 512],
+        "decoder_hidden_size": 768,
+    },
+}

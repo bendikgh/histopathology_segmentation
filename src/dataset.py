@@ -5,6 +5,7 @@ import torch
 import numpy as np
 
 from torch.utils.data import Dataset
+from typing import List, Dict
 
 sys.path.append(os.getcwd())
 
@@ -202,7 +203,9 @@ class CellTissueDataset(Dataset):
 
         cell_image = cv2.imread(cell_image_path)
         cell_label = cv2.imread(cell_target_path)
-        tissue_pred = cv2.imread(tissue_pred_path)
+        tissue_pred = cv2.imread(
+            tissue_pred_path
+        )  # TODO: Check that this works for both pred and gt
 
         cell_image = cv2.cvtColor(cell_image, cv2.COLOR_BGR2RGB)
         cell_label = cv2.cvtColor(cell_label, cv2.COLOR_BGR2RGB)
@@ -273,8 +276,6 @@ class CellOnlyDataset(Dataset):
         self.pytorch_label_output_shape = (3, *label_shape)
         self.numpy_label_output_shape = (*label_shape, 3)  # Currently unused
 
-
-
     def __len__(self):
         return len(self.cell_image_files)
 
@@ -312,7 +313,7 @@ class CellOnlyDataset(Dataset):
 
         if image.dtype != torch.float32:
             raise ValueError(f"Image is not of type torch.float32")
-        
+
         if image.shape != self.pytorch_image_output_shape:
             raise ValueError(
                 f"Image shape is {image.shape}, expected {self.pytorch_image_output_shape}"
@@ -473,7 +474,7 @@ class CellTissueSharingDataset(Dataset):
             raise ValueError(
                 f"Concatenated image shape is {concatenated_image.shape}, expected {self.pytorch_image_output_shape}"
             )
-    
+
         if concatenated_label.dtype != torch.long:
             raise ValueError(f"Label is not of type torch.long")
         if concatenated_label.shape != self.pytorch_label_output_shape:
@@ -562,3 +563,128 @@ class CellTissueSharingDataset(Dataset):
             "jpg", "csv"
         )
         return np.loadtxt(cell_annotation_path, delimiter=",", dtype=np.int32, ndmin=2)
+
+
+class SegformerSharingDataset(Dataset):
+
+    def __init__(
+        self,
+        cell_image_files: list,
+        cell_target_files: list,
+        tissue_image_files: list,
+        tissue_target_files: list,
+        metadata: Dict,
+        transform=None,
+        debug=True,
+    ):
+        len1 = len(cell_image_files)
+        len2 = len(cell_target_files)
+        len3 = len(tissue_image_files)
+        len4 = len(tissue_target_files)
+        if not (len1 == len2 == len3 == len4):
+            raise ValueError(
+                "The number of cell images, cell targets and tissue images must be the same."
+            )
+
+        self.cell_image_files = cell_image_files
+        self.cell_target_files = cell_target_files
+        self.tissue_image_files = tissue_image_files
+        self.tissue_target_files = tissue_target_files
+        self.transform = transform
+        self.debug = debug
+        self.metadata = metadata
+
+    def __len__(self) -> int:
+        return len(self.cell_image_files)
+
+    def __getitem__(self, idx):
+        cell_image_path = self.cell_image_files[idx]
+        cell_target_path = self.cell_target_files[idx]
+        tissue_image_path = self.tissue_image_files[idx]
+        tissue_target_path = self.tissue_target_files[idx]
+
+        # Checking that the index points to the same image number
+        num1 = cell_image_path.split("/")[-1].split(".")[0]
+        num2 = cell_target_path.split("/")[-1].split(".")[0]
+        num3 = tissue_image_path.split("/")[-1].split(".")[0]
+        num4 = tissue_target_path.split("/")[-1].split(".")[0]
+
+        assert num1 == num2 == num3 == num4
+
+        metadata = self.metadata["sample_pairs"][num1]
+        offset_x = metadata["patch_x_offset"]
+        offset_y = metadata["patch_y_offset"]
+
+        cell_image = cv2.imread(cell_image_path)
+        cell_label = cv2.imread(cell_target_path)
+        tissue_image = cv2.imread(tissue_image_path)
+        tissue_label = cv2.imread(tissue_target_path, cv2.IMREAD_UNCHANGED)
+        # UNCHANGED because of encoding
+
+        cell_image = cv2.cvtColor(cell_image, cv2.COLOR_BGR2RGB)
+        cell_label = cv2.cvtColor(cell_label, cv2.COLOR_BGR2RGB)
+        tissue_image = cv2.cvtColor(tissue_image, cv2.COLOR_BGR2RGB)
+
+        ## TEMPORARY
+        dbg = False
+        if dbg:
+            import matplotlib.pyplot as plt
+
+            plt.imshow(cell_image)
+            plt.savefig("debug_images/cell_image")
+            plt.imshow(tissue_image)
+            plt.savefig("debug_images/tissue_image")
+            plt.imshow(cell_label * 255)
+            plt.savefig("debug_images/cell_label")
+            plt.imshow(tissue_label * 255)
+            plt.savefig("debug_images/tissue_label")
+        #########
+
+        if self.transform is not None:
+            transformed = self.transform(
+                cell_image=cell_image,
+                cell_label=cell_label,
+                tissue_image=tissue_image,
+                tissue_label=tissue_label,
+            )
+            cell_image = transformed["cell_image"]
+            cell_label = transformed["cell_label"]
+            tissue_image = transformed["tissue_image"]
+            tissue_label = transformed["tissue_label"]
+
+        ## TEMPORARY
+        if dbg:
+            plt.imshow(cell_image)
+            plt.savefig("debug_images/cell_image_tr")
+            plt.imshow(tissue_image)
+            plt.savefig("debug_images/tissue_image_tr")
+            plt.imshow(cell_label * 255)
+            plt.savefig("debug_images/cell_label_tr")
+            plt.imshow(tissue_label * 255)
+            plt.savefig("debug_images/tissue_label_tr")
+        #########
+
+        # Fixing types and scaling
+        if cell_image.dtype == np.uint8:
+            cell_image = cell_image.astype(np.float32) / 255.0
+        if tissue_image.dtype == np.uint8:
+            tissue_image = tissue_image.astype(np.float32) / 255.0
+        cell_label = cell_label.astype(np.int64)
+        tissue_label = tissue_label.astype(np.int64)
+
+        # [1, 2, 255] -> [1, 2, 3] -> [0, 1, 2]
+        tissue_label[tissue_label == 255] = 3
+        tissue_label -= 1
+        # one-hot
+        tissue_label = np.eye(3)[tissue_label]
+
+        # Converting to PyTorch tensors
+        cell_image = torch.from_numpy(cell_image).permute(2, 0, 1)
+        cell_label = torch.from_numpy(cell_label).permute(2, 0, 1)
+        tissue_image = torch.from_numpy(tissue_image).permute(2, 0, 1)
+        tissue_label = torch.from_numpy(tissue_label).permute(2, 0, 1)
+
+        image = torch.cat((cell_image, tissue_image), dim=0)
+        mask = torch.cat((cell_label, tissue_label), dim=0)
+        offset = torch.tensor([offset_x, offset_y])
+        return image, mask, offset

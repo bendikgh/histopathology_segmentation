@@ -11,9 +11,7 @@ from torch import nn
 from tqdm import tqdm
 from typing import Union, List
 
-from src.utils.constants import (
-    DATASET_PARTITION_OFFSETS,
-)
+from src.utils.constants import DATASET_PARTITION_OFFSETS
 
 
 def plot_losses(training_losses: List, val_losses: List, save_path: str):
@@ -30,74 +28,6 @@ def plot_losses(training_losses: List, val_losses: List, save_path: str):
     plt.close()
 
 
-# def run_training_segformer(
-#     model: nn.Module,
-#     train_dataloader: DataLoader,
-#     optimizer,
-#     loss_function,
-#     device,
-#     break_after_one_iteration: bool = False,
-# ) -> float:
-#     model.train()
-#     training_loss = 0.0
-
-#     for images, labels in tqdm(train_dataloader):
-#         images, labels = images.to(device), labels.to(device)
-#         labels = labels.argmax(dim=1)
-
-#         optimizer.zero_grad()
-#         outputs = model(images).logits
-#         outputs = interpolate(
-#             outputs,
-#             size=labels.shape[-2:],
-#             mode="bilinear",
-#             align_corners=False,
-#         )
-#         loss = loss_function(outputs, labels.unsqueeze(1))
-
-#         loss.backward()
-#         optimizer.step()
-#         training_loss += loss.item()
-
-#         if break_after_one_iteration:
-#             print("Breaking after one iteration")
-#             break
-#     if not break_after_one_iteration:
-#         training_loss /= len(train_dataloader)
-#     return training_loss
-
-
-# def run_validation_segformer(
-#     model: nn.Module,
-#     val_dataloader: DataLoader,
-#     loss_function,
-#     device,
-#     break_after_one_iteration: bool = False,
-# ) -> float:
-#     model.eval()
-#     val_loss = 0.0
-#     with torch.no_grad():
-#         for images, labels in tqdm(val_dataloader):
-#             images, labels = images.to(device), labels.to(device)
-#             labels = labels.argmax(dim=1)
-#             outputs = model(images).logits
-#             outputs = interpolate(
-#                 outputs,
-#                 size=labels.shape[-2:],
-#                 mode="bilinear",
-#                 align_corners=False,
-#             )
-#             loss = loss_function(outputs, labels.unsqueeze(1))
-
-#             val_loss += loss.item()
-#             if break_after_one_iteration:
-#                 print("Breaking after one iteration")
-#                 break
-#     if not break_after_one_iteration:
-#         val_loss /= len(val_dataloader)
-#     return val_loss
-
-
 def run_training_sharing(
     model: nn.Module,
     train_dataloader: DataLoader,
@@ -111,6 +41,7 @@ def run_training_sharing(
 
     for images, masks, pair_id in tqdm(train_dataloader, total=len(train_dataloader)):
         images, masks = images.to(device), masks.to(device)
+        pair_id = pair_id.to(device)
 
         optimizer.zero_grad()
         outputs = model(images, pair_id)
@@ -156,6 +87,43 @@ def run_validation_sharing(
     if not break_after_one_iteration:
         val_loss /= len(val_dataloader)
     return val_loss
+
+
+def run_training_sharing2(
+    model: nn.Module,
+    train_dataloader: DataLoader,
+    optimizer,
+    loss_function,
+    device,
+    break_after_one_iteration: bool = False,
+):
+    model.train()
+    training_loss = 0.0
+
+    for images, masks, offsets in tqdm(train_dataloader):
+        images, masks = images.to(device), masks.to(device)
+
+        cell_masks = masks[:, :3]
+        tissue_masks = masks[:, 3:]
+
+        optimizer.zero_grad()
+        cell_logits, tissue_logits = model(images, offsets)
+        cell_loss = loss_function(cell_logits, cell_masks)
+        tissue_loss = loss_function(tissue_logits, tissue_masks)
+        loss = cell_loss + tissue_loss
+        loss.backward()
+        optimizer.step()
+
+        training_loss += loss.item()
+
+        if break_after_one_iteration:
+            print("Breaking after one iteration")
+            break
+
+    if not break_after_one_iteration:
+        training_loss /= len(train_dataloader)
+
+    return training_loss
 
 
 def run_training(

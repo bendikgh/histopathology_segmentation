@@ -7,7 +7,7 @@ import torch.nn.functional as F
 sys.path.append(os.getcwd())
 
 from torch import nn
-from typing import Union, Optional
+from typing import Union, Optional, Dict
 from src.deeplabv3.network.utils import IntermediateLayerGetter
 from src.deeplabv3.network.backbone import resnet
 
@@ -16,8 +16,8 @@ from src.deeplabv3.network._deeplab import (
     DeepLabV3,
 )
 
-from src.utils.constants import OCELOT_IMAGE_SIZE
-from src.utils.utils import crop_and_resize_tissue_patch
+from src.utils.constants import OCELOT_IMAGE_SIZE, SEGFORMER_ARCHITECTURES
+from src.utils.utils import crop_and_resize_tissue_faster
 
 from transformers import (
     SegformerForSemanticSegmentation,
@@ -85,39 +85,6 @@ class DeepLabV3plusModel(nn.Module):
 
 class CustomSegformerModel(nn.Module):
 
-    segformer_architectures = {
-        "b0": {
-            "depths": [2, 2, 2, 2],
-            "hidden_sizes": [32, 64, 160, 256],
-            "decoder_hidden_size": 256,
-        },
-        "b1": {
-            "depths": [2, 2, 2, 2],
-            "hidden_sizes": [64, 128, 320, 512],
-            "decoder_hidden_size": 256,
-        },
-        "b2": {
-            "depths": [3, 4, 6, 3],
-            "hidden_sizes": [64, 128, 320, 512],
-            "decoder_hidden_size": 768,
-        },
-        "b3": {
-            "depths": [3, 4, 18, 3],
-            "hidden_sizes": [64, 128, 320, 512],
-            "decoder_hidden_size": 768,
-        },
-        "b4": {
-            "depths": [3, 8, 27, 3],
-            "hidden_sizes": [64, 128, 320, 512],
-            "decoder_hidden_size": 768,
-        },
-        "b5": {
-            "depths": [3, 6, 40, 3],
-            "hidden_sizes": [64, 128, 320, 512],
-            "decoder_hidden_size": 768,
-        },
-    }
-
     def __init__(
         self,
         backbone_name: str,
@@ -136,7 +103,7 @@ class CustomSegformerModel(nn.Module):
         self.output_spatial_shape = output_spatial_shape
 
         # Fetching the parameters for the segformer model
-        parameters = self.segformer_architectures[backbone_name]
+        parameters = SEGFORMER_ARCHITECTURES[backbone_name]
 
         # Creating model
         configuration = SegformerConfig(
@@ -195,7 +162,7 @@ class CustomSegformerModel(nn.Module):
         if logits.shape[1:] != self.output_spatial_shape:
             logits = nn.functional.interpolate(
                 logits,
-                size=OCELOT_IMAGE_SIZE,  # (height, width)
+                size=OCELOT_IMAGE_SIZE,  # (height, width) # TODO: this should be self.output_spatial_shape?
                 mode="bilinear",
                 align_corners=False,
             )
@@ -235,6 +202,8 @@ def setup_segformer(
         )
         model.segformer = pretrained
 
+    # TODO: add imagenet as a pretrained_dataset
+
     if num_channels != 3:
         input_layer = model.segformer.encoder.patch_embeddings[0].proj
 
@@ -260,45 +229,12 @@ def setup_segformer(
 
 class TissueCellSharingSegformerModel(nn.Module):
 
-    segformer_architectures = {
-        "b0": {
-            "depths": [2, 2, 2, 2],
-            "hidden_sizes": [32, 64, 160, 256],
-            "decoder_hidden_size": 256,
-        },
-        "b1": {
-            "depths": [2, 2, 2, 2],
-            "hidden_sizes": [64, 128, 320, 512],
-            "decoder_hidden_size": 256,
-        },
-        "b2": {
-            "depths": [3, 4, 6, 3],
-            "hidden_sizes": [64, 128, 320, 512],
-            "decoder_hidden_size": 768,
-        },
-        "b3": {
-            "depths": [3, 4, 18, 3],
-            "hidden_sizes": [64, 128, 320, 512],
-            "decoder_hidden_size": 768,
-        },
-        "b4": {
-            "depths": [3, 8, 27, 3],
-            "hidden_sizes": [64, 128, 320, 512],
-            "decoder_hidden_size": 768,
-        },
-        "b5": {
-            "depths": [3, 6, 40, 3],
-            "hidden_sizes": [64, 128, 320, 512],
-            "decoder_hidden_size": 768,
-        },
-    }
-
     def __init__(
         self,
         backbone_name: str,
         num_classes: int,
         num_channels: int,
-        metadata: str,
+        metadata: str,  # TODO: It is not str, right?
         pretrained_dataset: Union[str, None] = None,
         output_spatial_shape=OCELOT_IMAGE_SIZE,
     ):
@@ -315,11 +251,14 @@ class TissueCellSharingSegformerModel(nn.Module):
         self.output_spatial_shape = output_spatial_shape
 
         # Fetching the parameters for the segformer model
-        parameters = self.segformer_architectures[backbone_name]
+        parameters = SEGFORMER_ARCHITECTURES[backbone_name]
 
         self.model_tissue = setup_segformer(
             backbone_name=backbone_name,
             num_classes=num_classes,
+            # Why do we divide by 2 here?
+            # Couldn't we just use the full num_channels and expect the user to input a smaller number?
+            # They seem to be equal either way
             num_channels=int(num_channels / 2),
             parameters=parameters,
             pretrained_dataset=pretrained_dataset,
@@ -333,6 +272,8 @@ class TissueCellSharingSegformerModel(nn.Module):
             pretrained_dataset=pretrained_dataset,
         )
 
+        # Why do this here, as opposed to just using the model directly
+        # in the forward() method?
         self.model_cell_encoder = self.model_cell.segformer
         self.model_cell_decoder = self.model_cell.decode_head
 
@@ -341,11 +282,22 @@ class TissueCellSharingSegformerModel(nn.Module):
 
     def forward(self, x, pair_id):
 
+        # x.shape: (2, 6, 512, 512) with resize = 512
+        # pair_id.shape: (2,), e.g. [100, 63]
+
+        # pair_id is a list of indices that correspond to the metadata, since
+        # we process a batch at a time
+
         # Assuming the three first channels belong to cell
+
+        # TODO: Maybe scary to have to call int() here? Surely that allows for
+        # bugs to pass through?
         logits_tissue = self.model_tissue(x[:, int(self.num_channels / 2) :]).logits
 
         scaled_list = []
 
+        # Go through each image in the batch, crop and resize, and then
+        # concatenate them for further processing
         for i in range(len(pair_id)):
             # TODO: Do we fetch the correct metadata for the sample
             meta_pair = self.metadata[pair_id[i]]
@@ -356,35 +308,54 @@ class TissueCellSharingSegformerModel(nn.Module):
 
             argmaxed = logits_tissue[i].argmax(dim=0).to(dtype=torch.int)
 
-            scaled_tissue: torch.Tensor = crop_and_resize_tissue_patch(
+            scaled_tissue: torch.Tensor = crop_and_resize_tissue_faster(
                 image=argmaxed,
-                tissue_mpp=tissue_mpp,
-                cell_mpp=cell_mpp,
                 x_offset=x_offset,
                 y_offset=y_offset,
             )
             scaled_list.append(scaled_tissue.unsqueeze(0))
 
-        logits_tissue = torch.concatenate(scaled_list, dim=0)
+        logits_tissue = torch.cat(scaled_list, dim=0)
 
         outputs = self.model_cell_encoder(
             x[:, : int(self.num_channels / 2)], output_hidden_states=True
         )
-        cell_weights = outputs.hidden_states
 
+        # Surely one could do this using outputs.last_hidden_state?
+        cell_weights = outputs.hidden_states
         cell_encodings = cell_weights[-1]
 
         ## Mixing the features
 
-        # Flatten logits_tissue
-        logits_tissue_flat = logits_tissue.reshape(
-            logits_tissue.size(0), -1
-        )  # Flattening
+        # Flatten logits_tissue (B, C*H*W)
+        # (B, H*W*C)
+
+        # tissue: (2, 350)
+        # cell: (2, 140)
+
+        # (3, 1024, 1024)
+        # (3, 1024, 1024)
+
+        # (2, 490)
+
+        # [[1, 2, 3], [4, 5, 6]]    -> [1, 2, 3, 4, 5, 6]
+        # [[1, 2], [3, 4], [5, 6]]  -> [1, 2, 3, 4, 5, 6]
+
+        # [[1, 3],
+        #  [2, 5],
+        #  [4, 6]]
+
+        # [[1, 2, 3],
+        #  [4, 5, 6]]
+
+        logits_tissue_flat = logits_tissue.reshape(logits_tissue.size(0), -1)
 
         # Flatten cell encodings to match the logits_tissue_flat shape
         cell_encodings_flat = cell_encodings.reshape(cell_encodings.size(0), -1)
 
-        # Step 3: Concatenate flatten arrays
+        # (B, 512, image_size / 32, image_size / 32)
+
+        # Step 3: Concatenate flattened arrays
         merged_tensor = torch.cat((cell_encodings_flat, logits_tissue_flat), dim=1)
 
         if self.dim_reduction is None:
@@ -426,17 +397,113 @@ class TissueCellSharingSegformerModel(nn.Module):
         return merged_logits
 
 
+class SegformerSharingModel(nn.Module):
+    def __init__(
+        self,
+        backbone_model,
+        pretrained_dataset: str,
+        input_image_size: int = 1024,
+        output_image_size: int = 1024,
+    ):
+        super().__init__()
+
+        if input_image_size not in [512, 1024]:
+            raise ValueError("Invalid image size, must be either 512 or 1024")
+
+        self.input_image_size = (input_image_size, input_image_size)
+        self.output_image_dimensions = (output_image_size, output_image_size)
+
+        self.backbone_model = backbone_model
+        self.pretrained_dataset = pretrained_dataset
+
+        parameters = SEGFORMER_ARCHITECTURES[backbone_model]
+
+        self.cell_model = setup_segformer(
+            backbone_name=self.backbone_model,
+            num_classes=3,
+            num_channels=3,
+            parameters=parameters,
+            pretrained_dataset=self.pretrained_dataset,
+        )
+
+        self.tissue_model = setup_segformer(
+            backbone_name=self.backbone_model,
+            num_classes=3,
+            num_channels=3,
+            parameters=parameters,
+            pretrained_dataset=self.pretrained_dataset,
+        )
+
+        self.conv1 = nn.Conv2d(6, 3, kernel_size=3, stride=1, padding="same")
+
+    def forward(self, x: torch.Tensor, offsets: torch.Tensor):
+        """
+        Assumes that input x has shape (B, 6, H, W), where the first three
+        channels in the second dimension correspond to the cell image and
+        the three last channels in the second dimension correspond to the
+        tissue image
+
+        offsets: (B, 2)
+        """
+        cell_image = x[:, 3:]
+        tissue_image = x[:, :3]
+
+        # Tissue-branch
+        tissue_logits = self.tissue_model(tissue_image).logits
+        tissue_logits_orig = torch.nn.functional.interpolate(
+            tissue_logits,
+            size=self.input_image_size,
+            mode="bilinear",
+            align_corners=False,
+        )
+        tissue_logits = torch.nn.functional.softmax(tissue_logits_orig, dim=1)
+        cropped_tissue_logits = []
+        for batch_idx in range(tissue_logits.shape[0]):
+            crop = crop_and_resize_tissue_faster(
+                tissue_logits[batch_idx],
+                x_offset=offsets[batch_idx][0],
+                y_offset=offsets[batch_idx][1],
+            )
+            cropped_tissue_logits.append(crop)
+        # Restoring the original shape, but now cropped
+        tissue_logits = torch.stack(cropped_tissue_logits)
+
+        # Cell-branch
+        concat = torch.cat((cell_image, tissue_logits), dim=1)
+        model_input = self.conv1(concat)
+        cell_logits = self.cell_model(model_input).logits
+
+        if cell_logits.shape[1:] != self.output_image_dimensions:
+            cell_logits = torch.nn.functional.interpolate(
+                cell_logits,
+                size=self.output_image_dimensions,
+                mode="bilinear",
+                align_corners=False,
+            )
+
+        if tissue_logits_orig.shape[1:] != self.output_image_dimensions:
+            tissue_logits_orig = torch.nn.functional.interpolate(
+                tissue_logits_orig,
+                size=self.output_image_dimensions,
+                mode="bilinear",
+                align_corners=False,
+            )
+
+        return cell_logits, tissue_logits_orig
+
+
 if __name__ == "__main__":
 
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    data_dir = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+    backbone_model = "b1"
+    pretrained_dataset = "ade"
 
-    metadata_path = os.path.join(data_dir, "metadata.json")
-    with open(metadata_path, "r") as f:
-        metadata = json.load(f)
-
-    sharing_model = TissueCellSharingSegformerModel("b1", 3, 6, metadata=list(metadata["sample_pairs"].values()),)
-    # sharing_model.to(device)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    sharing_model = SegformerSharingModel(
+        backbone_model=backbone_model,
+        pretrained_dataset=pretrained_dataset,
+        output_image_size=512,
+    )
+    sharing_model.to(device)
 
     batch_size = 2
     channels = 6
@@ -444,7 +511,7 @@ if __name__ == "__main__":
     width = 512
 
     x = torch.ones(batch_size, channels, height, width)
-    # x = x.to(device)
-
-    result = sharing_model(x, pair_id=(0,1))
+    x = x.to(device)
+    offsets = torch.tensor([[0.625, 0.125], [0.125, 0.125]])
+    result = sharing_model(x, offsets)
     print(result)

@@ -55,7 +55,7 @@ def get_trainable(
             device=device,
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
-            resize=resize,
+            resize=resize
             leak_labels=leak_labels,
         )
     elif model_architecture == "deeplab_cell_only":
