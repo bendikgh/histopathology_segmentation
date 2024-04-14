@@ -5,7 +5,7 @@ import torch
 import time
 import seaborn as sns
 
-from monai.losses import DiceLoss
+from monai.losses import DiceLoss, DiceCELoss
 from torch.optim import AdamW
 from transformers import (
     get_polynomial_decay_schedule_with_warmup,
@@ -21,6 +21,7 @@ from src.trainable import (
     SegformerTissueCellTrainable,
     DeeplabTissueCellTrainable,
     DeeplabCellOnlyTrainable,
+    SegformerSharingTrainable,
     Trainable,
 )
 
@@ -55,8 +56,18 @@ def get_trainable(
             device=device,
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
-            resize=resize
+            resize=resize,
             leak_labels=leak_labels,
+        )
+    elif model_architecture == "segformer_sharing":
+        trainable = SegformerSharingTrainable(
+            normalization=normalization,
+            batch_size=batch_size,
+            pretrained=pretrained,
+            device=device,
+            backbone_model=backbone_model,
+            pretrained_dataset=pretrained_dataset,
+            resize=resize,
         )
     elif model_architecture == "deeplab_cell_only":
         trainable = DeeplabCellOnlyTrainable(
@@ -101,6 +112,7 @@ def main():
     device = torch.device(args.device)
     id: str = args.id
     leak_labels = args.leak_labels
+    loss_function_arg = args.loss_function
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -120,6 +132,7 @@ def main():
     print(f"Resize: {resize}")
     print(f"pretrained dataset: {pretrained_dataset}")
     print(f"Leak labels: {leak_labels}")
+    print(f"Loss function: {loss_function_arg}")
     print(f"ID: {id}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
@@ -135,7 +148,10 @@ def main():
         leak_labels=leak_labels,
     )
 
-    loss_function = DiceLoss(softmax=True)
+    if loss_function_arg == "dice":
+        loss_function = DiceLoss(softmax=True)
+    elif loss_function_arg == "dicece":
+        loss_function = DiceCELoss(softmax=True)
     optimizer = AdamW(trainable.model.parameters(), lr=learning_rate)
     scheduler = get_polynomial_decay_schedule_with_warmup(
         optimizer,

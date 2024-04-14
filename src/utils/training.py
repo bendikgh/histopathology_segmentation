@@ -14,15 +14,24 @@ from typing import Union, List
 from src.utils.constants import DATASET_PARTITION_OFFSETS
 
 
-def plot_losses(training_losses: List, val_losses: List, save_path: str):
+def plot_losses(training_losses: List, val_scores: List, save_path: str):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    plt.plot(training_losses, label="Training Loss")
-    plt.plot(val_losses, label="Validation Score")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
+    fig, ax1 = plt.subplots()
+    ax2 = ax1.twinx()
+
+    ax1.plot(training_losses, "b-", label="Training Loss")
+    ax2.plot(val_scores, "r-", label="Validation Score")
+
+    ax1.set_xlabel("Epochs")
+    ax1.set_ylabel("Training Loss", color="b")
+    ax2.set_ylabel("Validation Score", color="r")
     plt.title("Training loss and validation score")
-    plt.legend()
+
+    # Fixing legend
+    lines, labels = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax2.legend(lines + lines2, labels + labels2, loc="upper right")
 
     plt.savefig(save_path)
     plt.close()
@@ -105,12 +114,15 @@ def run_training_sharing2(
 
         cell_masks = masks[:, :3]
         tissue_masks = masks[:, 3:]
-
         optimizer.zero_grad()
+
         cell_logits, tissue_logits = model(images, offsets)
+
+        # loss = loss_function(cell_logits, cell_masks)
         cell_loss = loss_function(cell_logits, cell_masks)
         tissue_loss = loss_function(tissue_logits, tissue_masks)
         loss = cell_loss + tissue_loss
+
         loss.backward()
         optimizer.step()
 

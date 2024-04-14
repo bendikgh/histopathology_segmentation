@@ -24,6 +24,7 @@ def generate_slurm_script(
     resize,
     pretrained_dataset,
     leak_labels,
+    loss_function,
     id_,
 ):
     current_time = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -36,7 +37,7 @@ def generate_slurm_script(
 
 #SBATCH --partition=GPUQ               
 #SBATCH --gres=gpu:1              
-#SBATCH --constraint="gpu32g|gpu40g|gpu80g"              
+#SBATCH --constraint="gpu40g|gpu80g"              
 #SBATCH --nodes=1                      
 #SBATCH --mem=32G                        
 
@@ -71,6 +72,7 @@ python {python_file} \\
   --resize {resize} \\
   --pretrained-dataset "{pretrained_dataset}" \\
   --leak-labels {leak_labels} \\
+  --loss-function {loss_function} \\
   --id {id_}"""
 
 
@@ -78,16 +80,16 @@ def main():
     run_script = False
 
     # General parameters
-    job_name = "exp4_tc_segformer_cell_branch"
+    job_name = "exp5_segformer_sharing"
     python_file = "src/run_trainable.py"
     duration_str: str = "0-10:00:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
-    model_architecture = "segformer_cell_branch"
+    model_architecture = "segformer_sharing"
     epochs = 10
     batch_size = 2
-    checkpoint_interval = 10
+    checkpoint_interval = 1
     backbone = "b3"
     dropout = 0.3
     learning_rate = 1e-4
@@ -99,8 +101,9 @@ def main():
     id_ = 1
     normalization = "macenko"
     leak_labels = 0
+    loss_function = "dicece"
     # Segformer
-    resize = 1024
+    resize = 512
     pretrained_dataset = "ade"
 
     for id_ in range(1, 2):
@@ -125,6 +128,7 @@ def main():
             resize=resize,
             pretrained_dataset=pretrained_dataset,
             leak_labels=leak_labels,
+            loss_function=loss_function,
             id_=id_,
         )
         script_filename = f"scripts/slurm_script_id{id_}.sh"

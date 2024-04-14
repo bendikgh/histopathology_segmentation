@@ -21,46 +21,6 @@ from typing import List, Tuple
 from src.utils.constants import *
 
 
-# def crop_and_upscale_tissue(
-#     tissue_tensor, offset_tensor, scaling_value, image_size=1024
-# ):
-#     crop_func = SpatialCrop(
-#         roi_center=offset_tensor,
-#         roi_size=image_size * torch.tensor([scaling_value, scaling_value]),
-#     )
-#     resize_func = Resize(
-#         spatial_size=torch.tensor([image_size, image_size]), mode="nearest"
-#     )
-
-#     cropped = crop_func(tissue_tensor)
-#     resized_tensor = resize_func(cropped)
-
-#     return resized_tensor
-
-
-# def get_cell_annotations_in_tissue_coordinates(
-#     data_object: dict, image_size: int = 1024
-# ):
-#     """Translates cell labels to the tissue coordinates"""
-#     offset_tensor = (
-#         torch.tensor([[data_object["x_offset"], data_object["y_offset"]]]) * image_size
-#     )
-#     scaling_value = data_object["cell_mpp"] / data_object["tissue_mpp"]
-
-#     cell_annotations = data_object["cell_annotated"]
-#     cell_coords, cell_labels = cell_annotations[:, :2], cell_annotations[:, 2]
-
-#     # Performing the transformation
-#     center_relative_coords = cell_coords - (image_size // 2)
-#     scaled_coords = center_relative_coords * scaling_value
-#     tissue_coords = scaled_coords + offset_tensor
-
-#     # Adding the labels and rounding to ints
-#     tissue_annotations = torch.cat((tissue_coords, cell_labels.unsqueeze(1)), dim=1)
-#     tissue_annotations = torch.round(tissue_annotations).to(dtype=torch.int)
-#     return tissue_annotations
-
-
 def get_partition_from_file_name(file_name: str) -> str:
     """
     Returns 'train', 'val' or 'test', depending on which number the file name
@@ -77,134 +37,6 @@ def get_partition_from_file_name(file_name: str) -> str:
         partition_folder = "test"
 
     return partition_folder
-
-
-# def get_image_tensor_from_path(path: str):
-#     tensor_transformation = PILToTensor()
-#     with Image.open(path) as img:
-#         image_tensor = tensor_transformation(img)
-#     return image_tensor
-
-
-# def get_annotated_cell_data(path: str):
-#     data_frame = pd.read_csv(path, header=None)
-#     cell_tensor = torch.tensor(data_frame.values)
-#     return cell_tensor
-
-
-def get_metadata(path: str):
-    metadata_path = os.path.join(path, "metadata.json")
-    with open(metadata_path, "r") as file:
-        data = json.load(file)
-    return data
-
-
-# def read_data(data_folder_path: str, fetch_images=True) -> tuple:
-#     """Function for reading the OCELOT data from given file path. Stores the
-#     result in a dictionary.
-#     """
-
-#     # data = {}
-#     train_data = {}
-#     val_data = {}
-#     test_data = {}
-
-#     metadata = get_metadata(path=data_folder_path)
-
-#     annotation_path = os.path.join(data_folder_path, "annotations")
-#     image_path = os.path.join(data_folder_path, "images")
-
-#     partition_folders = ["train", "val", "test"]
-#     file_names = []
-#     for folder in partition_folders:
-#         tissue_partition_folder_path = os.path.join(annotation_path, folder, "tissue")
-#         file_names += [
-#             f.split(".")[0] for f in os.listdir(tissue_partition_folder_path)
-#         ]
-
-#     for f_name in file_names:
-#         partition_folder = get_partition_from_file_name(f_name)
-
-#         # Finding the appropriate paths for the annotations and the images
-#         cell_csv_path = (
-#             os.path.join(annotation_path, partition_folder, "cell", f_name) + ".csv"
-#         )
-#         segmented_cell_path = (
-#             os.path.join(annotation_path, partition_folder, "segmented_cell", f_name)
-#             + ".png"
-#         )
-#         tissue_annotation_path = (
-#             os.path.join(annotation_path, partition_folder, "tissue", f_name) + ".png"
-#         )
-#         tissue_cropped_annotation_path = (
-#             os.path.join(annotation_path, partition_folder, "cropped_tissue", f_name)
-#             + ".png"
-#         )
-#         tissue_image_path = (
-#             os.path.join(image_path, partition_folder, "tissue", f_name) + ".jpg"
-#         )
-#         cell_image_path = (
-#             os.path.join(image_path, partition_folder, "cell", f_name) + ".jpg"
-#         )
-
-#         # TODO: Maybe remove this?
-#         # Skipping files without tumor cells
-#         if os.path.getsize(cell_csv_path) == 0:
-#             print(f"Skipped file number {f_name} as the .csv was empty.")
-#             continue
-
-#         cell_annotated_tensor = get_annotated_cell_data(cell_csv_path)
-#         tissue_annotated_tensor = get_image_tensor_from_path(tissue_annotation_path)
-#         tissue_cropped_annotated_tensor = get_image_tensor_from_path(
-#             tissue_cropped_annotation_path
-#         )
-#         tissue_image_tensor = get_image_tensor_from_path(tissue_image_path)
-#         cell_image_tensor = get_image_tensor_from_path(cell_image_path)
-#         segmneted_cell_tensor = get_image_tensor_from_path(segmented_cell_path)
-
-#         data = {}
-
-#         if fetch_images:
-#             data[f_name] = {
-#                 "tissue_annotated": tissue_annotated_tensor,
-#                 "tissue_cropped_annotated": tissue_cropped_annotated_tensor,
-#                 "cell_annotated": cell_annotated_tensor,
-#                 "segmented_cell": segmneted_cell_tensor,
-#                 "tissue_image": tissue_image_tensor,
-#                 "cell_image": cell_image_tensor,
-#                 "cell_mpp": metadata["sample_pairs"][f_name]["cell"]["resized_mpp_x"],
-#                 "tissue_mpp": metadata["sample_pairs"][f_name]["tissue"][
-#                     "resized_mpp_x"
-#                 ],
-#                 "slide_mpp": metadata["sample_pairs"][f_name]["mpp_x"],
-#                 "x_offset": metadata["sample_pairs"][f_name]["patch_x_offset"],
-#                 "y_offset": metadata["sample_pairs"][f_name]["patch_y_offset"],
-#             }
-#         else:
-#             data[f_name] = {
-#                 "tissue_annotated": tissue_annotation_path,
-#                 "tissue_cropped_annotated": tissue_cropped_annotation_path,
-#                 "cell_annotated": cell_csv_path,
-#                 "segmented_cell": segmented_cell_path,
-#                 "tissue_image": tissue_image_path,
-#                 "cell_image": cell_image_path,
-#                 "cell_mpp": metadata["sample_pairs"][f_name]["cell"]["resized_mpp_x"],
-#                 "tissue_mpp": metadata["sample_pairs"][f_name]["tissue"][
-#                     "resized_mpp_x"
-#                 ],
-#                 "slide_mpp": metadata["sample_pairs"][f_name]["mpp_x"],
-#                 "x_offset": metadata["sample_pairs"][f_name]["patch_x_offset"],
-#                 "y_offset": metadata["sample_pairs"][f_name]["patch_y_offset"],
-#             }
-
-#         if partition_folder == "train":
-#             train_data.update(data)
-#         elif partition_folder == "val":
-#             val_data.update(data)
-#         else:
-#             test_data.update(data)
-
-#     return train_data, val_data, test_data
 
 
 def create_cell_segmentation_image(
@@ -272,104 +104,6 @@ def create_segmented_data(data: dict, annotation_path: str):
         image_path = os.path.join(image_folder, f"{data_id}.png")
         img = Image.fromarray(segmented_cell_image.astype(np.uint8))
         img.save(image_path)
-
-
-# def get_cell_annotation_tensor(data, folder_name):
-#     cell_annotations = []
-#     for f_name in sorted(list(data.keys())):
-#         image_path = os.path.join(folder_name, f"{f_name}.png")
-#         cell_annotation = get_image_tensor_from_path(image_path)
-#         cell_annotations.append(cell_annotation)
-#     return torch.stack(cell_annotations)
-
-
-# def get_tissue_crops_scaled_tensor(data, image_size: int = 1024):
-#     cell_channels_with_tissue_annotations = []
-
-#     for data_id in sorted(list(data.keys())):
-#         data_object = data[data_id]
-#         offset_tensor = (
-#             # For some reason we have to swap y and x here, otherwise the
-#             # crops seemingly are reversed (though all documentation says otherwise...)
-#             torch.tensor([data_object["y_offset"], data_object["x_offset"]])
-#             * image_size
-#         )
-#         scaling_value = data_object["cell_mpp"] / data_object["tissue_mpp"]
-#         tissue_tensor = data_object["tissue_annotated"]
-#         cell_tensor = data_object["cell_image"]
-
-#         cropped_scaled = crop_and_upscale_tissue(
-#             tissue_tensor, offset_tensor, scaling_value
-#         )
-#         cell_tensor_tissue_annotation = torch.cat([cell_tensor, cropped_scaled], 0)
-
-#         cell_channels_with_tissue_annotations.append(cell_tensor_tissue_annotation)
-#     return torch.stack(cell_channels_with_tissue_annotations)
-
-
-class CropAndResizeTransform(nn.Module):
-
-    def __init__(
-        self, tissue_mpp: float, cell_mpp: float, y_offset: float, x_offset: float
-    ):
-        super(CropAndResizeTransform, self).__init__()
-
-        if not (0 <= x_offset <= 1) or not (0 <= y_offset <= 1):
-            raise ValueError(
-                f"Offsets are not in the range [0, 1]: {x_offset}, {y_offset}"
-            )
-
-        if tissue_mpp < cell_mpp:
-            raise ValueError(
-                f"Tissue mpp is less than cell mpp: {tissue_mpp} < {cell_mpp}"
-            )
-
-        self.tissue_mpp = tissue_mpp
-        self.cell_mpp = cell_mpp
-        self.y_offset = y_offset
-        self.x_offset = x_offset
-
-        self.scaling_value = self.cell_mpp / self.tissue_mpp
-        assert 0 <= self.scaling_value <= 1
-
-    def forward(self, image):
-        if len(image.shape) != 2:
-            raise ValueError(f"Input image is not 2D, but {image.shape}")
-
-        input_height = image.shape[0]
-        input_width = image.shape[1]
-
-        # Calculating crop size and position
-
-        crop_height = int(input_height * self.scaling_value)
-        crop_width = int(input_width * self.scaling_value)
-
-        # Note that the offset is the center of the cropped image
-        top = int(self.y_offset * input_height - crop_height / 2)
-        left = int(self.x_offset * input_width - crop_width / 2)
-
-        if top < 0 or top + crop_height > input_height:
-            raise ValueError(
-                f"Top + crop height is not in the range [0, {input_height}]: {top}"
-            )
-        if left < 0 or left + crop_width > input_width:
-            raise ValueError(
-                f"Left + crop width is not in the range [0, {input_width}]: {left}"
-            )
-
-        image = image.unsqueeze(0)
-        cropped_image = resized_crop(
-            inpt=image,
-            top=top,
-            left=left,
-            height=crop_height,
-            width=crop_width,
-            size=(input_height, input_width),
-            interpolation=InterpolationMode.NEAREST,
-        )
-        cropped_image = cropped_image.squeeze(0)
-
-        return cropped_image
 
 
 def crop_and_resize_tissue_patch(
@@ -865,6 +599,13 @@ def get_ocelot_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Whether to use tissue-leaking or not",
+    )
+    parser.add_argument(
+        "--loss-function",
+        type=str,
+        default=0,
+        help="Which loss function to use",
+        choices=["dice", "dicece"]
     )
 
     args: argparse.Namespace = parser.parse_args()

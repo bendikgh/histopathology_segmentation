@@ -174,9 +174,9 @@ def setup_segformer(
     backbone_name: str,
     num_classes: int,
     num_channels: int,
-    parameters,
     pretrained_dataset: Optional[str] = None,
 ):
+    parameters = SEGFORMER_ARCHITECTURES[backbone_name]
 
     # Creating model
     configuration = SegformerConfig(
@@ -201,8 +201,11 @@ def setup_segformer(
             f"nvidia/segformer-{backbone_name}-finetuned-cityscapes-1024-1024"
         )
         model.segformer = pretrained
-
-    # TODO: add imagenet as a pretrained_dataset
+    elif pretrained_dataset == "imagenet":
+        pretrained = SegformerModel.from_pretrained(f"nvidia/mit-{backbone_name}")
+        model.segformer = pretrained
+    else:
+        raise ValueError(f"Invalid pretrained dataset: {pretrained_dataset}")
 
     if num_channels != 3:
         input_layer = model.segformer.encoder.patch_embeddings[0].proj
@@ -251,7 +254,6 @@ class TissueCellSharingSegformerModel(nn.Module):
         self.output_spatial_shape = output_spatial_shape
 
         # Fetching the parameters for the segformer model
-        parameters = SEGFORMER_ARCHITECTURES[backbone_name]
 
         self.model_tissue = setup_segformer(
             backbone_name=backbone_name,
@@ -260,7 +262,6 @@ class TissueCellSharingSegformerModel(nn.Module):
             # Couldn't we just use the full num_channels and expect the user to input a smaller number?
             # They seem to be equal either way
             num_channels=int(num_channels / 2),
-            parameters=parameters,
             pretrained_dataset=pretrained_dataset,
         )
 
@@ -268,7 +269,6 @@ class TissueCellSharingSegformerModel(nn.Module):
             backbone_name=backbone_name,
             num_classes=num_classes,
             num_channels=int(num_channels / 2),
-            parameters=parameters,
             pretrained_dataset=pretrained_dataset,
         )
 
@@ -416,25 +416,20 @@ class SegformerSharingModel(nn.Module):
         self.backbone_model = backbone_model
         self.pretrained_dataset = pretrained_dataset
 
-        parameters = SEGFORMER_ARCHITECTURES[backbone_model]
-
         self.cell_model = setup_segformer(
             backbone_name=self.backbone_model,
             num_classes=3,
-            num_channels=3,
-            parameters=parameters,
+            num_channels=6,
+            # num_channels=3,
             pretrained_dataset=self.pretrained_dataset,
         )
 
         self.tissue_model = setup_segformer(
-            backbone_name=self.backbone_model,
+            backbone_name="b1",
             num_classes=3,
             num_channels=3,
-            parameters=parameters,
             pretrained_dataset=self.pretrained_dataset,
         )
-
-        self.conv1 = nn.Conv2d(6, 3, kernel_size=3, stride=1, padding="same")
 
     def forward(self, x: torch.Tensor, offsets: torch.Tensor):
         """
@@ -445,8 +440,8 @@ class SegformerSharingModel(nn.Module):
 
         offsets: (B, 2)
         """
-        cell_image = x[:, 3:]
-        tissue_image = x[:, :3]
+        cell_image = x[:, :3]
+        tissue_image = x[:, 3:]
 
         # Tissue-branch
         tissue_logits = self.tissue_model(tissue_image).logits
@@ -469,9 +464,9 @@ class SegformerSharingModel(nn.Module):
         tissue_logits = torch.stack(cropped_tissue_logits)
 
         # Cell-branch
-        concat = torch.cat((cell_image, tissue_logits), dim=1)
-        model_input = self.conv1(concat)
+        model_input = torch.cat((cell_image, tissue_logits), dim=1)
         cell_logits = self.cell_model(model_input).logits
+        # cell_logits = self.cell_model(cell_image).logits
 
         if cell_logits.shape[1:] != self.output_image_dimensions:
             cell_logits = torch.nn.functional.interpolate(
@@ -490,6 +485,7 @@ class SegformerSharingModel(nn.Module):
             )
 
         return cell_logits, tissue_logits_orig
+        # return cell_logits, cell_logits
 
 
 if __name__ == "__main__":
