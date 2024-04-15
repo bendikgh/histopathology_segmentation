@@ -37,7 +37,6 @@ def generate_slurm_script(
 
 #SBATCH --partition=GPUQ               
 #SBATCH --gres=gpu:1              
-#SBATCH --constraint="gpu40g|gpu80g"              
 #SBATCH --nodes=1                      
 #SBATCH --mem=32G                        
 
@@ -77,31 +76,36 @@ python {python_file} \\
 
 
 def main():
-    run_script = False
+    # For adding gpu constraint:
+    """
+    #SBATCH --constraint="gpu32g|gpu40g|gpu80g"
+    """
+
+    run_script = True
 
     # General parameters
-    job_name = "exp5_segformer_sharing"
+    job_name = "tissue_branch_b3"
     python_file = "src/run_trainable.py"
-    duration_str: str = "0-10:00:00"
+    duration_str: str = "0-01:30:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
-    model_architecture = "segformer_sharing"
-    epochs = 10
-    batch_size = 2
-    checkpoint_interval = 1
+    model_architecture = "segformer_tissue_branch"
+    epochs = 50
+    batch_size = 4
+    checkpoint_interval = 10
     backbone = "b3"
     dropout = 0.3
     learning_rate = 1e-4
     pretrained = 1
-    warmup_epochs = 0
-    do_save = 0
+    warmup_epochs = 5
+    do_save = 1
     do_eval = 1
     break_early = 0
     id_ = 1
     normalization = "macenko"
     leak_labels = 0
-    loss_function = "dicece"
+    loss_function = "dicewrapper"
     # Segformer
     resize = 512
     pretrained_dataset = "ade"

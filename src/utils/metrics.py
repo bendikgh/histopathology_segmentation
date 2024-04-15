@@ -310,7 +310,7 @@ def create_tissue_evaluation_function(model, dataloader, loss_function, device):
         if not break_after_one_iteration:
             total_loss /= len(dataloader)
 
-        return 1 - loss
+        return 1 - loss.item()
 
     return evaluation_function
 

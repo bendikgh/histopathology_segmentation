@@ -13,10 +13,22 @@ from src.utils.constants import NUMPY_STANDARD_IMAGE_SHAPE, PYTORCH_STANDARD_IMA
 
 
 class TissueDataset(Dataset):
-    def __init__(self, image_files: list, seg_files: list, transform=None) -> None:
+    def __init__(
+        self,
+        image_files: list,
+        seg_files: list,
+        transform=None,
+        image_shape=(1024, 1024),
+        label_shape=(1024, 1024),
+    ) -> None:
         self.image_files: list = image_files
         self.seg_files: list = seg_files
         self.transform = transform
+        self.image_shape = image_shape
+        self.label_shape = label_shape
+
+        self.pytorch_image_shape = (3, *image_shape)
+        self.pytorch_label_shape = (3, *label_shape)
 
     def __len__(self) -> int:
         return len(self.image_files)
@@ -43,23 +55,25 @@ class TissueDataset(Dataset):
             raise ValueError(f"Label shape is {seg_image.shape}, expected (1024, 1024)")
 
     def _validate_return_tensor(
-        self, image: torch.Tensor, seg_image: torch.Tensor
+        self, input_image: torch.Tensor, target_image: torch.Tensor
     ) -> None:
         """
         Checks that the format of the returned image and label is correct.
         """
-        if image.dtype != torch.float32:
+        if input_image.dtype != torch.float32:
             raise ValueError(f"Image is not of type torch.float32")
-        if image.shape != PYTORCH_STANDARD_IMAGE_SHAPE:
+        if input_image.shape != self.pytorch_image_shape:
             raise ValueError(
-                f"Image shape is {image.shape}, expected {PYTORCH_STANDARD_IMAGE_SHAPE}"
+                f"Image shape is {input_image.shape}, expected {self.pytorch_image_shape}"
             )
 
-        if seg_image.dtype != torch.long:
+        if target_image.dtype != torch.long:
             raise ValueError(f"Label is not of type torch.long")
-        if seg_image.shape != (1024, 1024):
-            raise ValueError(f"Label shape is {seg_image.shape}, expected (1024, 1024)")
-        if seg_image.max() > 2 or seg_image.min() < 0:
+        if target_image.shape != (1024, 1024):
+            raise ValueError(
+                f"Label shape is {target_image.shape}, expected (1024, 1024)"
+            )
+        if target_image.max() > 2 or target_image.min() < 0:
             raise ValueError(f"Label has values outside of 0-2")
 
     def __getitem__(self, idx):
@@ -216,11 +230,11 @@ class CellTissueDataset(Dataset):
 
         if self.transform:
             transformed = self.transform(
-                image=cell_image, mask1=cell_label, mask2=tissue_pred
+                image=cell_image, cell_label=cell_label, tissue_prediction=tissue_pred
             )
             cell_image = transformed["image"]
-            cell_label = transformed["mask1"]
-            tissue_pred = transformed["mask2"]
+            cell_label = transformed["cell_label"]
+            tissue_pred = transformed["tissue_prediction"]
 
         # Making sure the image is between 0 and 1 and has the right type
         if cell_image.dtype == np.uint8:
@@ -271,10 +285,7 @@ class CellOnlyDataset(Dataset):
 
         # Conventions for image shapes
         self.pytorch_image_output_shape = (3, *image_shape)
-        self.numpy_image_output_shape = (*image_shape, 3)  # Currently unused
-
         self.pytorch_label_output_shape = (3, *label_shape)
-        self.numpy_label_output_shape = (*label_shape, 3)  # Currently unused
 
     def __len__(self):
         return len(self.cell_image_files)
@@ -625,21 +636,6 @@ class SegformerSharingDataset(Dataset):
         cell_label = cv2.cvtColor(cell_label, cv2.COLOR_BGR2RGB)
         tissue_image = cv2.cvtColor(tissue_image, cv2.COLOR_BGR2RGB)
 
-        ## TEMPORARY
-        dbg = False
-        if dbg:
-            import matplotlib.pyplot as plt
-
-            plt.imshow(cell_image)
-            plt.savefig("debug_images/cell_image")
-            plt.imshow(tissue_image)
-            plt.savefig("debug_images/tissue_image")
-            plt.imshow(cell_label * 255)
-            plt.savefig("debug_images/cell_label")
-            plt.imshow(tissue_label * 255)
-            plt.savefig("debug_images/tissue_label")
-        #########
-
         if self.transform is not None:
             transformed = self.transform(
                 cell_image=cell_image,
@@ -651,18 +647,6 @@ class SegformerSharingDataset(Dataset):
             cell_label = transformed["cell_label"]
             tissue_image = transformed["tissue_image"]
             tissue_label = transformed["tissue_label"]
-
-        ## TEMPORARY
-        if dbg:
-            plt.imshow(cell_image)
-            plt.savefig("debug_images/cell_image_tr")
-            plt.imshow(tissue_image)
-            plt.savefig("debug_images/tissue_image_tr")
-            plt.imshow(cell_label * 255)
-            plt.savefig("debug_images/cell_label_tr")
-            plt.imshow(tissue_label * 255)
-            plt.savefig("debug_images/tissue_label_tr")
-        #########
 
         # Fixing types and scaling
         if cell_image.dtype == np.uint8:
@@ -688,3 +672,4 @@ class SegformerSharingDataset(Dataset):
         mask = torch.cat((cell_label, tissue_label), dim=0)
         offset = torch.tensor([offset_x, offset_y])
         return image, mask, offset
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     

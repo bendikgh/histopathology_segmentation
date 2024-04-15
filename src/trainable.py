@@ -111,7 +111,7 @@ class Trainable(ABC):
             model=self.model,
             loss_function=loss_function,
             optimizer=optimizer,
-            save_name=self.get_save_name(),  # TODO
+            save_name=self.get_save_name(),
             device=device,
             checkpoint_interval=checkpoint_interval,
             break_after_one_iteration=break_after_one_iteration,
@@ -486,7 +486,7 @@ class SegformerTissueTrainable(Trainable):
         device: torch.device,
         backbone_model: str,
         pretrained_dataset: str,
-        resize: Optional[int],
+        resize: Optional[int] = 1024,
     ):
         self.name = "Segformer Tissue-Branch"
         self.pretrained_dataset = pretrained_dataset
@@ -538,6 +538,7 @@ class SegformerTissueTrainable(Trainable):
             image_files=tissue_image_files,
             seg_files=tissue_target_files,
             transform=self.val_transforms,
+            image_shape=(self.resize, self.resize),
         )
 
         shuffle = partition == "train"
@@ -630,13 +631,23 @@ class SegformerTissueCellTrainable(Trainable):
     def build_transform_function_with_extra_transforms(
         self, transforms, extra_transform_cell_tissue
     ):
-        def transform(image, mask1, mask2):
+        def transform(image, cell_label, tissue_prediction):
             # First transforms
-            transformed = transforms(image=image, mask1=mask1, mask2=mask2)
+            if cell_label is not None:
+                transformed = transforms(
+                    image=image,
+                    cell_label=cell_label,
+                    tissue_prediction=tissue_prediction,
+                )
+                transformed_label = transformed["cell_label"]
+            else:
+                transformed = transforms(
+                    image=image, tissue_prediction=tissue_prediction
+                )
+                transformed_label = None
 
             transformed_cell = transformed["image"]
-            transformed_label = transformed["mask1"]
-            transformed_tissue = transformed["mask2"]
+            transformed_tissue = transformed["tissue_prediction"]
 
             # Additional transforms (usually resize)
             transformed = extra_transform_cell_tissue(
@@ -648,15 +659,18 @@ class SegformerTissueCellTrainable(Trainable):
 
             return {
                 "image": transformed_cell,
-                "mask1": transformed_label,
-                "mask2": transformed_tissue,
+                "cell_label": transformed_label,
+                "tissue_prediction": transformed_tissue,
             }
 
         return transform
 
     def create_transforms(self, normalization, partition: str = "train"):
         transform_list = self._create_transform_list(normalization, partition=partition)
-        transforms = A.Compose(transform_list)
+        transforms = A.Compose(
+            transform_list,
+            additional_targets={"cell_label": "mask", "tissue_prediction": "mask"},
+        )
 
         if self.resize is not None:
             extra_transform_cell_tissue = A.Compose(
@@ -964,7 +978,7 @@ def main():
     # General training params
     do_save: bool = False
     do_eval: bool = True
-    num_epochs = 2
+    num_epochs = 10
     batch_size = 2
     warmup_epochs = 0
     learning_rate = 1e-4
@@ -974,14 +988,14 @@ def main():
     # Model specific params
     normalization = "macenko"
     pretrained = True
-    backbone_model = "b3"
+    backbone_model = "b1"
     pretrained_dataset = "ade"
-    resize = 1024
-    leak_labels = True
+    resize = 512
+    leak_labels = False
 
     device = torch.device("cuda")
 
-    trainable = SegformerTissueTrainable(
+    trainable = SegformerTissueCellTrainable(
         normalization=normalization,
         batch_size=batch_size,
         pretrained=pretrained,
@@ -989,19 +1003,10 @@ def main():
         backbone_model=backbone_model,
         pretrained_dataset=pretrained_dataset,
         resize=resize,
+        leak_labels=leak_labels,
     )
 
-    # trainable = SegformerSharingTrainable(
-    #     normalization=normalization,
-    #     batch_size=batch_size,
-    #     pretrained=pretrained,
-    #     device=device,
-    #     backbone_model=backbone_model,
-    #     pretrained_dataset=pretrained_dataset,
-    #     resize=resize,
-    # )
-
-    loss_function = DiceLossWrapper(softmax=True, to_onehot_y=True)
+    loss_function = DiceLoss(softmax=True)
     optimizer = AdamW(trainable.model.parameters(), lr=learning_rate)
     scheduler = get_polynomial_decay_schedule_with_warmup(
         optimizer,

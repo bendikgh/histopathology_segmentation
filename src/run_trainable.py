@@ -13,6 +13,7 @@ from transformers import (
 
 sys.path.append(os.getcwd())
 
+from src.loss import DiceLossWrapper
 from src.utils.utils import (
     get_ocelot_args,
 )
@@ -22,6 +23,7 @@ from src.trainable import (
     DeeplabTissueCellTrainable,
     DeeplabCellOnlyTrainable,
     SegformerSharingTrainable,
+    SegformerTissueTrainable,
     Trainable,
 )
 
@@ -40,6 +42,16 @@ def get_trainable(
     trainable: Trainable
     if model_architecture == "segformer_cell_only":
         trainable = SegformerCellOnlyTrainable(
+            normalization=normalization,
+            batch_size=batch_size,
+            pretrained=pretrained,
+            device=device,
+            backbone_model=backbone_model,
+            pretrained_dataset=pretrained_dataset,
+            resize=resize,
+        )
+    elif model_architecture == "segformer_tissue_branch":
+        trainable = SegformerTissueTrainable(
             normalization=normalization,
             batch_size=batch_size,
             pretrained=pretrained,
@@ -152,6 +164,8 @@ def main():
         loss_function = DiceLoss(softmax=True)
     elif loss_function_arg == "dicece":
         loss_function = DiceCELoss(softmax=True)
+    elif loss_function_arg == "dicewrapper":
+        loss_function = DiceLossWrapper(softmax=True, to_onehot_y=True)
     optimizer = AdamW(trainable.model.parameters(), lr=learning_rate)
     scheduler = get_polynomial_decay_schedule_with_warmup(
         optimizer,
