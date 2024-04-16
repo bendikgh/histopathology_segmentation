@@ -485,16 +485,311 @@ class SegformerSharingModel(nn.Module):
         # return cell_logits, cell_logits
 
 
+class Conv2DBlock(nn.Module):
+    """Conv2DBlock with convolution followed by batch-normalisation, ReLU activation and dropout
+
+    Args:
+        in_channels (int): Number of input channels for convolution
+        out_channels (int): Number of output channels for convolution
+        kernel_size (int, optional): Kernel size for convolution. Defaults to 3.
+        dropout (float, optional): Dropout. Defaults to 0.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int = 3,
+        dropout: float = 0,
+    ) -> None:
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=kernel_size,
+                stride=1,
+                padding=((kernel_size - 1) // 2),
+                groups=in_channels,
+            ),
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=1,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(True),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class ConvTranspose2DBlock(nn.Module):
+    """Deconvolution block with ConvTranspose2d followed by Conv2d, batch-normalisation, ReLU activation and dropout
+
+    Args:
+        in_channels (int): Number of input channels for deconv block
+        out_channels (int): Number of output channels for deconv and convolution.
+        kernel_size (int, optional): Kernel size for convolution. Defaults to 3.
+        dropout (float, optional): Dropout. Defaults to 0.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int = 3,
+        dropout: float = 0,
+    ) -> None:
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.ConvTranspose2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=2,
+                stride=2,
+                padding=0,
+                output_padding=0,
+            ),
+            nn.Conv2d(
+                in_channels=out_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                stride=1,
+                padding=(kernel_size - 1) // 2,
+                groups=out_channels,
+            ),
+            nn.Conv2d(
+                in_channels=out_channels,
+                out_channels=out_channels,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(True),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class SegformerSharingSumModel(nn.Module):
+    def __init__(
+        self,
+        backbone_model,
+        pretrained_dataset: str,
+        drop_rate: float = 0.0,
+        input_image_size: int = 1024,
+        output_image_size: int = 1024,
+    ):
+        super().__init__()
+
+        if input_image_size not in [512, 1024]:
+            raise ValueError("Invalid image size, must be either 512 or 1024")
+
+        self.drop_rate = drop_rate
+        self.input_image_size = (input_image_size, input_image_size)
+        self.output_image_dimensions = (output_image_size, output_image_size)
+
+        self.backbone_model = backbone_model
+        self.pretrained_dataset = pretrained_dataset
+
+        self.cell_model = setup_segformer(
+            backbone_name=self.backbone_model,
+            num_classes=3,
+            num_channels=3,
+            # num_channels=3,
+            pretrained_dataset=self.pretrained_dataset,
+        )
+
+        self.tissue_model = setup_segformer(
+            backbone_name="b1",
+            num_classes=3,
+            num_channels=3,
+            pretrained_dataset=self.pretrained_dataset,
+        )
+
+        segformer_info = SEGFORMER_ARCHITECTURES[self.backbone_model]
+        hidden_sizes = segformer_info["hidden_sizes"]
+
+        self.model_cell_encoder = self.cell_model.segformer
+        self.model_cell_decoder = self.cell_model.decode_head
+
+        # Convolution layers to adjust tissue predictions for merging with cell encodings
+        self.conv1 = nn.Conv2d(
+            in_channels=3,
+            out_channels=hidden_sizes[0],
+            kernel_size=7,
+            stride=4,
+            padding=3
+        )
+        self.conv2 = nn.Conv2d(
+            in_channels=hidden_sizes[0],
+            out_channels=hidden_sizes[1],
+            kernel_size=3,
+            stride=2,
+            padding=1
+
+        )
+        self.conv3 = nn.Conv2d(
+            in_channels=hidden_sizes[1],
+            out_channels=hidden_sizes[2],
+            kernel_size=3,
+            stride=2,
+            padding=1
+        )
+        self.conv4 = nn.Conv2d(
+            in_channels=hidden_sizes[2],
+            out_channels=hidden_sizes[3],
+            kernel_size=3,
+            stride=2,
+            padding=1
+        )
+
+        # Decoders for adjusting the new outputs for the Segformer decoder
+        # TODO: Fix parameters
+        self.decoder0 = nn.Sequential(
+            Conv2DBlock(3, 32, 3, dropout=self.drop_rate),
+            Conv2DBlock(32, 64, 3, dropout=self.drop_rate),
+        )
+
+        self.decoder1 = nn.Sequential(
+            ConvTranspose2DBlock(
+                hidden_sizes[0], 3, dropout=self.drop_rate
+            ),
+            ConvTranspose2DBlock(
+                3, hidden_sizes[0], dropout=self.drop_rate
+            ),
+        )
+        self.decoder2 = nn.Sequential(
+            ConvTranspose2DBlock(
+                hidden_sizes[1], hidden_sizes[0], dropout=self.drop_rate
+            ),
+            ConvTranspose2DBlock(
+                hidden_sizes[0], hidden_sizes[1], dropout=self.drop_rate
+            ),
+        )
+        self.decoder3 = nn.Sequential(
+            ConvTranspose2DBlock(
+                hidden_sizes[2], hidden_sizes[1], dropout=self.drop_rate
+            ),
+            ConvTranspose2DBlock(
+                hidden_sizes[1], hidden_sizes[2], dropout=self.drop_rate
+            ),
+        )
+        self.decoder4 = nn.Sequential(
+            ConvTranspose2DBlock(
+                hidden_sizes[3], hidden_sizes[2], dropout=self.drop_rate
+            ),
+            ConvTranspose2DBlock(
+                hidden_sizes[2], hidden_sizes[3], dropout=self.drop_rate
+            ),
+        )
+
+        self.conv_output = nn.Conv2d(
+            in_channels=67,
+            out_channels=3,
+            kernel_size=1
+        )
+
+
+    def forward(self, x: torch.Tensor, offsets: torch.Tensor):
+        """
+        Assumes that input x has shape (B, 6, H, W), where the first three
+        channels in the second dimension correspond to the cell image and
+        the three last channels in the second dimension correspond to the
+        tissue image
+
+        offsets: (B, 2)
+        """
+        cell_image = x[:, :3]
+        tissue_image = x[:, 3:]
+
+        # Tissue-branch
+        tissue_logits = self.tissue_model(tissue_image).logits
+        tissue_logits_orig = torch.nn.functional.interpolate(
+            tissue_logits,
+            size=self.input_image_size,
+            mode="bilinear",
+            align_corners=False,
+        )
+        tissue_logits = torch.nn.functional.softmax(tissue_logits_orig, dim=1)
+        cropped_tissue_logits = []
+        for batch_idx in range(tissue_logits.shape[0]):
+            crop = crop_and_resize_tissue_faster(
+                tissue_logits[batch_idx],
+                x_offset=offsets[batch_idx][0],
+                y_offset=offsets[batch_idx][1],
+            )
+            # cropped_tissue0 = self.cell_conv0(cropped_tissue)
+            # cropped_tissue1 = self.cell_conv1(cropped_tissue)
+            # cropped_tissue2 = self.cell_conv2(cropped_tissue)
+            # cropped_tissue3 = self.cell_conv3(cropped_tissue)
+
+            cropped_tissue_logits.append(crop)
+        # Restoring the original shape, but now cropped
+        tissue_logits = torch.stack(cropped_tissue_logits)
+
+        # Cell-encoder
+        cell_encodings = self.model_cell_encoder(cell_image, output_hidden_states=True).hidden_states
+
+        patch1 = cell_encodings[0]
+        patch2 = cell_encodings[1]
+        patch3 = cell_encodings[2]
+        patch4 = cell_encodings[3]
+
+        tissue_trans1 = self.conv1(tissue_logits)
+        tissue_trans2 = self.conv2(tissue_trans1)
+        tissue_trans3 = self.conv3(tissue_trans2)
+        tissue_trans4 = self.conv4(tissue_trans3)
+
+        cell_encoding1 = self.decoder1(patch1 + tissue_trans1)
+        cell_encoding2 = self.decoder2(patch2 + tissue_trans2)
+        cell_encoding3 = self.decoder3(patch3 + tissue_trans3)
+        cell_encoding4 = self.decoder4(patch4 + tissue_trans4)
+
+        cell_decoder_input = (cell_encoding1, cell_encoding2, cell_encoding3, cell_encoding4)
+
+        cell_tissue_info = self.decoder0(cell_image + tissue_logits)
+        cell_decoder_output = self.model_cell_decoder(cell_decoder_input)
+
+        stacked = torch.cat([cell_decoder_output, cell_tissue_info], dim=1)
+        cell_logits = self.conv_output(stacked)
+
+        # if cell_logits.shape[1:] != self.output_image_dimensions:
+        #     cell_logits = torch.nn.functional.interpolate(
+        #         cell_logits,
+        #         size=self.output_image_dimensions,
+        #         mode="bilinear",
+        #         align_corners=False,
+        #     )
+
+        # if tissue_logits_orig.shape[1:] != self.output_image_dimensions:
+        #     tissue_logits_orig = torch.nn.functional.interpolate(
+        #         tissue_logits_orig,
+        #         size=self.output_image_dimensions,
+        #         mode="bilinear",
+        #         align_corners=False,
+        #     )
+
+        return cell_logits, tissue_logits_orig
+
+
 if __name__ == "__main__":
 
-    backbone_model = "b1"
+    backbone_model = "b0"
     pretrained_dataset = "ade"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    sharing_model = SegformerSharingModel(
+    sharing_model = SegformerSharingSumModel(
         backbone_model=backbone_model,
         pretrained_dataset=pretrained_dataset,
-        output_image_size=512,
+        output_image_size=1024,
+        input_image_size=1024
     )
     sharing_model.to(device)
 

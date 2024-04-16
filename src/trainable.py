@@ -30,7 +30,10 @@ from ocelot23algo.user.inference import (
     SegformerCellOnlyModel,
     SegformerTissueFromFile,
 )
-from ocelot23algo.user.inference import SegformerSharingModel as SegformerSharingModule
+from ocelot23algo.user.inference import (
+    SegformerSharingModel as SegformerSharingModule,
+    SegformerSharingSumModel as SegformerSharingSumModule,
+)
 
 from src.dataset import (
     CellOnlyDataset,
@@ -54,7 +57,12 @@ from src.utils.utils import (
 )
 from src.utils import training
 from src.utils.training import run_training_sharing2
-from src.models import CustomSegformerModel, DeepLabV3plusModel, SegformerSharingModel
+from src.models import (
+    CustomSegformerModel,
+    DeepLabV3plusModel,
+    SegformerSharingModel,
+    SegformerSharingSumModel,
+)
 from src.loss import DiceLossWrapper
 
 
@@ -972,6 +980,34 @@ class SegformerSharingTrainable(Trainable):
         )
 
         return best_model_path
+
+
+class SegformerSharingSumTrainable(SegformerSharingTrainable):
+
+    def create_model(
+        self,
+        backbone_name: str,
+        pretrained: bool,
+        device: torch.device,
+        model_path: Optional[str] = None,
+    ) -> nn.Module:
+
+        model = SegformerSharingSumModel(
+            backbone_model=backbone_name,
+            pretrained_dataset=self.pretrained_dataset,
+            input_image_size=self.resize,
+            output_image_size=1024,
+        )
+        if model_path is not None:
+            model.load_state_dict(torch.load(model_path))
+        model.to(device)
+        return model
+
+    def create_evaluation_model(self, partition: str) -> EvaluationModel:
+        metadata = get_metadata_with_offset(
+            data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
+        )
+        return SegformerSharingSumModule(metadata=metadata, cell_model=self.model)
 
 
 def main():
