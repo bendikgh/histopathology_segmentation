@@ -582,7 +582,7 @@ class SegformerSharingSumModel(nn.Module):
         self,
         backbone_model,
         pretrained_dataset: str,
-        drop_rate: float = 0.0,
+        drop_rate: float = 0.3,
         input_image_size: int = 1024,
         output_image_size: int = 1024,
     ):
@@ -760,21 +760,21 @@ class SegformerSharingSumModel(nn.Module):
         stacked = torch.cat([cell_decoder_output, cell_tissue_info], dim=1)
         cell_logits = self.conv_output(stacked)
 
-        # if cell_logits.shape[1:] != self.output_image_dimensions:
-        #     cell_logits = torch.nn.functional.interpolate(
-        #         cell_logits,
-        #         size=self.output_image_dimensions,
-        #         mode="bilinear",
-        #         align_corners=False,
-        #     )
+        if cell_logits.shape[1:] != self.output_image_dimensions:
+            cell_logits = torch.nn.functional.interpolate(
+                cell_logits,
+                size=self.output_image_dimensions,
+                mode="bilinear",
+                align_corners=False,
+            )
 
-        # if tissue_logits_orig.shape[1:] != self.output_image_dimensions:
-        #     tissue_logits_orig = torch.nn.functional.interpolate(
-        #         tissue_logits_orig,
-        #         size=self.output_image_dimensions,
-        #         mode="bilinear",
-        #         align_corners=False,
-        #     )
+        if tissue_logits_orig.shape[1:] != self.output_image_dimensions:
+            tissue_logits_orig = torch.nn.functional.interpolate(
+                tissue_logits_orig,
+                size=self.output_image_dimensions,
+                mode="bilinear",
+                align_corners=False,
+            )
 
         return cell_logits, tissue_logits_orig
 
@@ -788,15 +788,15 @@ if __name__ == "__main__":
     sharing_model = SegformerSharingSumModel(
         backbone_model=backbone_model,
         pretrained_dataset=pretrained_dataset,
-        output_image_size=1024,
-        input_image_size=1024
+        output_image_size=512,
+        input_image_size=512
     )
     sharing_model.to(device)
 
     batch_size = 2
     channels = 6
-    height = 1024
-    width = 1024
+    height = 512
+    width = 512
 
     x = torch.ones(batch_size, channels, height, width)
     x = x.to(device)
