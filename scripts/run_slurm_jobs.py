@@ -37,6 +37,7 @@ def generate_slurm_script(
 
 #SBATCH --partition=GPUQ               
 #SBATCH --gres=gpu:1              
+#SBATCH --constraint=gpu32g
 #SBATCH --nodes=1                      
 #SBATCH --mem=32G                        
 
@@ -84,30 +85,30 @@ def main():
     run_script = False
 
     # General parameters
-    job_name = "exp4-tc"
+    job_name = "exp3-b3-1024"
     python_file = "src/run_trainable.py"
     duration_str: str = "0-10:00:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
     model_architecture = "segformer_cell_only"
-    epochs = 10
+    epochs = 100
     batch_size = 2
     checkpoint_interval = 10
     backbone = "b3"
     dropout = 0.3
     learning_rate = 1e-4
     pretrained = 1
-    warmup_epochs = 0
+    warmup_epochs = 10
     do_save = 1
     do_eval = 1
     break_early = 0
     id_ = 1
     normalization = "macenko"
     leak_labels = 0
-    loss_function = "dice"
+    loss_function = "dicece"
     # Segformer
-    resize = 512
+    resize = 1024
     pretrained_dataset = "ade"
 
     for id_ in range(1, 2):
@@ -136,18 +137,18 @@ def main():
             id_=id_,
         )
         script_filename = f"scripts/slurm_script_id{id_}.sh"
-        with open(script_filename, "w") as script_file:
-            script_file.write(script_contents)
 
         if run_script:
+            with open(script_filename, "w") as script_file:
+                script_file.write(script_contents)
+
             subprocess.run(["sbatch", script_filename])
             print(f"Submitted: {script_filename}")
+
+            os.remove(script_filename)
+            print(f"Deleted: {script_filename}")
         else:
             print(script_contents)
-
-        # Delete the script file
-        os.remove(script_filename)
-        print(f"Deleted: {script_filename}")
 
 
 if __name__ == "__main__":

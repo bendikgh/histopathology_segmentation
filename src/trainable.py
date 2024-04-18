@@ -10,7 +10,7 @@ import torch.nn as nn
 from abc import ABC, abstractmethod
 from datetime import datetime
 from glob import glob
-from monai.losses import DiceLoss, DiceCELoss
+from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import (
@@ -24,7 +24,6 @@ sys.path.append(os.getcwd())
 # Local imports
 from ocelot23algo.user.inference import (
     Deeplabv3CellOnlyModel,
-    Deeplabv3TissueCellModel,
     Deeplabv3TissueFromFile,
     EvaluationModel,
     SegformerCellOnlyModel,
@@ -1019,7 +1018,7 @@ def main():
     warmup_epochs = 0
     learning_rate = 1e-4
     checkpoint_interval = 10
-    break_after_one_iteration = True
+    break_after_one_iteration = False
 
     # Model specific params
     normalization = "macenko"
@@ -1031,7 +1030,7 @@ def main():
 
     device = torch.device("cuda")
 
-    trainable = SegformerTissueCellTrainable(
+    trainable = SegformerCellOnlyTrainable(
         normalization=normalization,
         batch_size=batch_size,
         pretrained=pretrained,
@@ -1039,7 +1038,6 @@ def main():
         backbone_model=backbone_model,
         pretrained_dataset=pretrained_dataset,
         resize=resize,
-        leak_labels=leak_labels,
     )
 
     loss_function = DiceLoss(softmax=True)
