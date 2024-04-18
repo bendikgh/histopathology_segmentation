@@ -582,7 +582,7 @@ class SegformerSharingSumModel(nn.Module):
         self,
         backbone_model,
         pretrained_dataset: str,
-        drop_rate: float = 0.3,
+        drop_rate: float = 0.0,
         input_image_size: int = 1024,
         output_image_size: int = 1024,
     ):
@@ -625,77 +625,78 @@ class SegformerSharingSumModel(nn.Module):
             out_channels=hidden_sizes[0],
             kernel_size=7,
             stride=4,
-            padding=3
+            padding=3,
         )
         self.conv2 = nn.Conv2d(
             in_channels=hidden_sizes[0],
             out_channels=hidden_sizes[1],
             kernel_size=3,
             stride=2,
-            padding=1
-
+            padding=1,
         )
         self.conv3 = nn.Conv2d(
             in_channels=hidden_sizes[1],
             out_channels=hidden_sizes[2],
             kernel_size=3,
             stride=2,
-            padding=1
+            padding=1,
         )
         self.conv4 = nn.Conv2d(
             in_channels=hidden_sizes[2],
             out_channels=hidden_sizes[3],
             kernel_size=3,
             stride=2,
-            padding=1
+            padding=1,
         )
 
         # Decoders for adjusting the new outputs for the Segformer decoder
         # TODO: Fix parameters
-        self.decoder0 = nn.Sequential(
-            Conv2DBlock(3, 32, 3, dropout=self.drop_rate),
-            Conv2DBlock(32, 64, 3, dropout=self.drop_rate),
-        )
-
-        self.decoder1 = nn.Sequential(
-            ConvTranspose2DBlock(
-                hidden_sizes[0], 3, dropout=self.drop_rate
-            ),
-            ConvTranspose2DBlock(
-                3, hidden_sizes[0], dropout=self.drop_rate
-            ),
-        )
-        self.decoder2 = nn.Sequential(
-            ConvTranspose2DBlock(
-                hidden_sizes[1], hidden_sizes[0], dropout=self.drop_rate
-            ),
-            ConvTranspose2DBlock(
-                hidden_sizes[0], hidden_sizes[1], dropout=self.drop_rate
-            ),
-        )
-        self.decoder3 = nn.Sequential(
-            ConvTranspose2DBlock(
-                hidden_sizes[2], hidden_sizes[1], dropout=self.drop_rate
-            ),
-            ConvTranspose2DBlock(
-                hidden_sizes[1], hidden_sizes[2], dropout=self.drop_rate
-            ),
-        )
-        self.decoder4 = nn.Sequential(
-            ConvTranspose2DBlock(
-                hidden_sizes[3], hidden_sizes[2], dropout=self.drop_rate
-            ),
-            ConvTranspose2DBlock(
-                hidden_sizes[2], hidden_sizes[3], dropout=self.drop_rate
-            ),
-        )
-
-        self.conv_output = nn.Conv2d(
-            in_channels=67,
+        self.decoder0 = nn.Conv2d(
+            in_channels=3,
             out_channels=3,
-            kernel_size=1
+            kernel_size=7,
+            stride=4,
+            padding=3,
         )
+        # nn.Sequential(
+        #     Conv2DBlock(3, 32, 3, dropout=self.drop_rate),
+        #     Conv2DBlock(32, 64, 3, dropout=self.drop_rate),
+        # )
 
+        # self.decoder1 = nn.Sequential(
+        #     ConvTranspose2DBlock(
+        #         hidden_sizes[0], 3, dropout=self.drop_rate
+        #     ),
+        #     ConvTranspose2DBlock(
+        #         3, hidden_sizes[0], dropout=self.drop_rate
+        #     ),
+        # )
+        # self.decoder2 = nn.Sequential(
+        #     ConvTranspose2DBlock(
+        #         hidden_sizes[1], hidden_sizes[0], dropout=self.drop_rate
+        #     ),
+        #     ConvTranspose2DBlock(
+        #         hidden_sizes[0], hidden_sizes[1], dropout=self.drop_rate
+        #     ),
+        # )
+        # self.decoder3 = nn.Sequential(
+        #     ConvTranspose2DBlock(
+        #         hidden_sizes[2], hidden_sizes[1], dropout=self.drop_rate
+        #     ),
+        #     ConvTranspose2DBlock(
+        #         hidden_sizes[1], hidden_sizes[2], dropout=self.drop_rate
+        #     ),
+        # )
+        # self.decoder4 = nn.Sequential(
+        #     ConvTranspose2DBlock(
+        #         hidden_sizes[3], hidden_sizes[2], dropout=self.drop_rate
+        #     ),
+        #     ConvTranspose2DBlock(
+        #         hidden_sizes[2], hidden_sizes[3], dropout=self.drop_rate
+        #     ),
+        # )
+
+        self.conv_output = nn.Conv2d(in_channels=6, out_channels=3, kernel_size=1)
 
     def forward(self, x: torch.Tensor, offsets: torch.Tensor):
         """
@@ -735,7 +736,9 @@ class SegformerSharingSumModel(nn.Module):
         tissue_logits = torch.stack(cropped_tissue_logits)
 
         # Cell-encoder
-        cell_encodings = self.model_cell_encoder(cell_image, output_hidden_states=True).hidden_states
+        cell_encodings = self.model_cell_encoder(
+            cell_image, output_hidden_states=True
+        ).hidden_states
 
         patch1 = cell_encodings[0]
         patch2 = cell_encodings[1]
@@ -747,12 +750,17 @@ class SegformerSharingSumModel(nn.Module):
         tissue_trans3 = self.conv3(tissue_trans2)
         tissue_trans4 = self.conv4(tissue_trans3)
 
-        cell_encoding1 = self.decoder1(patch1 + tissue_trans1)
-        cell_encoding2 = self.decoder2(patch2 + tissue_trans2)
-        cell_encoding3 = self.decoder3(patch3 + tissue_trans3)
-        cell_encoding4 = self.decoder4(patch4 + tissue_trans4)
+        cell_encoding1 = patch1 + tissue_trans1  # self.decoder1(patch1 + tissue_trans1)
+        cell_encoding2 = patch2 + tissue_trans2  # self.decoder2(patch2 + tissue_trans2)
+        cell_encoding3 = patch3 + tissue_trans3  # self.decoder3(patch3 + tissue_trans3)
+        cell_encoding4 = patch4 + tissue_trans4  # self.decoder4(patch4 + tissue_trans4)
 
-        cell_decoder_input = (cell_encoding1, cell_encoding2, cell_encoding3, cell_encoding4)
+        cell_decoder_input = (
+            cell_encoding1,
+            cell_encoding2,
+            cell_encoding3,
+            cell_encoding4,
+        )
 
         cell_tissue_info = self.decoder0(cell_image + tissue_logits)
         cell_decoder_output = self.model_cell_decoder(cell_decoder_input)
@@ -788,15 +796,15 @@ if __name__ == "__main__":
     sharing_model = SegformerSharingSumModel(
         backbone_model=backbone_model,
         pretrained_dataset=pretrained_dataset,
-        output_image_size=512,
-        input_image_size=512
+        output_image_size=1024,
+        input_image_size=1024,
     )
     sharing_model.to(device)
 
     batch_size = 2
     channels = 6
-    height = 512
-    width = 512
+    height = 1024
+    width = 1024
 
     x = torch.ones(batch_size, channels, height, width)
     x = x.to(device)
