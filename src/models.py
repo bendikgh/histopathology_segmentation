@@ -577,7 +577,7 @@ class ConvTranspose2DBlock(nn.Module):
         return self.block(x)
 
 
-class SegformerSharingSumModel(nn.Module):
+class SegformerTissueToCellDecoderModel(nn.Module):
     def __init__(
         self,
         backbone_model,
@@ -602,7 +602,6 @@ class SegformerSharingSumModel(nn.Module):
             backbone_name=self.backbone_model,
             num_classes=3,
             num_channels=3,
-            # num_channels=3,
             pretrained_dataset=self.pretrained_dataset,
         )
 
@@ -617,9 +616,9 @@ class SegformerSharingSumModel(nn.Module):
         hidden_sizes = segformer_info["hidden_sizes"]
 
         self.model_cell_encoder = self.cell_model.segformer
-        self.model_cell_decoder = self.cell_model.decode_head
+        self.model_cell_segformer_decoder = self.cell_model.decode_head
 
-        # Convolution layers to adjust tissue predictions for merging with cell encodings
+        # Convolution layers to adjust tissue logits for merging with cell encodings
         self.conv1 = nn.Conv2d(
             in_channels=3,
             out_channels=hidden_sizes[0],
@@ -649,53 +648,17 @@ class SegformerSharingSumModel(nn.Module):
             padding=1,
         )
 
-        # Decoders for adjusting the new outputs for the Segformer decoder
-        # TODO: Fix parameters
-        self.decoder0 = nn.Conv2d(
+        # Layer for transforming cell_image + tissue_logits before concat
+        self.conv0 = nn.Conv2d(
             in_channels=3,
             out_channels=3,
             kernel_size=7,
             stride=4,
             padding=3,
         )
-        # nn.Sequential(
-        #     Conv2DBlock(3, 32, 3, dropout=self.drop_rate),
-        #     Conv2DBlock(32, 64, 3, dropout=self.drop_rate),
-        # )
 
-        # self.decoder1 = nn.Sequential(
-        #     ConvTranspose2DBlock(
-        #         hidden_sizes[0], 3, dropout=self.drop_rate
-        #     ),
-        #     ConvTranspose2DBlock(
-        #         3, hidden_sizes[0], dropout=self.drop_rate
-        #     ),
-        # )
-        # self.decoder2 = nn.Sequential(
-        #     ConvTranspose2DBlock(
-        #         hidden_sizes[1], hidden_sizes[0], dropout=self.drop_rate
-        #     ),
-        #     ConvTranspose2DBlock(
-        #         hidden_sizes[0], hidden_sizes[1], dropout=self.drop_rate
-        #     ),
-        # )
-        # self.decoder3 = nn.Sequential(
-        #     ConvTranspose2DBlock(
-        #         hidden_sizes[2], hidden_sizes[1], dropout=self.drop_rate
-        #     ),
-        #     ConvTranspose2DBlock(
-        #         hidden_sizes[1], hidden_sizes[2], dropout=self.drop_rate
-        #     ),
-        # )
-        # self.decoder4 = nn.Sequential(
-        #     ConvTranspose2DBlock(
-        #         hidden_sizes[3], hidden_sizes[2], dropout=self.drop_rate
-        #     ),
-        #     ConvTranspose2DBlock(
-        #         hidden_sizes[2], hidden_sizes[3], dropout=self.drop_rate
-        #     ),
-        # )
-
+        # Conv layer sliding each pixel and weighting the channels
+        # Outputs the cell predictions
         self.conv_output = nn.Conv2d(in_channels=6, out_channels=3, kernel_size=1)
 
     def forward(self, x: torch.Tensor, offsets: torch.Tensor):
@@ -726,11 +689,6 @@ class SegformerSharingSumModel(nn.Module):
                 x_offset=offsets[batch_idx][0],
                 y_offset=offsets[batch_idx][1],
             )
-            # cropped_tissue0 = self.cell_conv0(cropped_tissue)
-            # cropped_tissue1 = self.cell_conv1(cropped_tissue)
-            # cropped_tissue2 = self.cell_conv2(cropped_tissue)
-            # cropped_tissue3 = self.cell_conv3(cropped_tissue)
-
             cropped_tissue_logits.append(crop)
         # Restoring the original shape, but now cropped
         tissue_logits = torch.stack(cropped_tissue_logits)
@@ -740,20 +698,23 @@ class SegformerSharingSumModel(nn.Module):
             cell_image, output_hidden_states=True
         ).hidden_states
 
-        patch1 = cell_encodings[0]
-        patch2 = cell_encodings[1]
-        patch3 = cell_encodings[2]
-        patch4 = cell_encodings[3]
+        # Extract encodings from different layers in the segformer
+        encodings1 = cell_encodings[0]
+        encodings2 = cell_encodings[1]
+        encodings3 = cell_encodings[2]
+        encodings4 = cell_encodings[3]
 
-        tissue_trans1 = self.conv1(tissue_logits)
+        # Add tissue_logits to the different encodings. 
+        # Replicating patch merging within the segformer
+        tissue_trans1  = self.conv1(tissue_logits)
         tissue_trans2 = self.conv2(tissue_trans1)
         tissue_trans3 = self.conv3(tissue_trans2)
         tissue_trans4 = self.conv4(tissue_trans3)
 
-        cell_encoding1 = patch1 + tissue_trans1  # self.decoder1(patch1 + tissue_trans1)
-        cell_encoding2 = patch2 + tissue_trans2  # self.decoder2(patch2 + tissue_trans2)
-        cell_encoding3 = patch3 + tissue_trans3  # self.decoder3(patch3 + tissue_trans3)
-        cell_encoding4 = patch4 + tissue_trans4  # self.decoder4(patch4 + tissue_trans4)
+        cell_encoding1 = encodings1 + tissue_trans1
+        cell_encoding2 = encodings2 + tissue_trans2
+        cell_encoding3 = encodings3 + tissue_trans3
+        cell_encoding4 = encodings4 + tissue_trans4
 
         cell_decoder_input = (
             cell_encoding1,
@@ -762,12 +723,18 @@ class SegformerSharingSumModel(nn.Module):
             cell_encoding4,
         )
 
-        cell_tissue_info = self.decoder0(cell_image + tissue_logits)
-        cell_decoder_output = self.model_cell_decoder(cell_decoder_input)
+        # Output from the segformer decoder
+        cell_segformer_decoder_output = self.model_cell_segformer_decoder(cell_decoder_input)
+        
+        # Extracted info from cell_image and tissue_logits merged
+        cell_tissue_info = self.conv0(cell_image + tissue_logits)
+        stacked = torch.cat([cell_segformer_decoder_output, cell_tissue_info], dim=1)
 
-        stacked = torch.cat([cell_decoder_output, cell_tissue_info], dim=1)
+        # Conv layer sliding each pixel and weighting the channels
+        # Outputs the cell predictions
         cell_logits = self.conv_output(stacked)
 
+        # Interpolation to desired output shape
         if cell_logits.shape[1:] != self.output_image_dimensions:
             cell_logits = torch.nn.functional.interpolate(
                 cell_logits,
@@ -793,7 +760,7 @@ if __name__ == "__main__":
     pretrained_dataset = "ade"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    sharing_model = SegformerSharingSumModel(
+    sharing_model = SegformerTissueToCellDecoderModel(
         backbone_model=backbone_model,
         pretrained_dataset=pretrained_dataset,
         output_image_size=1024,

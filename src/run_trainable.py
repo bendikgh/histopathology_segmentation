@@ -24,7 +24,7 @@ from src.trainable import (
     DeeplabCellOnlyTrainable,
     SegformerSharingTrainable,
     SegformerTissueTrainable,
-    SegformerSharingSumTrainable,
+    SegformerTissueToCellDecoderTrainable,
     Trainable,
 )
 
@@ -83,7 +83,7 @@ def get_trainable(
             resize=resize,
         )
     elif model_architecture == "segformer_sum_sharing":
-        trainable = SegformerSharingSumTrainable(
+        trainable = SegformerTissueToCellDecoderTrainable(
             normalization=normalization,
             batch_size=batch_size,
             pretrained=pretrained,

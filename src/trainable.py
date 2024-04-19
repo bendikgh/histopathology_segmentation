@@ -60,7 +60,7 @@ from src.models import (
     CustomSegformerModel,
     DeepLabV3plusModel,
     SegformerSharingModel,
-    SegformerSharingSumModel,
+    SegformerTissueToCellDecoderModel,
 )
 from src.loss import DiceLossWrapper
 
@@ -981,7 +981,7 @@ class SegformerSharingTrainable(Trainable):
         return best_model_path
 
 
-class SegformerSharingSumTrainable(SegformerSharingTrainable):
+class SegformerTissueToCellDecoderTrainable(SegformerSharingTrainable):
 
     def create_model(
         self,
@@ -991,7 +991,7 @@ class SegformerSharingSumTrainable(SegformerSharingTrainable):
         model_path: Optional[str] = None,
     ) -> nn.Module:
 
-        model = SegformerSharingSumModel(
+        model = SegformerTissueToCellDecoderModel(
             backbone_model=backbone_name,
             pretrained_dataset=self.pretrained_dataset,
             input_image_size=self.resize,
