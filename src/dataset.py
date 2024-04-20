@@ -22,7 +22,7 @@ class TissueDataset(Dataset):
         label_shape=(1024, 1024),
     ) -> None:
         self.image_files: list = image_files
-        self.seg_files: list = seg_files
+        self.target_files: list = seg_files
         self.transform = transform
         self.image_shape = image_shape
         self.label_shape = label_shape
@@ -77,38 +77,37 @@ class TissueDataset(Dataset):
             raise ValueError(f"Label has values outside of 0-2")
 
     def __getitem__(self, idx):
-        image_path = self.image_files[idx]
-        seg_path = self.seg_files[idx]
+        input_image_path = self.image_files[idx]
+        target_image_path = self.target_files[idx]
 
-        image: np.ndarray = cv2.imread(image_path)
-        image: np.ndarray = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        input_image = cv2.imread(input_image_path)
+        input_image = cv2.cvtColor(input_image, cv2.COLOR_BGR2RGB)
+        target_image = cv2.imread(target_image_path, cv2.IMREAD_UNCHANGED)
 
-        # Expecting shape (1024, 1024), i.e. single-channel
-        seg_image: np.ndarray = cv2.imread(seg_path, cv2.IMREAD_UNCHANGED)
-        self._validate_input_image(image, seg_image)
+        self._validate_input_image(input_image, target_image)
 
         # [1, 2, 255] -> [1, 2, 3] -> [0, 1, 2]
-        seg_image[seg_image == 255] = 3
-        seg_image -= 1
+        target_image[target_image == 255] = 3
+        target_image -= 1
 
         if self.transform is not None:
-            transformed = self.transform(image=image, mask=seg_image)
-            image = transformed["image"]
-            seg_image = transformed["mask"]
+            transformed = self.transform(image=input_image, mask=target_image)
+            input_image = transformed["image"]
+            target_image = transformed["mask"]
 
-        if image.dtype == np.uint8:
-            image = image.astype(np.float32) / 255.0
-        elif image.dtype != np.float32:
-            image = image.astype(np.float32)
-        seg_image = seg_image.astype(np.int64)
+        if input_image.dtype == np.uint8:
+            input_image = input_image.astype(np.float32) / 255.0
+        elif input_image.dtype != np.float32:
+            input_image = input_image.astype(np.float32)
+        target_image = target_image.astype(np.int64)
 
         # Convert image to tensor
-        image_torch: torch.Tensor = torch.from_numpy(image).permute(2, 0, 1)
-        seg_image_torch: torch.Tensor = torch.from_numpy(seg_image)
+        input_image_torch = torch.from_numpy(input_image).permute(2, 0, 1)
+        target_image_torch = torch.from_numpy(target_image)
 
-        self._validate_return_tensor(image_torch, seg_image_torch)
+        self._validate_return_tensor(input_image_torch, target_image_torch)
 
-        return image_torch, seg_image_torch
+        return input_image_torch, target_image_torch
 
 
 class CellTissueDataset(Dataset):

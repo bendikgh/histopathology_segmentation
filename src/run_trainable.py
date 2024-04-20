@@ -13,7 +13,7 @@ from transformers import (
 
 sys.path.append(os.getcwd())
 
-from src.loss import DiceLossWrapper
+from src.loss import DiceCELossWrapper, DiceLossWrapper
 from src.utils.utils import (
     get_ocelot_args,
 )
@@ -173,10 +173,12 @@ def main():
 
     if loss_function_arg == "dice":
         loss_function = DiceLoss(softmax=True)
-    elif loss_function_arg == "dicece":
+    elif loss_function_arg == "dice-ce":
         loss_function = DiceCELoss(softmax=True)
-    elif loss_function_arg == "dicewrapper":
+    elif loss_function_arg == "dice-wrapper":
         loss_function = DiceLossWrapper(softmax=True, to_onehot_y=True)
+    elif loss_function_arg == "dice-ce-wrapper":
+        loss_function = DiceCELossWrapper(softmax=True, to_onehot_y=True)
     optimizer = AdamW(trainable.model.parameters(), lr=learning_rate)
     scheduler = get_polynomial_decay_schedule_with_warmup(
         optimizer,
@@ -217,9 +219,9 @@ def main():
     val_evaluation_function = trainable.get_evaluation_function(partition="val")
     test_evaluation_function = trainable.get_evaluation_function(partition="test")
 
-    val_score = val_evaluation_function("val")
+    val_score = val_evaluation_function()
     print(f"val score: {val_score}")
-    test_score = test_evaluation_function("test")
+    test_score = test_evaluation_function()
     print(f"test score: {test_score}")
 
 

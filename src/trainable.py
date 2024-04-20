@@ -191,6 +191,7 @@ class Trainable(ABC):
             evaluation_model=self.create_evaluation_model(partition=partition),
             tissue_file_folder=self.get_tissue_folder(partition=partition),
             transform=self.val_transforms,
+            partition=partition,
         )
         return evaluation_function
 
@@ -540,15 +541,19 @@ class SegformerTissueTrainable(Trainable):
             zoom="tissue",
             macenko=self.macenko_normalize,
         )
+        if partition == "train":
+            shuffle = True
+            transform = self.train_transforms
+        else:
+            shuffle = False
+            transform = self.val_transforms
 
         dataset = TissueDataset(
             image_files=tissue_image_files,
             seg_files=tissue_target_files,
-            transform=self.val_transforms,
+            transform=transform,
             image_shape=(self.resize, self.resize),
         )
-
-        shuffle = partition == "train"
 
         dataloader = DataLoader(
             dataset=dataset,
@@ -1013,7 +1018,7 @@ def main():
     # General training params
     do_save: bool = False
     do_eval: bool = True
-    num_epochs = 10
+    num_epochs = 4
     batch_size = 2
     warmup_epochs = 0
     learning_rate = 1e-4
@@ -1023,14 +1028,14 @@ def main():
     # Model specific params
     normalization = "macenko"
     pretrained = True
-    backbone_model = "b1"
+    backbone_model = "b0"
     pretrained_dataset = "ade"
     resize = 512
     leak_labels = False
 
     device = torch.device("cuda")
 
-    trainable = SegformerCellOnlyTrainable(
+    trainable = SegformerTissueTrainable(
         normalization=normalization,
         batch_size=batch_size,
         pretrained=pretrained,
@@ -1040,7 +1045,8 @@ def main():
         resize=resize,
     )
 
-    loss_function = DiceLoss(softmax=True)
+    # loss_function = DiceLoss(softmax=True)
+    loss_function = DiceLossWrapper(softmax=True, to_onehot_y=True)
     optimizer = AdamW(trainable.model.parameters(), lr=learning_rate)
     scheduler = get_polynomial_decay_schedule_with_warmup(
         optimizer,
@@ -1081,9 +1087,9 @@ def main():
     val_evaluation_function = trainable.get_evaluation_function(partition="val")
     test_evaluation_function = trainable.get_evaluation_function(partition="test")
 
-    val_score = val_evaluation_function("val")
+    val_score = val_evaluation_function()
     print(f"val score: {val_score}")
-    test_score = test_evaluation_function("test")
+    test_score = test_evaluation_function()
     print(f"test score: {test_score}")
 
 

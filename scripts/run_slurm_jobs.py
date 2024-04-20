@@ -85,29 +85,32 @@ def main():
     run_script = False
 
     # General parameters
-    job_name = "exp3-b3-1024"
+    job_name = "exp4-b2-1024"
     python_file = "src/run_trainable.py"
-    duration_str: str = "0-10:00:00"
+    duration_str: str = "0-02:30:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
-    model_architecture = "segformer_cell_only"
-    epochs = 100
+    model_architecture = "segformer_tissue_branch"
+    epochs = 10
     batch_size = 2
     checkpoint_interval = 10
-    backbone = "b3"
+    backbone = "b0"
     dropout = 0.3
     learning_rate = 1e-4
     pretrained = 1
-    warmup_epochs = 10
+    warmup_epochs = 0
     do_save = 1
     do_eval = 1
     break_early = 0
     id_ = 1
     normalization = "macenko"
     leak_labels = 0
-    loss_function = "dicece"
-    # Segformer
+    loss_function = "dice-wrapper"
+    # Options: "dice", "dice-wrapper", "dice-ce", "dice-ce-wrapper"
+    # Use "-wrapper" when training tissue-branch
+
+    # SegFormer
     resize = 1024
     pretrained_dataset = "ade"
 

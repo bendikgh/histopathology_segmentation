@@ -291,9 +291,7 @@ def create_tissue_evaluation_function(model, dataloader, loss_function, device):
         other evaluation functions.
     """
 
-    def evaluation_function(
-        partition: str = "val", break_after_one_iteration: bool = False
-    ) -> float:
+    def evaluation_function(break_after_one_iteration: bool = False) -> float:
         model.eval()
         total_loss = 0.0
         with torch.no_grad():
@@ -316,7 +314,10 @@ def create_tissue_evaluation_function(model, dataloader, loss_function, device):
 
 
 def create_cellwise_evaluation_function(
-    evaluation_model: EvaluationModel, tissue_file_folder: str, transform=None
+    evaluation_model: EvaluationModel,
+    tissue_file_folder: str,
+    transform=None,
+    partition: str = "val",
 ):
     """
     Creates a function for evaluating a model using the cell-wise f1 score.
@@ -325,9 +326,7 @@ def create_cellwise_evaluation_function(
 
     # TODO: Take partition as an argument in outer function and pass it
     # directly, since the evaluation model is dependent on partition anyway
-    def evaluation_function(
-        partition: str = "val", break_after_one_iteration: bool = False
-    ) -> float:
+    def evaluation_function(break_after_one_iteration: bool = False) -> float:
 
         result = predict_and_evaluate(
             evaluation_model=evaluation_model,

@@ -239,7 +239,7 @@ def train(
         model.eval()
         with torch.no_grad():
             val_score = validation_function(
-                partition="val", break_after_one_iteration=break_after_one_iteration
+                break_after_one_iteration=break_after_one_iteration
             )
         val_scores.append(val_score)
 

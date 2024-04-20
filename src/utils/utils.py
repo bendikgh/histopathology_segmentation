@@ -605,7 +605,7 @@ def get_ocelot_args() -> argparse.Namespace:
         type=str,
         default=0,
         help="Which loss function to use",
-        choices=["dice", "dicece", "dicewrapper"],
+        choices=["dice", "dice-ce", "dice-wrapper", "dice-ce-wrapper"],
     )
 
     args: argparse.Namespace = parser.parse_args()
