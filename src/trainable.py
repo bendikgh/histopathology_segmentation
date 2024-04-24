@@ -31,7 +31,7 @@ from ocelot23algo.user.inference import (
 )
 from ocelot23algo.user.inference import (
     SegformerSharingModel as SegformerSharingModule,
-    SegformerSharingSumModel as SegformerSharingSumModule,
+    SegformerTissueToCellDecoderModel as SegformerTissueToCellDecoderModule,
 )
 
 from src.dataset import (
@@ -1013,7 +1013,7 @@ class SegformerTissueToCellDecoderTrainable(SegformerSharingTrainable):
         metadata = get_metadata_with_offset(
             data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
         )
-        return SegformerSharingSumModule(metadata=metadata, cell_model=self.model)
+        return SegformerTissueToCellDecoderModule(metadata=metadata, cell_model=self.model)
 
 
 def main():

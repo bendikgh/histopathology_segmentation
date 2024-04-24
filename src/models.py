@@ -2,11 +2,13 @@ import json
 import os
 import sys
 import torch
+import albumentations as A
 import torch.nn.functional as F
 
 sys.path.append(os.getcwd())
 
 from torch import nn
+import torch.nn.functional as F
 from typing import Union, Optional, Dict
 from src.deeplabv3.network.utils import IntermediateLayerGetter
 from src.deeplabv3.network.backbone import resnet
@@ -19,10 +21,14 @@ from src.deeplabv3.network._deeplab import (
 from src.utils.constants import OCELOT_IMAGE_SIZE, SEGFORMER_ARCHITECTURES
 from src.utils.utils import crop_and_resize_tissue_faster
 
+from torchvision import transforms
 from transformers import (
     SegformerForSemanticSegmentation,
     SegformerConfig,
     SegformerModel,
+    Dinov2Model,
+    Dinov2PreTrainedModel,
+    ViTModel,
 )
 
 
@@ -153,10 +159,10 @@ class CustomSegformerModel(nn.Module):
 
             model.segformer.encoder.patch_embeddings[0].proj = new_input_layer
 
-        self.model = model
+        self.model = VitModelIbot()  # TODO: model
 
     def forward(self, x):
-        logits = self.model(x).logits
+        logits = self.model(x)  # TODO: self.model(x).logits
 
         # Upscaling the result to the shape of the ground truth
         if logits.shape[1:] != self.output_spatial_shape:
@@ -394,139 +400,90 @@ class TissueCellSharingSegformerModel(nn.Module):
         return merged_logits
 
 
-class SegformerSharingModel(nn.Module):
-    def __init__(
-        self,
-        backbone_model,
-        pretrained_dataset: str,
-        input_image_size: int = 1024,
-        output_image_size: int = 1024,
+class LinearClassifier(torch.nn.Module):
+    def __init__(self, in_channels, tokenW=73, tokenH=73, num_labels=1):
+        super(LinearClassifier, self).__init__()
+
+        self.in_channels = in_channels
+        self.width = tokenW
+        self.height = tokenH
+        self.classifier = torch.nn.Conv2d(in_channels, num_labels, (1, 1))
+
+    def forward(self, embeddings):
+        embeddings = embeddings.reshape(-1, self.height, self.width, self.in_channels)
+        embeddings = embeddings.permute(0, 3, 1, 2)
+
+        return self.classifier(embeddings)
+
+
+class Dinov2ForSemanticSegmentation(Dinov2PreTrainedModel):
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.dinov2 = Dinov2Model(config)
+        self.classifier = LinearClassifier(
+            config.hidden_size, 73, 73, config.num_labels
+        )
+
+        for name, param in self.dinov2.named_parameters():
+            if name.startswith("dinov2"):
+                param.requires_grad = False
+
+    def forward(
+        self, pixel_values, output_hidden_states=False, output_attentions=False
     ):
-        super().__init__()
-
-        if input_image_size not in [512, 1024]:
-            raise ValueError("Invalid image size, must be either 512 or 1024")
-
-        self.input_image_size = (input_image_size, input_image_size)
-        self.output_image_dimensions = (output_image_size, output_image_size)
-
-        self.backbone_model = backbone_model
-        self.pretrained_dataset = pretrained_dataset
-
-        self.cell_model = setup_segformer(
-            backbone_name=self.backbone_model,
-            num_classes=3,
-            num_channels=6,
-            # num_channels=3,
-            pretrained_dataset=self.pretrained_dataset,
+        outputs = self.dinov2(
+            pixel_values,
+            output_hidden_states=output_hidden_states,
+            output_attentions=output_attentions,
         )
 
-        self.tissue_model = setup_segformer(
-            backbone_name="b1",
-            num_classes=3,
-            num_channels=3,
-            pretrained_dataset=self.pretrained_dataset,
+        # get the patch embeddings - so we exclude the CLS token
+        patch_embeddings = outputs.last_hidden_state[:, 1:, :]
+
+        # convert to logits and upsample to the size of the pixel values
+        logits = self.classifier(patch_embeddings)
+        logits = torch.nn.functional.interpolate(
+            logits, size=pixel_values.shape[2:], mode="bilinear", align_corners=False
         )
 
-    def forward(self, x: torch.Tensor, offsets: torch.Tensor):
-        """
-        Assumes that input x has shape (B, 6, H, W), where the first three
-        channels in the second dimension correspond to the cell image and
-        the three last channels in the second dimension correspond to the
-        tissue image
-
-        offsets: (B, 2)
-        """
-        cell_image = x[:, :3]
-        tissue_image = x[:, 3:]
-
-        # Tissue-branch
-        tissue_logits = self.tissue_model(tissue_image).logits
-        tissue_logits_orig = torch.nn.functional.interpolate(
-            tissue_logits,
-            size=self.input_image_size,
-            mode="bilinear",
-            align_corners=False,
-        )
-        tissue_logits = torch.nn.functional.softmax(tissue_logits_orig, dim=1)
-        cropped_tissue_logits = []
-        for batch_idx in range(tissue_logits.shape[0]):
-            crop = crop_and_resize_tissue_faster(
-                tissue_logits[batch_idx],
-                x_offset=offsets[batch_idx][0],
-                y_offset=offsets[batch_idx][1],
-            )
-            cropped_tissue_logits.append(crop)
-        # Restoring the original shape, but now cropped
-        tissue_logits = torch.stack(cropped_tissue_logits)
-
-        # Cell-branch
-        model_input = torch.cat((cell_image, tissue_logits), dim=1)
-        cell_logits = self.cell_model(model_input).logits
-        # cell_logits = self.cell_model(cell_image).logits
-
-        if cell_logits.shape[1:] != self.output_image_dimensions:
-            cell_logits = torch.nn.functional.interpolate(
-                cell_logits,
-                size=self.output_image_dimensions,
-                mode="bilinear",
-                align_corners=False,
-            )
-
-        if tissue_logits_orig.shape[1:] != self.output_image_dimensions:
-            tissue_logits_orig = torch.nn.functional.interpolate(
-                tissue_logits_orig,
-                size=self.output_image_dimensions,
-                mode="bilinear",
-                align_corners=False,
-            )
-
-        return cell_logits, tissue_logits_orig
-        # return cell_logits, cell_logits
+        return logits
 
 
-class Conv2DBlock(nn.Module):
-    """Conv2DBlock with convolution followed by batch-normalisation, ReLU activation and dropout
-
-    Args:
-        in_channels (int): Number of input channels for convolution
-        out_channels (int): Number of output channels for convolution
-        kernel_size (int, optional): Kernel size for convolution. Defaults to 3.
-        dropout (float, optional): Dropout. Defaults to 0.
-    """
-
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        kernel_size: int = 3,
-        dropout: float = 0,
-    ) -> None:
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(
-                in_channels=in_channels,
-                out_channels=in_channels,
-                kernel_size=kernel_size,
-                stride=1,
-                padding=((kernel_size - 1) // 2),
-                groups=in_channels,
-            ),
-            nn.Conv2d(
-                in_channels=in_channels,
-                out_channels=out_channels,
-                kernel_size=1,
-            ),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(True),
-            nn.Dropout(dropout),
-        )
+class SimpleDecoder(nn.Module):
+    def __init__(self):
+        super(SimpleDecoder, self).__init__()
+        self.up1 = nn.ConvTranspose2d(
+            768, 384, kernel_size=3, stride=2, padding=1, output_padding=1
+        )  # Upsample to 28x28
+        self.conv1 = nn.Conv2d(384, 384, kernel_size=3, padding=1)
+        self.up2 = nn.ConvTranspose2d(
+            384, 192, kernel_size=3, stride=2, padding=1, output_padding=1
+        )  # Upsample to 56x56
+        self.conv2 = nn.Conv2d(192, 192, kernel_size=3, padding=1)
+        self.up3 = nn.ConvTranspose2d(
+            192, 96, kernel_size=3, stride=2, padding=1, output_padding=1
+        )  # Upsample to 112x112
+        self.conv3 = nn.Conv2d(96, 96, kernel_size=3, padding=1)
+        self.up4 = nn.ConvTranspose2d(
+            96, 48, kernel_size=3, stride=2, padding=1, output_padding=1
+        )  # Upsample to 224x224
+        self.final_conv = nn.Conv2d(48, 3, kernel_size=1)
 
     def forward(self, x):
-        return self.block(x)
+        x = x.permute(0, 3, 1, 2)
+        x = F.relu(self.up1(x))
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.up2(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.up3(x))
+        x = F.relu(self.conv3(x))
+        x = self.up4(x)
+        x = self.final_conv(x)
+        return x
 
 
-class ConvTranspose2DBlock(nn.Module):
+class Deconv2DBlock(nn.Module):
     """Deconvolution block with ConvTranspose2d followed by Conv2d, batch-normalisation, ReLU activation and dropout
 
     Args:
@@ -575,6 +532,307 @@ class ConvTranspose2DBlock(nn.Module):
 
     def forward(self, x):
         return self.block(x)
+
+
+class Conv2DBlock(nn.Module):
+    """Conv2DBlock with convolution followed by batch-normalisation, ReLU activation and dropout
+
+    Args:
+        in_channels (int): Number of input channels for convolution
+        out_channels (int): Number of output channels for convolution
+        kernel_size (int, optional): Kernel size for convolution. Defaults to 3.
+        dropout (float, optional): Dropout. Defaults to 0.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int = 3,
+        dropout: float = 0,
+    ) -> None:
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=kernel_size,
+                stride=1,
+                padding=((kernel_size - 1) // 2),
+                groups=in_channels,
+            ),
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=1,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(True),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class ViT_decoder(nn.Module):
+    def __init__(self, backbone_config, drop_rate=0) -> None:
+        super().__init__()
+
+        self.embed_dim = backbone_config.hidden_size  # 768 for vit_base
+        self.skip_dim_11 = 512
+        self.skip_dim_12 = 256
+        self.bottleneck_dim = 512
+        self.drop_rate = drop_rate
+
+        self.bottleneck_upsampler = nn.ConvTranspose2d(
+            in_channels=self.embed_dim,
+            out_channels=self.bottleneck_dim,
+            kernel_size=2,
+            stride=2,
+            padding=0,
+            output_padding=0,
+        )
+        self.decoder3_upsampler = nn.Sequential(
+            Conv2DBlock(
+                self.bottleneck_dim * 2, self.bottleneck_dim, dropout=self.drop_rate
+            ),
+            Conv2DBlock(
+                self.bottleneck_dim, self.bottleneck_dim, dropout=self.drop_rate
+            ),
+            Conv2DBlock(
+                self.bottleneck_dim, self.bottleneck_dim, dropout=self.drop_rate
+            ),
+            nn.ConvTranspose2d(
+                in_channels=self.bottleneck_dim,
+                out_channels=256,
+                kernel_size=2,
+                stride=2,
+                padding=0,
+                output_padding=0,
+            ),
+        )
+        self.decoder2_upsampler = nn.Sequential(
+            Conv2DBlock(256 * 2, 256, dropout=self.drop_rate),
+            Conv2DBlock(256, 256, dropout=self.drop_rate),
+            nn.ConvTranspose2d(
+                in_channels=256,
+                out_channels=128,
+                kernel_size=2,
+                stride=2,
+                padding=0,
+                output_padding=0,
+            ),
+        )
+        self.decoder1_upsampler = nn.Sequential(
+            Conv2DBlock(128 * 2, 128, dropout=self.drop_rate),
+            Conv2DBlock(128, 128, dropout=self.drop_rate),
+            nn.ConvTranspose2d(
+                in_channels=128,
+                out_channels=64,
+                kernel_size=2,
+                stride=2,
+                padding=0,
+                output_padding=0,
+            ),
+        )
+        self.decoder0_header = nn.Sequential(
+            Conv2DBlock(64 * 2, 64, dropout=self.drop_rate),
+            Conv2DBlock(64, 64, dropout=self.drop_rate),
+            nn.Conv2d(
+                in_channels=64,
+                out_channels=3,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+            ),
+        )
+
+        self.decoder0 = nn.Sequential(
+            Conv2DBlock(3, 32, 3, dropout=self.drop_rate),
+            Conv2DBlock(32, 64, 3, dropout=self.drop_rate),
+        )  # skip connection after positional encoding, shape should be H, W, 64
+        self.decoder1 = nn.Sequential(
+            Deconv2DBlock(self.embed_dim, self.skip_dim_11, dropout=self.drop_rate),
+            Deconv2DBlock(self.skip_dim_11, self.skip_dim_12, dropout=self.drop_rate),
+            Deconv2DBlock(self.skip_dim_12, 128, dropout=self.drop_rate),
+        )  # skip connection 1
+        self.decoder2 = nn.Sequential(
+            Deconv2DBlock(self.embed_dim, self.skip_dim_11, dropout=self.drop_rate),
+            Deconv2DBlock(self.skip_dim_11, 256, dropout=self.drop_rate),
+        )  # skip connection 2
+        self.decoder3 = nn.Sequential(
+            Deconv2DBlock(self.embed_dim, self.bottleneck_dim, dropout=self.drop_rate)
+        )  # skip connection 3
+
+    def forward(
+        self,
+        z0: torch.Tensor,
+        z1: torch.Tensor,
+        z2: torch.Tensor,
+        z3: torch.Tensor,
+        z4: torch.Tensor,
+    ) -> torch.Tensor:
+        """Forward upsample branch
+
+        Args:
+            z0 (torch.Tensor): Highest skip
+            z1 (torch.Tensor): 1. Skip
+            z2 (torch.Tensor): 2. Skip
+            z3 (torch.Tensor): 3. Skip
+            z4 (torch.Tensor): Bottleneck
+            branch_decoder (nn.Sequential): Branch decoder network
+
+        Returns:
+            torch.Tensor: Branch Output
+        """
+        b4 = self.bottleneck_upsampler(z4)
+        b3 = self.decoder3(z3)
+        b3 = self.decoder3_upsampler(torch.cat([b3, b4], dim=1))
+        b2 = self.decoder2(z2)
+        b2 = self.decoder2_upsampler(torch.cat([b2, b3], dim=1))
+        b1 = self.decoder1(z1)
+        b1 = self.decoder1_upsampler(torch.cat([b1, b2], dim=1))
+        b0 = self.decoder0(z0)
+        branch_output = self.decoder0_header(torch.cat([b0, b1], dim=1))
+
+        return branch_output
+
+
+class VitModelIbot(torch.nn.Module):
+    """
+    From phikon paper.
+    Input needs to be 224x224
+    https://github.com/owkin/HistoSSLscaling?tab=readme-ov-file
+    """
+
+    def __init__(self, extract_layers=[3, 6, 9, 12], *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.backbone = ViTModel.from_pretrained(
+            "owkin/phikon", add_pooling_layer=False
+        )
+        self.extract_layers = extract_layers
+
+        vit_config = self.backbone.config
+        self.decoder = ViT_decoder(vit_config)
+
+        self.resize_transform = transforms.Compose([transforms.Resize((224, 224))])
+
+        for _, param in self.backbone.named_parameters():
+            param.requires_grad = False
+
+    def forward(self, pixel_values):
+
+        # Resize to desired spatial shape
+        pixel_values = self.resize_transform(pixel_values)
+        outputs = self.backbone(pixel_values, output_hidden_states=True)
+        hidden_states = outputs.hidden_states
+
+        embeddings = [pixel_values]
+        for i in self.extract_layers:
+            hidden_state = (
+                hidden_states[i][:, 1:].reshape(-1, 14, 14, 768).permute(0, 3, 1, 2)
+            )
+            embeddings.append(hidden_state)
+
+        # Decode patch embeddings
+        logits = self.decoder(*embeddings)
+
+        return logits
+
+
+class SegformerSharingModel(nn.Module):
+    def __init__(
+        self,
+        backbone_model,
+        pretrained_dataset: str,
+        input_image_size: int = 1024,
+        output_image_size: int = 1024,
+    ):
+        super().__init__()
+
+        if input_image_size not in [224, 512, 1024]:
+            raise ValueError("Invalid image size, must be either 512 or 1024")
+
+        self.input_image_size = (input_image_size, input_image_size)
+        self.output_image_dimensions = (output_image_size, output_image_size)
+
+        self.backbone_model = backbone_model
+        self.pretrained_dataset = pretrained_dataset
+
+        self.cell_model = setup_segformer(
+            backbone_name=self.backbone_model,
+            num_classes=3,
+            num_channels=6,
+            # num_channels=3,
+            pretrained_dataset=self.pretrained_dataset,
+        )
+
+        # self.tissue_model = setup_segformer(
+        #     backbone_name="b1",
+        #     num_classes=3,
+        #     num_channels=3,
+        #     pretrained_dataset=self.pretrained_dataset,
+        # )
+
+        # TODO: Edit this before push
+        self.tissue_model = VitModelIbot()
+
+    def forward(self, x: torch.Tensor, offsets: torch.Tensor):
+        """
+        Assumes that input x has shape (B, 6, H, W), where the first three
+        channels in the second dimension correspond to the cell image and
+        the three last channels in the second dimension correspond to the
+        tissue image
+
+        offsets: (B, 2)
+        """
+        cell_image = x[:, :3]
+        tissue_image = x[:, 3:]
+
+        # Tissue-branch
+        tissue_logits = self.tissue_model(tissue_image)  # .logits
+        tissue_logits_orig = torch.nn.functional.interpolate(
+            tissue_logits,
+            size=self.input_image_size,
+            mode="bilinear",
+            align_corners=False,
+        )
+        tissue_logits = torch.nn.functional.softmax(tissue_logits_orig, dim=1)
+        cropped_tissue_logits = []
+        for batch_idx in range(tissue_logits.shape[0]):
+            crop = crop_and_resize_tissue_faster(
+                tissue_logits[batch_idx],
+                x_offset=offsets[batch_idx][0],
+                y_offset=offsets[batch_idx][1],
+            )
+            cropped_tissue_logits.append(crop)
+        # Restoring the original shape, but now cropped
+        tissue_logits = torch.stack(cropped_tissue_logits)
+
+        # Cell-branch
+        model_input = torch.cat((cell_image, tissue_logits), dim=1)
+        cell_logits = self.cell_model(model_input).logits
+        # cell_logits = self.cell_model(cell_image).logits
+
+        if cell_logits.shape[1:] != self.output_image_dimensions:
+            cell_logits = torch.nn.functional.interpolate(
+                cell_logits,
+                size=self.output_image_dimensions,
+                mode="bilinear",
+                align_corners=False,
+            )
+
+        if tissue_logits_orig.shape[1:] != self.output_image_dimensions:
+            tissue_logits_orig = torch.nn.functional.interpolate(
+                tissue_logits_orig,
+                size=self.output_image_dimensions,
+                mode="bilinear",
+                align_corners=False,
+            )
+
+        return cell_logits, tissue_logits_orig
+        # return cell_logits, cell_logits
 
 
 class SegformerTissueToCellDecoderModel(nn.Module):
@@ -704,9 +962,9 @@ class SegformerTissueToCellDecoderModel(nn.Module):
         encodings3 = cell_encodings[2]
         encodings4 = cell_encodings[3]
 
-        # Add tissue_logits to the different encodings. 
+        # Add tissue_logits to the different encodings.
         # Replicating patch merging within the segformer
-        tissue_trans1  = self.conv1(tissue_logits)
+        tissue_trans1 = self.conv1(tissue_logits)
         tissue_trans2 = self.conv2(tissue_trans1)
         tissue_trans3 = self.conv3(tissue_trans2)
         tissue_trans4 = self.conv4(tissue_trans3)
@@ -724,8 +982,10 @@ class SegformerTissueToCellDecoderModel(nn.Module):
         )
 
         # Output from the segformer decoder
-        cell_segformer_decoder_output = self.model_cell_segformer_decoder(cell_decoder_input)
-        
+        cell_segformer_decoder_output = self.model_cell_segformer_decoder(
+            cell_decoder_input
+        )
+
         # Extracted info from cell_image and tissue_logits merged
         cell_tissue_info = self.conv0(cell_image + tissue_logits)
         stacked = torch.cat([cell_segformer_decoder_output, cell_tissue_info], dim=1)
@@ -755,26 +1015,20 @@ class SegformerTissueToCellDecoderModel(nn.Module):
 
 
 if __name__ == "__main__":
-
-    backbone_model = "b0"
-    pretrained_dataset = "ade"
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    sharing_model = SegformerTissueToCellDecoderModel(
-        backbone_model=backbone_model,
-        pretrained_dataset=pretrained_dataset,
-        output_image_size=1024,
-        input_image_size=1024,
-    )
-    sharing_model.to(device)
-
     batch_size = 2
-    channels = 6
+    channels = 3
     height = 1024
     width = 1024
 
+    model = CustomSegformerModel(
+        backbone_name="b1",
+        num_classes=3,
+        num_channels=3,
+        pretrained_dataset="ade"
+    )
+
     x = torch.ones(batch_size, channels, height, width)
-    x = x.to(device)
+    # x = x.to(device)
     offsets = torch.tensor([[0.625, 0.125], [0.125, 0.125]])
-    result = sharing_model(x, offsets)
+    result = model(x)
     print(result)
