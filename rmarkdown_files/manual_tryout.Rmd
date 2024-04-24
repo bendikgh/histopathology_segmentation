@@ -30,123 +30,225 @@ else:
 
 ```{python}
 import cv2
-import numpy as np
+import torch
 import matplotlib.pyplot as plt
+import numpy as np 
+import seaborn as sns
 
-from src.utils.utils import get_ocelot_files
-from src.utils.constants import IDUN_OCELOT_DATA_PATH
-```
-
-```{python}
-train_cell_image_files, train_cell_target_files = get_ocelot_files(
-    data_dir=IDUN_OCELOT_DATA_PATH,
-    partition="train",
-    zoom="cell"
-)
-train_tissue_image_files, train_tissue_target_files = get_ocelot_files(
-    data_dir=IDUN_OCELOT_DATA_PATH,
-    partition="train",
-    zoom="tissue"
-)
-```
-
-```{python}
-# print(train_cell_image_files)
-# print(len(train_cell_image_files)) # This is 395
-
-# cell_images = np.zeros((len(train_cell_image_files), 1024, 1024, 3), dtype=np.double)
-
-# for idx, path in enumerate(train_cell_image_files):  
-#   image = cv2.imread(path)
-#   image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-#   image = image.astype(np.double) / 255.0
-#   cell_images[idx, ...] = image[:]
-
-# # NOTE: axis=(0, 1, 2) only works with double precision
-# print(cell_images.mean(axis=(0, 1, 2))) 
-# print(cell_images.std(axis=(0, 1, 2)))
-```
-
-```{python}
-# print(train_tissue_image_files)
-# print(len(train_tissue_image_files)) # This is 395
-
-# tissue_images = np.zeros((len(train_tissue_image_files), 1024, 1024, 3), dtype=np.double)
-
-# for idx, path in enumerate(train_tissue_image_files):  
-#   image = cv2.imread(path)
-#   image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-#   image = image.astype(np.double) / 255.0
-#   tissue_images[idx, ...] = image[:]
-
-# # NOTE: axis=(0, 1, 2) only works with double precision
-# print(tissue_images.mean(axis=(0, 1, 2))) 
-# print(tissue_images.std(axis=(0, 1, 2)))
-```
-
-```{python}
 from glob import glob
-# Checking the written images 
+from torch.nn.functional import softmax
 
-train_tissue_predicted = glob(
-    os.path.join(IDUN_OCELOT_DATA_PATH, "annotations/train/pred_tissue/*")
-)
-train_tissue_cropped_target = glob(
-    os.path.join(IDUN_OCELOT_DATA_PATH, "annotations/train/cropped_tissue/*")
-)
-train_tissue_predicted.sort(key = lambda x: int(x.split("/")[-1].split(".")[0]))
-train_tissue_cropped_target.sort(key = lambda x: int(x.split("/")[-1].split(".")[0]))
+from src.dataset import CellTissueDataset, CellOnlyDataset
+from src.models import DeepLabV3plusModel
+from src.utils.utils import get_ocelot_files, get_point_predictions
+from src.utils.constants import IDUN_OCELOT_DATA_PATH
 
-image_nums = [int(x.split("/")[-1].split(".")[0]) for x in train_tissue_predicted]
-train_tissue_cropped_target = [file for file in train_tissue_cropped_target if int(file.split("/")[-1].split(".")[0]) in image_nums]
+sns.set_theme()
+sns.set(style="whitegrid", rc={"axes.grid": False})
 
-print(train_tissue_predicted[-10:])
-print(train_cell_image_files[-10:])
-print(train_tissue_cropped_target[-10:])
-
-
-for i in range(360, len(train_tissue_predicted)): 
-    print(f"index: {i}")
-    cell_path = train_cell_image_files[i]
-    pred_path = train_tissue_predicted[i]
-    target_path = train_tissue_cropped_target[i]
-
-    cell_img = cv2.imread(cell_path)
-    cell_img = cv2.cvtColor(cell_img, cv2.COLOR_BGR2RGB)
-
-    pred_img = cv2.imread(pred_path)
-    pred_img = cv2.cvtColor(pred_img, cv2.COLOR_BGR2RGB)
-
-    target_img = cv2.imread(target_path)
-    target_img = cv2.cvtColor(target_img, cv2.COLOR_BGR2RGB)
-
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-    ax[0].imshow(cell_img)
-    ax[0].set_title("Cell Image")
-    ax[0].set_axis_off()
-
-    ax[1].imshow(pred_img*255)
-    ax[1].set_title("Prediction")
-    ax[1].set_axis_off()
-
-    ax[2].imshow(target_img*255)
-    ax[2].set_title("Target")
-    ax[2].set_axis_off()
-    
-    plt.tight_layout()
-    plt.show()
-
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Device: {device}")
 ```
 
 ```{python}
-partitions = ["train", "val", "test"]
-cell_nums = []
-tissue_nums = []
-for partition in partitions: 
-  cell_path = os.path.join(IDUN_OCELOT_DATA_PATH, f"annotations/{partition}/pred_tissue") 
-  nums = sorted([int(path.split(".")[0]) for path in os.listdir(cell_path)])
-  cell_nums += nums
+image_index = 1
 
-print(sorted(list(set(range(1, max(cell_nums)+1)) - set(cell_nums))))
+# Finding cell and tissue files
+val_cell_image_files, val_cell_target_files = get_ocelot_files(
+    data_dir=IDUN_OCELOT_DATA_PATH, partition="val", zoom="cell", macenko=True
+)
+val_image_nums = [x.split("/")[-1].split(".")[0] for x in val_cell_image_files]
+
+# Finding annotated files
+val_tissue_cropped_predictions = glob(
+    os.path.join(IDUN_OCELOT_DATA_PATH, "annotations/val/predicted_cropped_tissue/*")
+)
+val_tissue_cropped_predictions = [
+    file
+    for file in val_tissue_cropped_predictions
+    if file.split("/")[-1].split(".")[0] in val_image_nums
+]
+val_tissue_cropped_predictions.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+
+val_tissue_cropped_target = glob(
+        os.path.join(IDUN_OCELOT_DATA_PATH, "annotations/val/cropped_tissue/*")
+    )
+val_tissue_cropped_target = [
+        file
+        for file in val_tissue_cropped_target
+        if file.split("/")[-1].split(".")[0] in val_image_nums
+    ]
+
+val_tissue_cropped_target.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+```
+
+```{python}
+# Creating the different models
+cell_only_model_path = "outputs/models/20240317_033608/deeplabv3plus-cell-only_pretrained-1_lr-1e-04_dropout-0.3_backbone-resnet50_normalization-macenko_id-2_best.pth"
+tissue_cell_model_path = "outputs/models/20240317_095612/deeplabv3plus-cell-branch_pretrained-1_lr-1e-04_dropout-0.3_backbone-resnet50_normalization-macenko_id-1_best.pth"
+tissue_leaking_model_path = "outputs/models/20240318_103621/deeplabv3plus-tissue-leaking_pretrained-1_lr-1e-04_dropout-0.3_backbone-resnet50_normalization-macenko_id-4_best.pth"
+
+
+backbone_name = "resnet50"
+num_classes = 3
+pretrained = True
+dropout_rate = 0.3
+
+cell_only_model = DeepLabV3plusModel(
+  backbone_name=backbone_name,
+  num_classes=num_classes,
+  pretrained=pretrained,
+  dropout_rate=dropout_rate,
+  num_channels=3
+)
+cell_only_model.load_state_dict(torch.load(cell_only_model_path))
+cell_only_model.to(device)
+cell_only_model.eval()
+
+tissue_cell_model = DeepLabV3plusModel(
+  backbone_name=backbone_name,
+  num_classes=num_classes,
+  pretrained=pretrained,
+  dropout_rate=dropout_rate,
+  num_channels=6
+)
+tissue_cell_model.load_state_dict(torch.load(tissue_cell_model_path))
+tissue_cell_model.to(device)
+tissue_cell_model.eval()
+
+tissue_leaking_model = DeepLabV3plusModel(
+  backbone_name=backbone_name,
+  num_classes=num_classes,
+  pretrained=pretrained,
+  dropout_rate=dropout_rate,
+  num_channels=6
+)
+tissue_leaking_model.load_state_dict(torch.load(tissue_leaking_model_path))
+tissue_leaking_model.to(device)
+tissue_leaking_model.eval()
+print()
+```
+
+```{python}
+cell_target_image = cv2.imread(val_cell_target_files[image_index])
+cell_target_image = cv2.cvtColor(cell_target_image, cv2.COLOR_BGR2RGB)
+
+cell_image = cv2.imread(val_cell_image_files[image_index])
+cell_image = cv2.cvtColor(cell_image, cv2.COLOR_BGR2RGB)
+
+tissue_cropped_prediction = cv2.imread(val_tissue_cropped_predictions[image_index])
+tissue_cropped_prediction = cv2.cvtColor(tissue_cropped_prediction, cv2.COLOR_BGR2RGB)
+
+tissue_cropped_target = cv2.imread(val_tissue_cropped_target[image_index])
+tissue_cropped_target = cv2.cvtColor(tissue_cropped_target, cv2.COLOR_BGR2RGB)
+
+cell_image = cell_image.astype(np.float32) / 255.0
+cell_image = torch.from_numpy(cell_image).permute(2, 0, 1).unsqueeze(0).to(device)
+
+tissue_cropped_prediction = torch.from_numpy(tissue_cropped_prediction).permute(2, 0, 1).unsqueeze(0).to(device)
+tissue_cropped_target = torch.from_numpy(tissue_cropped_target).permute(2, 0, 1).unsqueeze(0).to(device)
+```
+
+```{python}
+tissue_cell_input = torch.cat((cell_image, tissue_cropped_prediction), dim=1)
+tissue_leaking_input = torch.cat((cell_image, tissue_cropped_target), dim=1)
+
+cell_only_output = cell_only_model(cell_image)
+cell_only_output = cell_only_output.squeeze(0).detach().cpu()
+cell_only_output = softmax(cell_only_output, dim=0)
+
+tissue_cell_output = tissue_cell_model(tissue_cell_input)
+tissue_cell_output = tissue_cell_output.squeeze(0).detach().cpu()
+tissue_cell_output = softmax(tissue_cell_output, dim=0)
+
+tissue_leaking_output = tissue_leaking_model(tissue_leaking_input)
+tissue_leaking_output = tissue_leaking_output.squeeze(0).detach().cpu()
+tissue_leaking_output = softmax(tissue_leaking_output, dim=0)
+```
+
+```{python}
+cell_only_points = get_point_predictions(cell_only_output)
+tissue_cell_points = get_point_predictions(tissue_cell_output)
+tissue_leaking_points = get_point_predictions(tissue_leaking_output)
+```
+
+```{python}
+def plot_points(points: list, title: str | None = None): 
+  x_vals = [x[0] for x in points]
+  y_vals = [x[1] for x in points]
+  classes = [x[2] for x in points]
+
+  colors = [(0, 1, 0) if cls == 2 else (0, 0, 1) for cls in classes]  # Use RGB tuples for green and blue
+
+  plt.scatter(x_vals, y_vals, c=colors, s=5)
+  plt.xlim(0, 1024)
+  plt.ylim(1024, 0)
+  plt.gca().set_aspect('equal', adjustable='box')  # This ensures the scale is the same for both axes
+  plt.gcf().set_facecolor("red")  # Set the figure's background color to red
+  plt.axis("off")
+
+  if title is not None:
+    plt.title(title, backgroundcolor="white", color="black")
+
+  plt.show()
+
+# plot_points(cell_only_points, "Cell-Only points")
+```
+
+```{python}
+cell_image_numpy = cell_image.squeeze(0).permute(1, 2, 0).cpu().numpy()
+plt.figure(figsize=(10, 5))
+plt.subplot(1, 2, 1)
+plt.axis("off")
+plt.imshow(cell_image_numpy)
+
+plt.subplot(1, 2, 2)
+plt.imshow(cell_target_image*255)
+plt.axis("off")
+plt.show()
+
+plt.figure(figsize=(15, 5))
+plt.subplot(1, 3, 1)
+cell_only_xvals = [x[0] for x in cell_only_points]
+cell_only_yvals = [x[1] for x in cell_only_points]
+cell_only_classes = [x[2] for x in cell_only_points]
+cell_only_colors = [(0, 1, 0) if cls == 2 else (0, 0, 1) for cls in cell_only_classes]
+plt.scatter(cell_only_xvals, cell_only_yvals, c=cell_only_colors, s=5)
+plt.xlim(0, 1024)
+plt.ylim(1024, 0)
+plt.gca().set_aspect('equal', adjustable='box')
+plt.gcf().set_facecolor("red")
+plt.axis("off")
+plt.title("Cell-Only points")
+
+plt.subplot(1, 3, 2)
+tissue_cell_xvals = [x[0] for x in tissue_cell_points]
+tissue_cell_yvals = [x[1] for x in tissue_cell_points]
+tissue_cell_classes = [x[2] for x in tissue_cell_points]
+tissue_cell_colors = [(0, 1, 0) if cls == 2 else (0, 0, 1) for cls in tissue_cell_classes]
+plt.scatter(tissue_cell_xvals, tissue_cell_yvals, c=tissue_cell_colors, s=5)
+plt.xlim(0, 1024)
+plt.ylim(1024, 0)
+plt.gca().set_aspect('equal', adjustable='box')
+plt.gcf().set_facecolor("red")
+plt.axis("off")
+plt.title("Tissue-Cell points")
+
+plt.subplot(1, 3, 3)
+tissue_leaking_xvals = [x[0] for x in tissue_leaking_points]
+tissue_leaking_yvals = [x[1] for x in tissue_leaking_points]
+tissue_leaking_classes = [x[2] for x in tissue_leaking_points]
+tissue_leaking_colors = [(0, 1, 0) if cls == 2 else (0, 0, 1) for cls in tissue_leaking_classes]
+plt.scatter(tissue_leaking_xvals, tissue_leaking_yvals, c=tissue_leaking_colors, s=5)
+plt.xlim(0, 1024)
+plt.ylim(1024, 0)
+plt.gca().set_aspect('equal', adjustable='box')
+plt.gcf().set_facecolor("red")
+plt.axis("off")
+plt.title("Tissue-Leaking points")
+plt.show()
+```
+
+```{python}
+
 ```

@@ -98,6 +98,7 @@ class Trainable(ABC):
             pretrained=self.pretrained,
             device=self.device,
         )
+        self.creation_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     def train(
         self,
@@ -153,9 +154,10 @@ class Trainable(ABC):
         return A.Compose(transform_list)
 
     def get_save_name(self, **kwargs) -> str:
-        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        result: str = f"{current_time}/"
+        # TODO: Consider making this a variable instead of a function, i.e.
+        # have it be generated once
+        result: str = f"{self.creation_time}/"
         result += f"{self.name}"
         result += f"_backbone-{self.backbone_model}"
 

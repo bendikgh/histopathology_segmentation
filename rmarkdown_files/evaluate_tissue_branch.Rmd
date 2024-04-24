@@ -37,7 +37,7 @@ from monai.data import DataLoader
 from monai.metrics import DiceMetric, MeanIoU
 
 from src.utils.utils import get_ocelot_files
-from src.utils.constants import IDUN_OCELOT_DATA_PATH
+from src.utils.constants import IDUN_OCELOT_DATA_PATH, CELL_IMAGE_MEAN, CELL_IMAGE_STD
 from src.dataset import TissueDataset
 from src.models import DeepLabV3plusModel
 
@@ -47,26 +47,38 @@ print(f"device: {device}")
 
 ```{python}
 data_path = IDUN_OCELOT_DATA_PATH
+macenko = True
 
 # Getting cell files
 train_image_files, train_seg_files = get_ocelot_files(
-    data_dir=data_path, partition="train", zoom="cell"
+    data_dir=data_path, partition="train", zoom="cell", macenko=macenko
 )
 val_image_files, val_seg_files = get_ocelot_files(
-    data_dir=data_path, partition="val", zoom="cell"
+    data_dir=data_path, partition="val", zoom="cell", macenko=macenko
 )
 test_image_files, test_seg_files = get_ocelot_files(
-    data_dir=data_path, partition="test", zoom="cell"
+    data_dir=data_path, partition="test", zoom="cell", macenko=macenko
 )
 
 # Getting tissue files
 train_image_files_tissue, train_seg_files_tissue = get_ocelot_files(
-    data_dir=data_path, partition="train", zoom="tissue"
+    data_dir=data_path, partition="train", zoom="tissue", macenko=macenko
 )
 val_image_files_tissue, val_seg_files_tissue = get_ocelot_files(
-    data_dir=data_path, partition="val", zoom="tissue"
+    data_dir=data_path, partition="val", zoom="tissue", macenko=macenko
 )
 test_image_files_tissue, test_seg_files_tissue = get_ocelot_files(
+    data_dir=data_path, partition="test", zoom="tissue", macenko=macenko
+)
+
+# Without macenko
+train_image_files_tissue2, train_seg_files_tissue2 = get_ocelot_files(
+    data_dir=data_path, partition="train", zoom="tissue"
+)
+val_image_files_tissue2, val_seg_files_tissue2 = get_ocelot_files(
+    data_dir=data_path, partition="val", zoom="tissue"
+)
+test_image_files_tissue2, test_seg_files_tissue2 = get_ocelot_files(
     data_dir=data_path, partition="test", zoom="tissue"
 )
 
@@ -95,16 +107,27 @@ test_tissue_predicted = [
 ```
 
 ```{python}
-transforms = A.Compose([A.Normalize()])
+transform_list = [
+  A.Normalize(mean=CELL_IMAGE_MEAN, std=CELL_IMAGE_STD),
+]
+transforms = A.Compose(transform_list)
 
 # dataloader for tissue-model
-train_tissue_dataset = TissueDataset(image_files=train_image_files_tissue, seg_files=train_seg_files_tissue, transform=transforms)
-val_tissue_dataset = TissueDataset(image_files=val_image_files_tissue, seg_files=val_seg_files_tissue, transform=transforms)
-test_tissue_dataset = TissueDataset(image_files=test_image_files_tissue, seg_files=test_seg_files_tissue, transform=transforms)
+train_tissue_dataset1 = TissueDataset(image_files=train_image_files_tissue, seg_files=train_seg_files_tissue)
+val_tissue_dataset1 = TissueDataset(image_files=val_image_files_tissue, seg_files=val_seg_files_tissue)
+test_tissue_dataset1 = TissueDataset(image_files=test_image_files_tissue, seg_files=test_seg_files_tissue)
 
-train_tissue_dataloader = DataLoader(dataset=train_tissue_dataset, batch_size=2, drop_last=True)
-val_tissue_dataloader = DataLoader(dataset=val_tissue_dataset)
-test_tissue_dataloader = DataLoader(dataset=test_tissue_dataset)
+train_tissue_dataloader1 = DataLoader(dataset=train_tissue_dataset1, batch_size=2, drop_last=True)
+val_tissue_dataloader1 = DataLoader(dataset=val_tissue_dataset1)
+test_tissue_dataloader1 = DataLoader(dataset=test_tissue_dataset1)
+
+train_tissue_dataset2 = TissueDataset(image_files=train_image_files_tissue2, seg_files=train_seg_files_tissue, transform=transforms)
+val_tissue_dataset2 = TissueDataset(image_files=val_image_files_tissue2, seg_files=val_seg_files_tissue, transform=transforms)
+test_tissue_dataset2 = TissueDataset(image_files=test_image_files_tissue2, seg_files=test_seg_files_tissue, transform=transforms)
+
+train_tissue_dataloader2 = DataLoader(dataset=train_tissue_dataset2, batch_size=2, drop_last=True)
+val_tissue_dataloader2 = DataLoader(dataset=val_tissue_dataset2)
+test_tissue_dataloader2 = DataLoader(dataset=test_tissue_dataset2)
 ```
 
 ```{python}
@@ -113,20 +136,35 @@ backbone = "resnet50"
 dropout_rate = 0.3
 pretrained = True
 
-model = DeepLabV3plusModel(
+model1 = DeepLabV3plusModel(
     backbone_name=backbone,
     num_classes=3,
     num_channels=3,
     pretrained=pretrained,
     dropout_rate=dropout_rate,
 )
-model.load_state_dict(
+model1.load_state_dict(
     torch.load(
-        "outputs/models/20240223_195028_deeplabv3plus-tissue-branch_pretrained-1_lr-1e-04_dropout-0.3_backbone-resnet50_epochs-100.pth"
+        "outputs/models/best/20240313_002829_deeplabv3plus-tissue-branch_pretrained-1_lr-1e-04_dropout-0.1_backbone-resnet50_normalization-macenko_id-5_best.pth"
     )
 )
-model.to(device)
-model.eval()
+model1.to(device)
+model1.eval()
+
+model2 = DeepLabV3plusModel(
+    backbone_name=backbone,
+    num_classes=3,
+    num_channels=3,
+    pretrained=pretrained,
+    dropout_rate=dropout_rate,
+)
+model2.load_state_dict(
+    torch.load(
+        "outputs/models/20240303_205501_deeplabv3plus-tissue-branch_pretrained-1_lr-6e-05_dropout-0.1_backbone-resnet50_epochs-100.pth"
+    )
+)
+model2.to(device)
+model2.eval()
 print()
 ```
 
@@ -165,19 +203,21 @@ def calculate_dice_score(dataloader, model, device):
 ```
 
 ```{python}
-# test_dice = calculate_dice_score(test_tissue_dataloader, model, device)
-# val_dice = calculate_dice_score(val_tissue_dataloader, model, device)
-# print(test_dice)
-# print(val_dice)
-
-# test_miou = calculate_miou(test_tissue_dataloader, model, device)
-# val_miou = calculate_miou(val_tissue_dataloader, model, device)
-# print(test_miou)
-# print(val_miou)
+val_dice1 = calculate_dice_score(val_tissue_dataloader1, model1, device)
+val_dice2 = calculate_dice_score(val_tissue_dataloader2, model2, device)
+print(f"Validation dice score for model 1 (macenko): {val_dice1:.4f}")
+print(f"Validation dice score for model 2 (old): {val_dice2:.4f}")
 ```
 
 ```{python}
-it = iter(test_tissue_dataloader)
+val_miou1 = calculate_miou(val_tissue_dataloader1, model1, device)
+val_miou2 = calculate_miou(val_tissue_dataloader2, model2, device)
+print(f"Validation mIoU for model 1 (macenko): {val_miou1:.4f}")
+print(f"Validation mIoU for model 2 (old): {val_miou2:.4f}")
+```
+
+```{python}
+it = iter(test_tissue_dataloader1)
 images, masks = next(it)
 
 
@@ -192,7 +232,7 @@ numpy_mask = mask.numpy()
 ```
 
 ```{python}
-outputs = model(images.to(device))
+outputs = model1(images.to(device))
 print(outputs.shape)
 ```
 

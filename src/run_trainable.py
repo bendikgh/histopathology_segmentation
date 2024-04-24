@@ -10,6 +10,7 @@ from torch.optim import AdamW
 from transformers import (
     get_polynomial_decay_schedule_with_warmup,
 )
+from datetime import timedelta
 
 sys.path.append(os.getcwd())
 
@@ -187,7 +188,8 @@ def main():
         power=1,
     )
 
-    print(f"num_epochs: {num_epochs}")
+    print(f"Save name: {trainable.get_save_name()}")
+
     start = time.time()
     best_model_path = trainable.train(
         num_epochs=num_epochs,
@@ -200,7 +202,10 @@ def main():
         do_save_model_and_plot=do_save,
     )
     end = time.time()
-    print(f"Training finished! Took {end - start:.2f} seconds.")
+    total_time = end - start
+    print(
+        f"Training finished! Time: {total_time:.2f}s, aka {str(timedelta(seconds=total_time))}."
+    )
 
     if not do_eval:
         return
@@ -212,7 +217,7 @@ def main():
             device=trainable.device,
             model_path=best_model_path,
         )
-        print(f"Updated model with the best from training.")
+        print(f"Updated model with the best from training: {best_model_path}")
 
     # Evaluation
     trainable.model.eval()

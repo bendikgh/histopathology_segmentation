@@ -85,21 +85,21 @@ def main():
     run_script = False
 
     # General parameters
-    job_name = "exp4-b2-1024"
+    job_name = "exp3-b0-512"
     python_file = "src/run_trainable.py"
     duration_str: str = "0-02:30:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
     model_architecture = "segformer_tissue_branch"
-    epochs = 10
-    batch_size = 2
+    epochs = 50
+    batch_size = 8
     checkpoint_interval = 10
     backbone = "b0"
     dropout = 0.3
-    learning_rate = 1e-4
+    learning_rate = 5e-5
     pretrained = 1
-    warmup_epochs = 0
+    warmup_epochs = 5
     do_save = 1
     do_eval = 1
     break_early = 0
@@ -111,7 +111,7 @@ def main():
     # Use "-wrapper" when training tissue-branch
 
     # SegFormer
-    resize = 1024
+    resize = 512
     pretrained_dataset = "ade"
 
     for id_ in range(1, 2):

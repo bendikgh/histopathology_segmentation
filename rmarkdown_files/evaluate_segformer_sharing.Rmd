@@ -1,0 +1,105 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.15.2
+  kernelspec:
+    display_name: specialization_project
+    language: python
+    name: python3
+---
+
+```{python}
+# Fixing automatic autoreload
+# %load_ext autoreload
+# %autoreload 2
+```
+
+```{python}
+import os 
+
+# Making sure we are running the code from the root directory
+current_directory = os.getcwd()
+if current_directory.endswith("notebooks"):
+    os.chdir("..")
+    print("Changed directory to:", os.getcwd())
+else:
+    print("Directory was already correct, so did not change.")
+```
+
+```{python}
+import torch
+import matplotlib.pyplot as plt
+
+from src.trainable import SegformerSharingTrainable
+from src.utils.constants import IDUN_OCELOT_DATA_PATH
+
+```
+
+```{python}
+normalization = "macenko"
+batch_size = 1
+pretrained = True
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+backbone_model = "b3"
+pretrained_dataset = "ade"
+resize = 1024
+
+trainable = SegformerSharingTrainable(
+        normalization=normalization,
+        batch_size=batch_size,
+        pretrained=pretrained,
+        device=device,
+        backbone_model=backbone_model,
+        pretrained_dataset=pretrained_dataset,
+        resize=resize,
+    )
+```
+
+```{python}
+# model_path = "outputs/models/20240413_215856/Segformer_Sharing_backbone-b1_best.pth"
+model_path = "outputs/models/20240413_234150/Segformer_Sharing_backbone-b3_best.pth"
+model = trainable.create_model(backbone_name=backbone_model, pretrained=pretrained, device=device, model_path=model_path)
+dataloader = trainable.create_train_dataloader(IDUN_OCELOT_DATA_PATH)
+
+model.eval()
+print()
+```
+
+```{python}
+idx = 2
+for i in range(idx): 
+  images, masks, offsets = next(iter(dataloader))
+
+images, masks = images.to(device), masks.to(device)
+```
+
+```{python}
+print(images.shape)
+print(masks.shape)
+print(offsets.shape)
+print(offsets)
+
+```
+
+```{python}
+cell_outputs, tissue_outputs = model(images, offsets)
+cell_outputs = cell_outputs.squeeze(0)
+tissue_outputs = tissue_outputs.squeeze(0)
+print(cell_outputs.shape)
+```
+
+```{python}
+argmaxed = cell_outputs.argmax(0)
+print(argmaxed.shape)
+plt.imshow(argmaxed.detach().cpu())
+plt.show()
+```
+
+```{python}
+plt.imshow(images[0, :3].cpu().permute(1, 2, 0))
+plt.show()
+```

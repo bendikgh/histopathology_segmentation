@@ -1,0 +1,243 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.15.2
+  kernelspec:
+    display_name: specialization_project
+    language: python
+    name: python3
+---
+
+```{python}
+# Fixing automatic autoreload
+# %load_ext autoreload
+# %autoreload 2
+```
+
+```{python}
+import os 
+
+# Making sure we are running the code from the root directory
+current_directory = os.getcwd()
+if current_directory.endswith("notebooks"):
+    os.chdir("..")
+    print("Changed directory to:", os.getcwd())
+else:
+    print("Directory was already correct, so did not change.")
+```
+
+```{python}
+import cv2
+import torch
+import albumentations as A
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from torch.nn.functional import softmax, one_hot
+
+from ocelot23algo.user.inference import EvaluationModel
+from src.trainable import SegformerTissueTrainable, SegformerCellOnlyTrainable, DeeplabCellOnlyTrainable
+from src.utils.utils import get_metadata_with_offset, get_point_predictions, crop_and_resize_tissue_faster
+from src.utils.constants import IDUN_OCELOT_DATA_PATH as data_dir
+from src.utils.metrics import predict_and_evaluate
+
+sns.set_theme()
+
+```
+
+```{python}
+normalization = "macenko"
+batch_size = 2
+pretrained = True
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+pretrained_dataset = "ade"
+
+cell_backbone_model = "b3"
+cell_resize = 512
+
+tissue_resize = 1024
+tissue_backbone_model = "b0"
+
+tissue_trainable = SegformerTissueTrainable(
+    normalization=normalization,
+    batch_size=batch_size,
+    pretrained=pretrained,
+    device=device,
+    backbone_model=tissue_backbone_model,
+    pretrained_dataset=pretrained_dataset,
+    resize=tissue_resize,
+)
+
+cell_trainable = SegformerCellOnlyTrainable(
+    normalization=normalization,
+    batch_size=batch_size,
+    pretrained=pretrained,
+    device=device,
+    backbone_model=cell_backbone_model,
+    pretrained_dataset=pretrained_dataset,
+    resize=cell_resize,
+)
+```
+
+```{python}
+tissue_model_path = (
+    "outputs/models/20240422_085251/Segformer_Tissue-Branch_backbone-b0_best.pth"
+)
+# cell_model_path = "outputs/models/20240408_001200/deeplabv3plus-cell-only_pretrained-1_lr-1e-04_backbone-b3_normalization-macenko_pretrained_dataset-ade_resize-1024_id-1_best.pth"
+cell_model_path = "outputs/models/20240419_060504/Segformer_Cell-Only_backbone-b3_best.pth"
+
+tissue_model = tissue_trainable.create_model(
+    backbone_name=tissue_backbone_model,
+    pretrained=pretrained,
+    device=device,
+    model_path=tissue_model_path,
+)
+
+cell_model = cell_trainable.create_model(
+    backbone_name=cell_backbone_model,
+    pretrained=pretrained,
+    device=device,
+    model_path=cell_model_path,
+)
+
+tissue_model.eval()
+cell_model.eval()
+print()
+```
+
+```{python}
+from src.dataset import CellOnlyDataset
+from src.utils.utils import get_ocelot_files
+from torch.utils.data import DataLoader
+
+cell_image_files, cell_target_files = get_ocelot_files(
+  data_dir=data_dir,
+  partition="val",
+  zoom="cell",
+  macenko=True,
+)
+if cell_resize is not None:
+  image_shape = (cell_resize, cell_resize)
+else:
+  image_shape = (1024, 1024)
+
+cell_dataset = CellOnlyDataset(
+  cell_image_files=cell_image_files,
+  cell_target_files=cell_target_files,
+  transform=cell_trainable.val_transforms,
+  image_shape=image_shape,
+)
+
+cell_dataloader = DataLoader(
+  dataset=cell_dataset,
+  batch_size=batch_size,
+  shuffle=False,
+  drop_last=True,
+)
+tissue_dataloader = tissue_trainable._create_dataloader(data_dir, "val")
+```
+
+```{python}
+tissue_it = iter(tissue_dataloader)
+cell_it = iter(cell_dataloader)
+
+# Image 470
+for i in range(35): 
+  tissue_images, tissue_masks = next(tissue_it)
+  cell_images, cell_masks = next(cell_it)
+```
+
+```{python}
+tissue_predictions = tissue_model(tissue_images.to(device))
+cell_predictions = cell_model(cell_images.to(device))
+
+tissue_image = tissue_images[1].permute(1, 2, 0).numpy()
+tissue_mask = tissue_masks[1]
+tissue_mask = np.eye(3)[tissue_mask]
+tissue_prediction = tissue_predictions[1].argmax(dim=0).detach().cpu().numpy()
+tissue_prediction = np.eye(3)[tissue_prediction]
+
+cell_image = cell_images[1].permute(1, 2, 0)
+cell_mask = cell_masks[1].permute(1, 2, 0)
+cell_mask = cell_mask * 255
+
+cell_output = cell_predictions[1].detach().cpu()
+cell_softmaxed = softmax(cell_output, dim=0)
+cell_prediction_list = get_point_predictions(cell_softmaxed)
+```
+
+```{python}
+print(tissue_prediction.shape)
+print(len(cell_prediction_list))
+```
+
+```{python}
+pixel_radius = 7
+cell_prediction_image = np.zeros((1024, 1024, 3), dtype="uint8")
+
+for x, y, label, _ in cell_prediction_list:
+    if label == 1:  # Background
+        # Create a temporary single-channel image for drawing
+        tmp = cell_prediction_image[:, :, 2].copy()
+        cv2.circle(tmp, (x, y), pixel_radius, 1, -1)
+        cell_prediction_image[:, :, 2] = tmp
+    elif label == 2:  # Tumor
+        tmp = cell_prediction_image[:, :, 1].copy()
+        cv2.circle(tmp, (x, y), pixel_radius, 1, -1)
+        cell_prediction_image[:, :, 1] = tmp
+mask = np.all(cell_prediction_image == [0, 0, 0], axis=-1)
+cell_prediction_image[mask] = [1, 0, 0]
+```
+
+```{python}
+# Draw rectangle on tissue image
+# top_left = (0, 512)
+# bottom_right = (256, 768)
+# tissue_image = tissue_image.copy() # This is necessary due to a bug in cv2
+# tissue_image = cv2.rectangle(tissue_image, top_left, bottom_right, (0, 1, 0), 2)
+```
+
+```{python}
+plt.figure(figsize=(5, 5))
+plt.imshow(tissue_image)
+plt.grid(False)
+plt.axis("off")
+plt.show()
+
+plt.figure(figsize=(5, 5))
+plt.imshow(tissue_prediction)
+plt.grid(False)
+plt.axis("off")
+plt.show()
+
+plt.figure(figsize=(5, 5))
+plt.imshow(tissue_mask)
+plt.grid(False)
+plt.axis("off")
+plt.show()
+```
+
+```{python}
+plt.figure(figsize=(5, 5))
+plt.imshow(cell_image)
+plt.grid(False)
+plt.axis("off")
+plt.show()
+
+plt.figure(figsize=(5, 5))
+plt.imshow(cell_prediction_image*255)
+plt.grid(False)
+plt.axis("off")
+plt.show()
+
+plt.figure(figsize=(5, 5))
+plt.imshow(cell_mask)
+plt.grid(False)
+plt.axis("off")
+plt.show()
+```

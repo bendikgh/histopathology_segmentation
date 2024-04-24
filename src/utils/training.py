@@ -17,22 +17,28 @@ from src.utils.constants import DATASET_PARTITION_OFFSETS
 def plot_losses(training_losses: List, val_scores: List, save_path: str):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    fig, ax1 = plt.subplots()
+    fig, ax1 = plt.subplots(figsize=(8, 5))
     ax2 = ax1.twinx()
 
     ax1.plot(training_losses, "b-", label="Training Loss")
-    ax2.plot(val_scores, "r-", label="Validation Score")
-
     ax1.set_xlabel("Epochs")
     ax1.set_ylabel("Training Loss", color="b")
+
+    ax2.plot(val_scores, "r-", label="Validation Score")
     ax2.set_ylabel("Validation Score", color="r")
-    plt.title("Training loss and validation score")
+    ax2.grid(False)
 
     # Fixing legend
     lines, labels = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
-    ax2.legend(lines + lines2, labels + labels2, loc="upper right")
+    fig.legend(
+        lines + lines2,
+        labels + labels2,
+        loc="upper center",  # Locating it at the upper center of the bounding box
+        bbox_to_anchor=(0.85, 1.01),  # Centered horizontally, placed below the axes)
+    )
 
+    plt.title("Training loss and validation score")
     plt.savefig(save_path)
     plt.close()
 

@@ -1,0 +1,134 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.15.2
+  kernelspec:
+    display_name: specialization_project
+    language: python
+    name: python3
+---
+
+```{python}
+# Fixing automatic autoreload
+# %load_ext autoreload
+# %autoreload 2
+```
+
+```{python}
+import os 
+
+# Making sure we are running the code from the root directory
+current_directory = os.getcwd()
+if current_directory.endswith("notebooks"):
+    os.chdir("..")
+    print("Changed directory to:", os.getcwd())
+else:
+    print("Directory was already correct, so did not change.")
+```
+
+```{python}
+import torch
+
+from torch import nn
+from tqdm import tqdm
+
+from src.loss import DiceLossWrapper
+from src.trainable import SegformerTissueTrainable
+from src.utils.constants import IDUN_OCELOT_DATA_PATH as data_dir
+from src.utils.metrics import create_tissue_evaluation_function
+```
+
+```{python}
+print(data_dir)
+```
+
+```{python}
+normalization = "macenko"
+batch_size = 1
+pretrained = True
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+backbone_model = "b1"
+pretrained_dataset = "ade"
+resize = 1024
+
+trainable = SegformerTissueTrainable(
+    normalization=normalization,
+    batch_size=batch_size,
+    pretrained=pretrained,
+    device=device,
+    backbone_model=backbone_model,
+    pretrained_dataset=pretrained_dataset,
+    resize=resize,
+)
+```
+
+```{python}
+model_path = (
+    "outputs/models/20240420_190014/Segformer_Tissue-Branch_backbone-b1_best.pth"
+)
+# model_path = (
+#     "outputs/models/20240419_091127/Segformer_Tissue-Branch_backbone-b1_best.pth"
+# )
+model = trainable.create_model(
+    backbone_name=backbone_model,
+    pretrained=pretrained,
+    device=device,
+    model_path=model_path,
+)
+trainable.model = model
+val_dataloader = trainable._create_dataloader(data_dir=data_dir, partition="val")
+loss_function = DiceLossWrapper(softmax=True, to_onehot_y=True)
+```
+
+```{python}
+def evaluate_model(model: nn.Module, dataloader, loss_function): 
+  model.eval()
+  losses = []
+  total_loss = 0.0
+  with torch.no_grad(): 
+    for image, target in tqdm(dataloader): 
+      image, target = image.to(device), target.to(device)
+      output = model(image)
+      loss = loss_function(output, target)
+      losses.append(loss.item())
+      total_loss += loss.item()
+  total_loss = total_loss / len(dataloader)
+  return 1-total_loss, losses
+
+"""
+
+"""
+
+evaluate_model2 = create_tissue_evaluation_function(
+  model=model,
+  dataloader=val_dataloader,
+  loss_function=loss_function,
+  device=device
+)
+
+evaluate_model3 = trainable.get_evaluation_function("val")
+```
+
+```{python}
+val_score1, losses = evaluate_model(model=model, dataloader=val_dataloader, loss_function=loss_function)
+val_score2 = evaluate_model2()
+val_score3 = evaluate_model3()
+
+val_score4 = 1-sum(losses) / len(losses)
+
+print("Val score 1:", val_score1)
+print("Val score 2:", val_score2)
+print("Val score 3:", val_score3)
+print("Val score 4:", val_score4)
+
+"""
+Val score 1: 0.5111736015681803
+Val score 2: 0.5794196724891663
+Val score 3: 0.26550865173339844
+"""
+print()
+```

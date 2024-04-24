@@ -57,15 +57,15 @@ data_path = IDUN_OCELOT_DATA_PATH
 train_image_files_tissue, train_seg_files_tissue = get_ocelot_files(
     data_dir=data_path, partition="train", zoom="tissue"
 )
-```
-
-```{python}
-index = 386
-image_path = train_image_files_tissue[index]
-
-img = cv2.imread(image_path)
-img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-img.shape
+train_cell_image_files, train_cell_seg_files = get_ocelot_files(
+    data_dir=data_path, partition="train", zoom="cell"
+)
+val_cell_image_files, val_cell_seg_files = get_ocelot_files(
+    data_dir=data_path, partition="val", zoom="cell"
+)
+test_cell_image_files, test_cell_seg_files = get_ocelot_files(
+    data_dir=data_path, partition="test", zoom="cell"
+)
 ```
 
 ```{python}
@@ -165,42 +165,109 @@ def normalize_staining(img, saveFile=None, Io=240, alpha=1, beta=0.15):
 ```
 
 ```{python}
+index = 385
+image_path = train_image_files_tissue[index]
+
+img = cv2.imread(image_path)
+img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+print(img.shape)
+
 normalized_img, H, E = normalize_staining(img=img)
 ```
 
 ```{python}
 print(normalized_img.shape)
-
 print(normalized_img.max())
-
 print(normalized_img.min())
 ```
 
 ```{python}
-plt.figure(figsize=(20, 20))
-plt.axis("off")
+for idx in range(0, 10):
+  break
+  image_path = train_cell_image_files[idx]
 
-plt.subplot(2, 2, 1)
-plt.imshow(img)
-plt.title("Original Tissue image")
-plt.axis("off")
+  img = cv2.imread(image_path)
+  img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+  print(img.shape)
 
-plt.subplot(2, 2, 2)
-plt.imshow(normalized_img)
-plt.title("Normalized Tissue image")
-plt.axis("off")
+  normalized_img, H, E = normalize_staining(img=img)
+  plt.figure(figsize=(8, 8))
+  plt.axis("off")
 
-plt.subplot(2, 2, 3)
-plt.imshow(H)
-plt.title("H image")
-plt.axis("off")
+  plt.subplot(2, 2, 1)
+  plt.imshow(img)
+  plt.title("Original Tissue image")
+  plt.axis("off")
 
-plt.subplot(2, 2, 4)
-plt.imshow(E)
-plt.title("E image")
-plt.axis("off")
+  plt.subplot(2, 2, 2)
+  plt.imshow(normalized_img)
+  plt.title("Normalized Tissue image")
+  plt.axis("off")
 
-plt.grid(color="white", linestyle="-", linewidth=2)
-plt.tight_layout()
-plt.show()
+  plt.subplot(2, 2, 3)
+  plt.imshow(H)
+  plt.title("H image")
+  plt.axis("off")
+
+  plt.subplot(2, 2, 4)
+  plt.imshow(E)
+  plt.title("E image")
+  plt.axis("off")
+
+  plt.grid(color="white", linestyle="-", linewidth=2)
+  plt.tight_layout()
+  plt.show()
+```
+
+```{python}
+train_cell_image_files, train_cell_seg_files = get_ocelot_files(
+    data_dir=data_path, partition="train", zoom="cell"
+)
+val_cell_image_files, val_cell_seg_files = get_ocelot_files(
+    data_dir=data_path, partition="val", zoom="cell"
+)
+test_cell_image_files, test_cell_seg_files = get_ocelot_files(
+    data_dir=data_path, partition="test", zoom="cell"
+)
+print(test_cell_image_files[0])
+print(len(test_cell_image_files))
+print("Setting up training files")
+for i in range(len(train_cell_image_files)): 
+    break
+    image_path = train_cell_image_files[i]
+    image = cv2.imread(image_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    normalized_img, H, E = normalize_staining(img=image)
+
+    save_path = image_path.replace("tissue", "tissue_macenko")
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    cv2.imwrite(save_path, cv2.cvtColor(normalized_img, cv2.COLOR_RGB2BGR))
+
+print("Setting up validation files")
+for i in range(len(val_cell_image_files)): 
+    break
+    image_path = val_cell_image_files[i]
+    image = cv2.imread(image_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    normalized_img, H, E = normalize_staining(img=image)
+
+    save_path = image_path.replace("tissue", "tissue_macenko")
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    cv2.imwrite(save_path, cv2.cvtColor(normalized_img, cv2.COLOR_RGB2BGR))
+
+print("Setting up test files")
+for i in range(len(test_cell_image_files)): 
+    break
+    image_path = test_cell_image_files[i]
+    image = cv2.imread(image_path)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    normalized_img, H, E = normalize_staining(img=image)
+
+    save_path = image_path.replace("tissue", "tissue_macenko")
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    cv2.imwrite(save_path, cv2.cvtColor(normalized_img, cv2.COLOR_RGB2BGR))
+
+path = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data/images/test/cell_macenko/570.jpg"
+image = np.zeros((1024, 1024, 3))
+cv2.imwrite(path, image)
 ```
