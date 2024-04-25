@@ -91,7 +91,7 @@ def main():
     work_dir = os.getcwd()
 
     # Script-specific parameters
-    model_architecture = "segformer_tissue_branch"
+    model_architecture = "vit_unet"
     epochs = 50
     batch_size = 8
     checkpoint_interval = 10
@@ -112,7 +112,7 @@ def main():
 
     # SegFormer
     resize = 512
-    pretrained_dataset = "ade"
+    pretrained_dataset = "owkin/phikon"
 
     for id_ in range(1, 2):
         script_contents = generate_slurm_script(

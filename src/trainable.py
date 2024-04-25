@@ -61,6 +61,7 @@ from src.models import (
     DeepLabV3plusModel,
     SegformerSharingModel,
     SegformerTissueToCellDecoderModel,
+    ViTUNetModel,
 )
 from src.loss import DiceLossWrapper
 
@@ -1015,6 +1016,119 @@ class SegformerTissueToCellDecoderTrainable(SegformerSharingTrainable):
         )
         return SegformerTissueToCellDecoderModule(metadata=metadata, cell_model=self.model)
 
+
+class ViTUnetTrainable(Trainable):
+
+    def __init__(
+        self,
+        normalization: str,
+        batch_size: int,
+        pretrained: bool,
+        device: torch.device,
+        backbone_model: str,
+        pretrained_dataset: str,
+        resize: Optional[int] = 1024,
+    ):
+        self.name = "ViTUnet"
+        self.pretrained_dataset = pretrained_dataset
+        self.resize = resize
+        super().__init__(
+            normalization=normalization,
+            batch_size=batch_size,
+            pretrained=pretrained,
+            device=device,
+            backbone_model=backbone_model,
+        )
+
+    def build_transform_function_with_extra_transforms(
+        self, transforms, extra_transform_image
+    ):
+
+        def transform(image, mask):
+            transformed = transforms(image=image, mask=mask)
+            transformed_image, transformed_label = (
+                transformed["image"],
+                transformed["mask"],
+            )
+            transformed_image = extra_transform_image(image=transformed_image)["image"]
+            return {"image": transformed_image, "mask": transformed_label}
+
+        return transform
+
+    def create_transforms(self, normalization, partition: str = "train"):
+        transform_list = self._create_transform_list(normalization, partition=partition)
+        transforms = A.Compose(transform_list)
+
+        if self.resize is not None:
+            extra_transform_image = A.Resize(height=self.resize, width=self.resize)
+            transforms = self.build_transform_function_with_extra_transforms(
+                transforms=transforms, extra_transform_image=extra_transform_image
+            )
+
+        return transforms
+
+    def _create_dataloader(self, data_dir, partition: str) -> DataLoader:
+        tissue_image_files, tissue_target_files = get_ocelot_files(
+            data_dir=data_dir,
+            partition=partition,
+            zoom="tissue",
+            macenko=self.macenko_normalize,
+        )
+        if partition == "train":
+            shuffle = True
+            transform = self.train_transforms
+        else:
+            shuffle = False
+            transform = self.val_transforms
+
+        dataset = TissueDataset(
+            image_files=tissue_image_files,
+            seg_files=tissue_target_files,
+            transform=transform,
+            image_shape=(self.resize, self.resize),
+        )
+
+        dataloader = DataLoader(
+            dataset=dataset,
+            batch_size=self.batch_size,
+            drop_last=True,
+            shuffle=shuffle,
+        )
+
+        return dataloader
+
+    def create_train_dataloader(self, data_dir: str) -> DataLoader:
+        return self._create_dataloader(data_dir=data_dir, partition="train")
+
+    def create_model(
+        self,
+        backbone_name: str,
+        pretrained: bool,
+        device: torch.device,
+        model_path: Optional[str] = None,
+    ) -> nn.Module:
+        
+        model = ViTUNetModel(
+            pretrained_dataset=self.pretrained_dataset,
+        )
+        if model_path is not None:
+            model.load_state_dict(torch.load(model_path))
+        model.to(device)
+        return model
+
+    def get_evaluation_function(self, partition: str):
+        evaluation_function = create_tissue_evaluation_function(
+            model=self.model,
+            dataloader=self._create_dataloader(
+                data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
+            ),
+            loss_function=DiceLossWrapper(softmax=True, to_onehot_y=True),
+            device=self.device,
+        )
+        return evaluation_function
+
+    def create_evaluation_model(self, partition: str) -> EvaluationModel:
+        return None
 
 def main():
     # General training params

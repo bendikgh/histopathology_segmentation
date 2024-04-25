@@ -159,10 +159,10 @@ class CustomSegformerModel(nn.Module):
 
             model.segformer.encoder.patch_embeddings[0].proj = new_input_layer
 
-        self.model = VitModelIbot()  # TODO: model
+        self.model = model
 
     def forward(self, x):
-        logits = self.model(x)  # TODO: self.model(x).logits
+        logits = self.model(x).logits
 
         # Upscaling the result to the shape of the ground truth
         if logits.shape[1:] != self.output_spatial_shape:
@@ -417,6 +417,9 @@ class LinearClassifier(torch.nn.Module):
 
 
 class Dinov2ForSemanticSegmentation(Dinov2PreTrainedModel):
+    """
+    Dinov2 with a linear classifier attached for semantic segmentation.
+    """
     def __init__(self, config):
         super().__init__(config)
 
@@ -484,7 +487,9 @@ class SimpleDecoder(nn.Module):
 
 
 class Deconv2DBlock(nn.Module):
-    """Deconvolution block with ConvTranspose2d followed by Conv2d, batch-normalisation, ReLU activation and dropout
+    """
+    Deconvolution block with ConvTranspose2d followed by Conv2d, batch-normalisation, ReLU activation and dropout
+    this model is copied from https://github.com/Lzy-dot/OCELOT2023/tree/main
 
     Args:
         in_channels (int): Number of input channels for deconv block
@@ -535,8 +540,10 @@ class Deconv2DBlock(nn.Module):
 
 
 class Conv2DBlock(nn.Module):
-    """Conv2DBlock with convolution followed by batch-normalisation, ReLU activation and dropout
-
+    """
+    Conv2DBlock with convolution followed by batch-normalisation, ReLU activation and dropout
+    This model is copied form https://github.com/Lzy-dot/OCELOT2023/tree/main
+    
     Args:
         in_channels (int): Number of input channels for convolution
         out_channels (int): Number of output channels for convolution
@@ -575,7 +582,13 @@ class Conv2DBlock(nn.Module):
         return self.block(x)
 
 
-class ViT_decoder(nn.Module):
+class ViTDecoder(nn.Module):
+    """
+    Decoder which processes the patch embeddings from the transformer blocks. 
+    The embeddings are transformed and upsampled in a UNet manner.
+
+    This decoder is mostly copied from https://github.com/Lzy-dot/OCELOT2023/tree/main 
+    """
     def __init__(self, backbone_config, drop_rate=0) -> None:
         super().__init__()
 
@@ -585,6 +598,7 @@ class ViT_decoder(nn.Module):
         self.bottleneck_dim = 512
         self.drop_rate = drop_rate
 
+        # Deocders for the patch embeddings
         self.bottleneck_upsampler = nn.ConvTranspose2d(
             in_channels=self.embed_dim,
             out_channels=self.bottleneck_dim,
@@ -647,11 +661,12 @@ class ViT_decoder(nn.Module):
                 padding=0,
             ),
         )
-
+        
+        # Decoder for merging and upsampling patch embeddings
         self.decoder0 = nn.Sequential(
             Conv2DBlock(3, 32, 3, dropout=self.drop_rate),
             Conv2DBlock(32, 64, 3, dropout=self.drop_rate),
-        )  # skip connection after positional encoding, shape should be H, W, 64
+        )  # skip connection 0
         self.decoder1 = nn.Sequential(
             Deconv2DBlock(self.embed_dim, self.skip_dim_11, dropout=self.drop_rate),
             Deconv2DBlock(self.skip_dim_11, self.skip_dim_12, dropout=self.drop_rate),
@@ -673,7 +688,8 @@ class ViT_decoder(nn.Module):
         z3: torch.Tensor,
         z4: torch.Tensor,
     ) -> torch.Tensor:
-        """Forward upsample branch
+        """
+        Forward upsample branch
 
         Args:
             z0 (torch.Tensor): Highest skip
@@ -687,56 +703,82 @@ class ViT_decoder(nn.Module):
             torch.Tensor: Branch Output
         """
         b4 = self.bottleneck_upsampler(z4)
+
         b3 = self.decoder3(z3)
         b3 = self.decoder3_upsampler(torch.cat([b3, b4], dim=1))
+        
         b2 = self.decoder2(z2)
         b2 = self.decoder2_upsampler(torch.cat([b2, b3], dim=1))
+        
         b1 = self.decoder1(z1)
         b1 = self.decoder1_upsampler(torch.cat([b1, b2], dim=1))
+        
         b0 = self.decoder0(z0)
         branch_output = self.decoder0_header(torch.cat([b0, b1], dim=1))
 
         return branch_output
 
 
-class VitModelIbot(torch.nn.Module):
+class ViTUNetModel(torch.nn.Module):
     """
-    From phikon paper.
-    Input needs to be 224x224
-    https://github.com/owkin/HistoSSLscaling?tab=readme-ov-file
+    Vision transformer with UNet structure. 
+    This model is recreated from https://github.com/Lzy-dot/OCELOT2023/tree/main
     """
 
-    def __init__(self, extract_layers=[3, 6, 9, 12], *args, **kwargs) -> None:
+    def __init__(self, pretrained_dataset="owkin/phikon", output_spatial_shape=1024, extract_layers=[3, 6, 9, 12], *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.backbone = ViTModel.from_pretrained(
-            "owkin/phikon", add_pooling_layer=False
-        )
+
+        if len(extract_layers) != 4:
+            raise ValueError("The argument extract layers should be a list of length four")
+        
+        self.output_spatial_shape = output_spatial_shape
+
+        # Load pretrained weights
+        if pretrained_dataset:
+            self.vit_encoder = ViTModel.from_pretrained(
+                pretrained_dataset, add_pooling_layer=False
+            )
+        else:
+            self.vit_encoder = ViTModel(add_pooling_layer=False)
+        
+        # Which patch embeddings to extract for the decoder
         self.extract_layers = extract_layers
 
-        vit_config = self.backbone.config
-        self.decoder = ViT_decoder(vit_config)
+        vit_config = self.vit_encoder.config
+        self.decoder = ViTDecoder(vit_config)
 
         self.resize_transform = transforms.Compose([transforms.Resize((224, 224))])
 
-        for _, param in self.backbone.named_parameters():
+        for _, param in self.vit_encoder.named_parameters():
             param.requires_grad = False
 
     def forward(self, pixel_values):
 
         # Resize to desired spatial shape
         pixel_values = self.resize_transform(pixel_values)
-        outputs = self.backbone(pixel_values, output_hidden_states=True)
+        
+        # Extract encodings and patch embeddings
+        outputs = self.vit_encoder(pixel_values, output_hidden_states=True)
         hidden_states = outputs.hidden_states
 
-        embeddings = [pixel_values]
+        # Make list with input to the decoder
+        input_decoder = [pixel_values]
         for i in self.extract_layers:
             hidden_state = (
                 hidden_states[i][:, 1:].reshape(-1, 14, 14, 768).permute(0, 3, 1, 2)
             )
-            embeddings.append(hidden_state)
+            input_decoder.append(hidden_state)
 
         # Decode patch embeddings
-        logits = self.decoder(*embeddings)
+        logits = self.decoder(*input_decoder)
+
+        if logits.shape[1:] != self.output_spatial_shape:
+            logits = nn.functional.interpolate(
+                logits,
+                size=(self.output_spatial_shape, self.output_spatial_shape),
+                mode="bilinear",
+                align_corners=False,
+            )
 
         return logits
 
@@ -768,15 +810,12 @@ class SegformerSharingModel(nn.Module):
             pretrained_dataset=self.pretrained_dataset,
         )
 
-        # self.tissue_model = setup_segformer(
-        #     backbone_name="b1",
-        #     num_classes=3,
-        #     num_channels=3,
-        #     pretrained_dataset=self.pretrained_dataset,
-        # )
-
-        # TODO: Edit this before push
-        self.tissue_model = VitModelIbot()
+        self.tissue_model = setup_segformer(
+            backbone_name="b1",
+            num_classes=3,
+            num_channels=3,
+            pretrained_dataset=self.pretrained_dataset,
+        )
 
     def forward(self, x: torch.Tensor, offsets: torch.Tensor):
         """

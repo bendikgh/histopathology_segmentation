@@ -27,6 +27,7 @@ from src.trainable import (
     SegformerTissueTrainable,
     SegformerTissueToCellDecoderTrainable,
     Trainable,
+    ViTUnetTrainable,
 )
 
 
@@ -107,6 +108,16 @@ def get_trainable(
             pretrained=pretrained,
             device=device,
             leak_labels=leak_labels,
+        )
+    elif model_architecture == "vit_unet":
+        trainable = ViTUnetTrainable(
+            normalization=normalization,
+            batch_size=batch_size,
+            pretrained=pretrained,
+            device=device,
+            backbone_model=backbone_model,
+            pretrained_dataset=pretrained_dataset,
+            resize=resize,
         )
     else:
         raise ValueError("Invalid model name")
