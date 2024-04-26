@@ -281,12 +281,12 @@ def main():
         )
     val_evaluation_function = create_cellwise_evaluation_function(
         evaluation_model=val_evaluation_model,
-        tissue_file_folder="annotations/val/predicted_cropped_tissue",
+        tissue_file_folder="predictions/val/cropped_tissue_deeplab",
         transform=transform_val_test,
     )
     test_evaluation_function = create_cellwise_evaluation_function(
         evaluation_model=test_evaluation_model,
-        tissue_file_folder="annotations/test/predicted_cropped_tissue",
+        tissue_file_folder="predictions/test/cropped_tissue_deeplab",
         transform=transform_val_test,
     )
 

@@ -291,7 +291,7 @@ class DeeplabTissueCellTrainable(Trainable):
         else:
             self.name = "DeeplabV3+ Tissue-Cell"
             self.tissue_training_file_path = (
-                "annotations/train/predicted_cropped_tissue/*"
+                "predictions/train/cropped_tissue_deeplab/*"
             )
         super().__init__(
             normalization=normalization,
@@ -305,7 +305,7 @@ class DeeplabTissueCellTrainable(Trainable):
         if self.leak_labels:
             return f"annotations/{partition}/cropped_tissue"
         else:
-            return f"annotations/{partition}/predicted_cropped_tissue"
+            return f"predictions/{partition}/cropped_tissue_deeplab"
 
     def create_transforms(self, normalization, partition: str = "train"):
         transform_list = self._create_transform_list(normalization, partition=partition)
@@ -434,10 +434,10 @@ class SegformerCellOnlyTrainable(Trainable):
 
         return transforms
 
-    def create_train_dataloader(self, data_dir: str) -> DataLoader:
-        train_image_files, train_seg_files = get_ocelot_files(
+    def _create_dataloader(self, data_dir: str, partition: str):
+        image_files, target_files = get_ocelot_files(
             data_dir=data_dir,
-            partition="train",
+            partition=partition,
             zoom="cell",
             macenko=self.macenko_normalize,
         )
@@ -446,20 +446,29 @@ class SegformerCellOnlyTrainable(Trainable):
         else:
             image_shape = (1024, 1024)
 
-        train_dataset = CellOnlyDataset(
-            cell_image_files=train_image_files,
-            cell_target_files=train_seg_files,
-            transform=self.train_transforms,
+        if partition == "train":
+            transforms = self.train_transforms
+            shuffle = True
+        else:
+            transforms = self.val_transforms
+            shuffle = False
+
+        dataset = CellOnlyDataset(
+            cell_image_files=image_files,
+            cell_target_files=target_files,
+            transform=transforms,
             image_shape=image_shape,
         )
-        train_dataloader = DataLoader(
-            dataset=train_dataset,
+        dataloader = DataLoader(
+            dataset=dataset,
             batch_size=self.batch_size,
-            shuffle=True,
+            shuffle=shuffle,
             drop_last=True,
         )
+        return dataloader
 
-        return train_dataloader
+    def create_train_dataloader(self, data_dir: str) -> DataLoader:
+        return self._create_dataloader(data_dir, partition="train")
 
     def create_model(
         self,
@@ -625,7 +634,7 @@ class SegformerTissueCellTrainable(Trainable):
         else:
             self.name = "Segformer Tissue-Cell"
             self.tissue_training_file_path = (
-                "annotations/train/predicted_cropped_tissue/*"
+                "predictions/train/cropped_tissue_segformer/*"
             )
         self.pretrained_dataset = pretrained_dataset
         self.resize = resize
@@ -641,7 +650,7 @@ class SegformerTissueCellTrainable(Trainable):
         if self.leak_labels:
             return f"annotations/{partition}/cropped_tissue"
         else:
-            return f"annotations/{partition}/predicted_cropped_tissue"
+            return f"predictions/{partition}/cropped_tissue_segformer"
 
     def build_transform_function_with_extra_transforms(
         self, transforms, extra_transform_cell_tissue

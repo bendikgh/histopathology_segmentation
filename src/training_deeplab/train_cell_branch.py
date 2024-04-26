@@ -101,7 +101,7 @@ def main():
 
     # Getting tissue files
     train_tissue_predicted = glob(
-        os.path.join(data_dir, "annotations/train/predicted_cropped_tissue/*")
+        os.path.join(data_dir, "predictions/train/cropped_tissue_deeplab/*")
     )
 
     # Making sure only the appropriate numbers are used

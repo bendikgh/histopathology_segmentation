@@ -232,6 +232,8 @@ def predict_and_evaluate(
         predictions=predictions,
         num_images=num_images,
     )
+    # TODO: Remove:
+    print(f"scores: {scores}")
     return scores["mF1"]
 
 
@@ -354,7 +356,7 @@ if __name__ == "__main__":
         DATASET_PARTITION_OFFSETS[partition] :
     ]
 
-    tissue_file_folder = f"annotations/{partition}/predicted_cropped_tissue"
+    tissue_file_folder = f"predictions/{partition}/cropped_tissue_deeplab"
     resize = 512
     transform = A.Compose(
         [A.Resize(height=resize, width=resize, interpolation=cv2.INTER_NEAREST)],

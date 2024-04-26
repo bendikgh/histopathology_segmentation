@@ -19,7 +19,7 @@ from src.utils.constants import (
     MISSING_IMAGE_NUMBERS,
     MAX_IMAGE_NUMBER,
     CELL_IMAGE_MEAN,
-    CELL_IMAGE_STD
+    CELL_IMAGE_STD,
 )
 
 
@@ -84,7 +84,7 @@ def setup_buttons(max_index: int):
     def button_prev_callback():
         if st.session_state.image_index > 0:
             st.session_state.image_index -= 1
-    
+
     # Setting up button
     button_col1, button_col2, _ = st.columns([1, 1, 8])
     with button_col1:
@@ -171,7 +171,7 @@ def get_image_dict(base_path: str, image_num: str) -> dict:
         base_path, "images", partition, "cell", f"{image_num}.jpg"
     )
     cell_target_image_path = os.path.join(
-        base_path, "annotations", partition, "segmented_cell", f"{image_num}.png"
+        base_path, "annotations", partition, "cell_mask_images", f"{image_num}.png"
     )
     tissue_input_image_path = os.path.join(
         base_path, "images", partition, "tissue_macenko", f"{image_num}.jpg"
@@ -181,9 +181,9 @@ def get_image_dict(base_path: str, image_num: str) -> dict:
     )
     tissue_predicted_image_path = os.path.join(
         base_path,
-        "annotations",
+        "predictions",
         partition,
-        "predicted_cropped_tissue",
+        "cropped_tissue_deeplab",
         f"{image_num}.png",
     )
     tissue_cropped_target_image_path = os.path.join(

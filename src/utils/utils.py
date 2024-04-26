@@ -77,9 +77,9 @@ def create_segmented_data(data: dict, annotation_path: str):
     """
 
     # Finding and creating the necessary folders
-    train_segmented_folder = os.path.join(annotation_path, "train/segmented_cell")
-    val_segmented_folder = os.path.join(annotation_path, "val/segmented_cell")
-    test_segmented_folder = os.path.join(annotation_path, "test/segmented_cell")
+    train_segmented_folder = os.path.join(annotation_path, "train/cell_mask_images")
+    val_segmented_folder = os.path.join(annotation_path, "val/cell_mask_images")
+    test_segmented_folder = os.path.join(annotation_path, "test/cell_mask_images")
 
     os.makedirs(train_segmented_folder, exist_ok=True)
     os.makedirs(val_segmented_folder, exist_ok=True)
@@ -266,10 +266,10 @@ def get_ocelot_files(
         target_dir = "tissue"
     elif macenko:
         image_dir = "cell_macenko"
-        target_dir = "segmented_cell"
+        target_dir = "cell_mask_images"
     elif zoom == "cell":
         image_dir = "cell"
-        target_dir = "segmented_cell"
+        target_dir = "cell_mask_images"
     else:
         image_dir = "tissue"
         target_dir = "tissue"
