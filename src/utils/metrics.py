@@ -232,8 +232,6 @@ def predict_and_evaluate(
         predictions=predictions,
         num_images=num_images,
     )
-    # TODO: Remove:
-    print(f"scores: {scores}")
     return scores["mF1"]
 
 
@@ -326,8 +324,6 @@ def create_cellwise_evaluation_function(
     Notice how a bigger score is better.
     """
 
-    # TODO: Take partition as an argument in outer function and pass it
-    # directly, since the evaluation model is dependent on partition anyway
     def evaluation_function(break_after_one_iteration: bool = False) -> float:
 
         result = predict_and_evaluate(

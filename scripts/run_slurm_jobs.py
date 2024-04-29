@@ -82,37 +82,38 @@ def main():
     #SBATCH --constraint="gpu32g|gpu40g|gpu80g"
     """
 
-    run_script = False
+    run_script = True
 
     # General parameters
-    job_name = "exp3-b0-512"
+    job_name = "exp5-tc-b3-512"
     python_file = "src/run_trainable.py"
-    duration_str: str = "0-02:30:00"
+    duration_str: str = "0-04:00:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
-    model_architecture = "vit_unet"
-    epochs = 50
-    batch_size = 8
+    # "segformer_cell_only", "segformer_tissue_branch", "segformer_cell_branch", "segformer_sharing", "segformer_sum_sharing", "deeplab_cell_only", "deeplab_tissue_cell", "vit_unet"
+    model_architecture = "segformer_cell_branch"
+    epochs = 100
+    batch_size = 6
     checkpoint_interval = 10
-    backbone = "b0"
+    backbone = "b3"
     dropout = 0.3
-    learning_rate = 5e-5
+    learning_rate = 6e-5
     pretrained = 1
-    warmup_epochs = 5
+    warmup_epochs = 10
     do_save = 1
     do_eval = 1
     break_early = 0
     id_ = 1
     normalization = "macenko"
     leak_labels = 0
-    loss_function = "dice-wrapper"
+    loss_function = "dice-ce"
     # Options: "dice", "dice-wrapper", "dice-ce", "dice-ce-wrapper"
     # Use "-wrapper" when training tissue-branch
 
     # SegFormer
     resize = 512
-    pretrained_dataset = "owkin/phikon"
+    pretrained_dataset = "ade"
 
     for id_ in range(1, 2):
         script_contents = generate_slurm_script(

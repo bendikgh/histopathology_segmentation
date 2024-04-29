@@ -697,15 +697,11 @@ class SegformerTissueCellTrainable(Trainable):
         )
 
         if self.resize is not None:
+            resize_function = A.Resize(
+                height=self.resize, width=self.resize, interpolation=cv2.INTER_NEAREST
+            )
             extra_transform_cell_tissue = A.Compose(
-                [
-                    A.Resize(
-                        height=self.resize,
-                        width=self.resize,
-                        interpolation=cv2.INTER_NEAREST,
-                    )
-                ],
-                additional_targets={"tissue": "image"},
+                [resize_function], additional_targets={"tissue": "image"}
             )
 
             transforms = self.build_transform_function_with_extra_transforms(
@@ -1023,7 +1019,9 @@ class SegformerTissueToCellDecoderTrainable(SegformerSharingTrainable):
         metadata = get_metadata_with_offset(
             data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
         )
-        return SegformerTissueToCellDecoderModule(metadata=metadata, cell_model=self.model)
+        return SegformerTissueToCellDecoderModule(
+            metadata=metadata, cell_model=self.model
+        )
 
 
 class ViTUnetTrainable(Trainable):
@@ -1116,7 +1114,7 @@ class ViTUnetTrainable(Trainable):
         device: torch.device,
         model_path: Optional[str] = None,
     ) -> nn.Module:
-        
+
         model = ViTUNetModel(
             pretrained_dataset=self.pretrained_dataset,
         )
@@ -1138,6 +1136,7 @@ class ViTUnetTrainable(Trainable):
 
     def create_evaluation_model(self, partition: str) -> EvaluationModel:
         return None
+
 
 def main():
     # General training params
