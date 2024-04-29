@@ -187,7 +187,7 @@ class Trainable(ABC):
         pass
 
     def get_tissue_folder(self, partition: str) -> str:
-        return f"images/{partition}/tissue_macenko"
+        return os.path.join("images", partition, "tissue_macenko")
 
     def get_evaluation_function(self, partition: str):
         evaluation_function = create_cellwise_evaluation_function(
@@ -287,12 +287,10 @@ class DeeplabTissueCellTrainable(Trainable):
         self.leak_labels = leak_labels
         if self.leak_labels:
             self.name = "DeeplabV3+ Tissue-Leaking"
-            self.tissue_training_file_path = "annotations/train/cropped_tissue/*"
+            self.tissue_training_file_path = os.path.join("annotations", "train", "cropped_tissue", "*")
         else:
             self.name = "DeeplabV3+ Tissue-Cell"
-            self.tissue_training_file_path = (
-                "predictions/train/cropped_tissue_deeplab/*"
-            )
+            self.tissue_training_file_path = os.path.join("predictions", "train", "cropped_tissue_deeplab", "*")
         super().__init__(
             normalization=normalization,
             batch_size=batch_size,
@@ -303,9 +301,9 @@ class DeeplabTissueCellTrainable(Trainable):
 
     def get_tissue_folder(self, partition: str) -> str:
         if self.leak_labels:
-            return f"annotations/{partition}/cropped_tissue"
+            return os.path.join("annotations", partition, "cropped_tissue")
         else:
-            return f"predictions/{partition}/cropped_tissue_deeplab"
+            return os.path.join("predictions", partition, "cropped_tissue_deeplab")
 
     def create_transforms(self, normalization, partition: str = "train"):
         transform_list = self._create_transform_list(normalization, partition=partition)
@@ -323,7 +321,7 @@ class DeeplabTissueCellTrainable(Trainable):
             macenko=self.macenko_normalize,
         )
         train_image_nums = [
-            x.split("/")[-1].split(".")[0] for x in train_cell_image_files
+            os.path.basename(x).split(".")[0] for x in train_cell_image_files
         ]
 
         # Getting tissue files
@@ -335,10 +333,10 @@ class DeeplabTissueCellTrainable(Trainable):
         train_tissue_predicted = [
             file
             for file in train_tissue_predicted
-            if file.split("/")[-1].split(".")[0] in train_image_nums
+            if os.path.basename(file).split(".")[0] in train_image_nums
         ]
 
-        train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+        train_tissue_predicted.sort(key=lambda x: int(os.path.basename(x).split(".")[0]))
 
         train_dataset = CellTissueDataset(
             cell_image_files=train_cell_image_files,
@@ -630,12 +628,10 @@ class SegformerTissueCellTrainable(Trainable):
         self.debug = debug
         if self.leak_labels:
             self.name = "Segformer Tissue-Leaking"
-            self.tissue_training_file_path = "annotations/train/cropped_tissue/*"
+            self.tissue_training_file_path = os.path.join("annotations", "train", "cropped_tissue", "*")
         else:
             self.name = "Segformer Tissue-Cell"
-            self.tissue_training_file_path = (
-                "predictions/train/cropped_tissue_segformer/*"
-            )
+            self.tissue_training_file_path = os.path.join("predictions", "train", "cropped_tissue_segformer", "*")
         self.pretrained_dataset = pretrained_dataset
         self.resize = resize
         super().__init__(
@@ -648,9 +644,9 @@ class SegformerTissueCellTrainable(Trainable):
 
     def get_tissue_folder(self, partition: str) -> str:
         if self.leak_labels:
-            return f"annotations/{partition}/cropped_tissue"
+            return os.path.join("annotations", partition, "cropped_tissue")
         else:
-            return f"predictions/{partition}/cropped_tissue_segformer"
+            return os.path.join("predictions", partition, "cropped_tissue_segformer")
 
     def build_transform_function_with_extra_transforms(
         self, transforms, extra_transform_cell_tissue
@@ -720,7 +716,7 @@ class SegformerTissueCellTrainable(Trainable):
         )
 
         train_image_nums = [
-            x.split("/")[-1].split(".")[0] for x in train_cell_image_files
+            os.path.basename(x).split(".")[0] for x in train_cell_image_files
         ]
 
         train_tissue_predicted = glob(
@@ -730,10 +726,10 @@ class SegformerTissueCellTrainable(Trainable):
         train_tissue_predicted = [
             file
             for file in train_tissue_predicted
-            if file.split("/")[-1].split(".")[0] in train_image_nums
+            if os.path.basename(file).split(".")[0] in train_image_nums
         ]
 
-        train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+        train_tissue_predicted.sort(key=lambda x: int(os.path.basename(x).split(".")[0]))
 
         if self.resize is not None:
             image_shape = (self.resize, self.resize)
@@ -901,16 +897,16 @@ class SegformerSharingTrainable(Trainable):
         )
 
         # Removing image numbers from tissue images to match cell and tissue
-        image_numbers = [x.split("/")[-1].split(".")[0] for x in train_cell_image_files]
+        image_numbers = [os.path.basename(x).split(".")[0] for x in train_cell_image_files]
         train_tissue_image_files = [
             file
             for file in train_tissue_image_files
-            if file.split("/")[-1].split(".")[0] in image_numbers
+            if os.path.basename(file).split(".")[0] in image_numbers
         ]
         train_tissue_target_files = [
             file
             for file in train_tissue_target_files
-            if file.split("/")[-1].split(".")[0] in image_numbers
+            if os.path.basename(file).split(".")[0] in image_numbers
         ]
         len1 = len(train_cell_image_files)
         len2 = len(train_cell_target_files)

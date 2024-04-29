@@ -275,18 +275,18 @@ def get_ocelot_files(
         target_dir = "tissue"
 
     target_files: list = glob(
-        os.path.join(data_dir, f"annotations/{partition}/{target_dir}/*")
+        os.path.join(data_dir, "annotations", partition, target_dir, "*")
     )
     image_numbers: list = [
-        file_name.split("/")[-1].split(".")[0] for file_name in target_files
+        os.path.basename(file).split(".")[0] for file in target_files
     ]
     image_files: list = [
-        os.path.join(data_dir, f"images/{partition}/{image_dir}", image_number + ".jpg")
+        os.path.join(data_dir, "images", partition, image_dir, image_number + ".jpg")
         for image_number in image_numbers
     ]
     # Sorting by image numbers
-    target_files.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
-    image_files.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+    target_files.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
+    image_files.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
     return image_files, target_files
 
 
@@ -309,23 +309,23 @@ def get_predicted_tissue(
     """
 
     train_tissue_predicted = glob(
-        os.path.join(data_dir, "annotations/train/pred_tissue/*")
+        os.path.join(data_dir, "annotations", "train", "pred_tissue", "*")
     )
     train_tissue_predicted = [
         file
         for file in train_tissue_predicted
-        if file.split("/")[-1].split(".")[0] in image_train_nums
+        if os.path.basename(file).split(".")[0] in image_train_nums
     ]
 
-    val_tissue_predicted = glob(os.path.join(data_dir, "annotations/val/pred_tissue/*"))
+    val_tissue_predicted = glob(os.path.join(data_dir, "annotations", "val", "pred_tissue", "*"))
     val_tissue_predicted = [
         file
         for file in val_tissue_predicted
-        if file.split("/")[-1].split(".")[0] in image_val_nums
+        if os.path.basename(file).split(".")[0] in image_val_nums
     ]
 
-    train_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
-    val_tissue_predicted.sort(key=lambda x: int(x.split("/")[-1].split(".")[0]))
+    train_tissue_predicted.sort(key=lambda x: int(os.path.basename(x).split(".")[0]))
+    val_tissue_predicted.sort(key=lambda x: int(os.path.basename(x).split(".")[0]))
 
     return train_tissue_predicted, val_tissue_predicted
 
@@ -408,7 +408,7 @@ def get_save_name(
 
 
 def get_ground_truth_points(partition: str):
-    gt_path: str = f"{os.getcwd()}/eval_outputs/cell_gt_{partition}.json"
+    gt_path = os.path.join(os.getcwd(), "eval_outputs", f"cell_gt_{partition}.json")
     with open(gt_path, "r") as f:
         gt_json = json.load(f)
     return gt_json
