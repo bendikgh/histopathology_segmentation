@@ -41,6 +41,7 @@ def get_trainable(
     pretrained_dataset: str,
     resize: int,
     leak_labels: bool,
+    data_dir: str,
 ) -> Trainable:
     trainable: Trainable
     if model_architecture == "segformer_cell_only":
@@ -52,6 +53,7 @@ def get_trainable(
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
             resize=resize,
+            data_dir=data_dir,
         )
     elif model_architecture == "segformer_tissue_branch":
         trainable = SegformerTissueTrainable(
@@ -62,6 +64,7 @@ def get_trainable(
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
             resize=resize,
+            data_dir=data_dir,
         )
     elif model_architecture == "segformer_cell_branch":
         trainable = SegformerTissueCellTrainable(
@@ -73,6 +76,7 @@ def get_trainable(
             pretrained_dataset=pretrained_dataset,
             resize=resize,
             leak_labels=leak_labels,
+            data_dir=data_dir,
         )
     elif model_architecture == "segformer_sharing":
         trainable = SegformerSharingTrainable(
@@ -83,6 +87,7 @@ def get_trainable(
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
             resize=resize,
+            data_dir=data_dir,
         )
     elif model_architecture == "segformer_sum_sharing":
         trainable = SegformerTissueToCellDecoderTrainable(
@@ -93,6 +98,7 @@ def get_trainable(
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
             resize=resize,
+            data_dir=data_dir,
         )
     elif model_architecture == "deeplab_cell_only":
         trainable = DeeplabCellOnlyTrainable(
@@ -100,6 +106,7 @@ def get_trainable(
             batch_size=batch_size,
             pretrained=pretrained,
             device=device,
+            data_dir=data_dir,
         )
     elif model_architecture == "deeplab_tissue_cell":
         trainable = DeeplabTissueCellTrainable(
@@ -108,6 +115,7 @@ def get_trainable(
             pretrained=pretrained,
             device=device,
             leak_labels=leak_labels,
+            data_dir=data_dir,
         )
     elif model_architecture == "vit_unet":
         trainable = ViTUnetTrainable(
@@ -118,6 +126,7 @@ def get_trainable(
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
             resize=resize,
+            data_dir=data_dir,
         )
     else:
         raise ValueError("Invalid model name")
@@ -181,12 +190,13 @@ def main():
         pretrained_dataset=pretrained_dataset,
         resize=resize,
         leak_labels=leak_labels,
+        data_dir=data_dir
     )
 
     if loss_function_arg == "dice":
-        loss_function = DiceLoss(softmax=True)
+        loss_function = DiceLoss(softmax=True, include_background=False)
     elif loss_function_arg == "dice-ce":
-        loss_function = DiceCELoss(softmax=True)
+        loss_function = DiceCELoss(softmax=True, include_background=False)
     elif loss_function_arg == "dice-wrapper":
         loss_function = DiceLossWrapper(softmax=True, to_onehot_y=True)
     elif loss_function_arg == "dice-ce-wrapper":

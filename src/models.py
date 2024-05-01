@@ -108,58 +108,13 @@ class CustomSegformerModel(nn.Module):
         self.pretrained_dataset = pretrained_dataset
         self.output_spatial_shape = output_spatial_shape
 
-        # Fetching the parameters for the segformer model
-        parameters = SEGFORMER_ARCHITECTURES[backbone_name]
-
-        # Creating model
-        configuration = SegformerConfig(
-            num_labels=num_classes,
+        self.model = setup_segformer(
+            backbone_name=backbone_name,
+            num_classes=num_classes,
             num_channels=num_channels,
-            depths=parameters["depths"],
-            hidden_sizes=parameters["hidden_sizes"],
-            decoder_hidden_size=parameters["decoder_hidden_size"],
+            pretrained_dataset=pretrained_dataset,
         )
 
-        model = SegformerForSemanticSegmentation(configuration)
-
-        # Loading pretrained weights
-        if pretrained_dataset == "ade":
-            pretrained = SegformerModel.from_pretrained(
-                f"nvidia/segformer-{backbone_name}-finetuned-ade-512-512"
-            )
-            model.segformer = pretrained
-        elif pretrained_dataset == "cityscapes":
-            pretrained = SegformerModel.from_pretrained(
-                f"nvidia/segformer-{backbone_name}-finetuned-cityscapes-1024-1024"
-            )
-            model.segformer = pretrained
-        elif pretrained_dataset == "imagenet":
-            pretrained = SegformerModel.from_pretrained(f"nvidia/mit-{backbone_name}")
-            model.segformer = pretrained
-        else:
-            raise ValueError(f"Invalid pretrained dataset: {pretrained_dataset}")
-
-        if num_channels != 3:
-            input_layer = model.segformer.encoder.patch_embeddings[0].proj
-
-            new_input_layer = nn.Conv2d(
-                num_channels,
-                input_layer.out_channels,
-                kernel_size=input_layer.kernel_size,
-                stride=input_layer.stride,
-                padding=input_layer.padding,
-            )
-
-            num_channels_input_layer = input_layer.weight.data.shape[1]
-
-            new_input_layer.weight.data[:, :num_channels_input_layer] = (
-                input_layer.weight.data
-            )
-            new_input_layer.bias.data[:] = input_layer.bias.data
-
-            model.segformer.encoder.patch_embeddings[0].proj = new_input_layer
-
-        self.model = model
 
     def forward(self, x):
         logits = self.model(x).logits
@@ -308,8 +263,6 @@ class TissueCellSharingSegformerModel(nn.Module):
         for i in range(len(pair_id)):
             # TODO: Do we fetch the correct metadata for the sample
             meta_pair = self.metadata[pair_id[i]]
-            tissue_mpp = meta_pair["tissue"]["resized_mpp_x"]
-            cell_mpp = meta_pair["cell"]["resized_mpp_x"]
             x_offset = meta_pair["patch_x_offset"]
             y_offset = meta_pair["patch_y_offset"]
 
@@ -903,7 +856,7 @@ class SegformerTissueToCellDecoderModel(nn.Module):
         )
 
         self.tissue_model = setup_segformer(
-            backbone_name="b1",
+            backbone_name="b1", # TODO: make this into an argument?
             num_classes=3,
             num_channels=3,
             pretrained_dataset=self.pretrained_dataset,

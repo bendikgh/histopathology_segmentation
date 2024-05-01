@@ -218,7 +218,7 @@ class CellTissueDataset(Dataset):
         cell_label = cv2.imread(cell_target_path)
         tissue_pred = cv2.imread(
             tissue_pred_path
-        )  # TODO: Check that this works for both pred and gt
+        )  
 
         cell_image = cv2.cvtColor(cell_image, cv2.COLOR_BGR2RGB)
         cell_label = cv2.cvtColor(cell_label, cv2.COLOR_BGR2RGB)

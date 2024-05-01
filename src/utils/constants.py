@@ -1,7 +1,8 @@
 PYTORCH_STANDARD_IMAGE_SHAPE = (3, 1024, 1024)
 NUMPY_STANDARD_IMAGE_SHAPE = (1024, 1024, 3)
 
-IDUN_OCELOT_DATA_PATH = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+# IDUN_OCELOT_DATA_PATH = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+IDUN_OCELOT_DATA_PATH = "ocelot_data"
 
 DEFAULT_EPOCHS: int = 2
 DEFAULT_BATCH_SIZE: int = 2

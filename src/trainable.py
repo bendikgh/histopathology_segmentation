@@ -84,6 +84,7 @@ class Trainable(ABC):
         pretrained: bool,
         device: torch.device,
         backbone_model: str,
+        data_dir: str,
     ):
         self.macenko_normalize = "macenko" in normalization
         self.batch_size = batch_size
@@ -93,7 +94,7 @@ class Trainable(ABC):
 
         self.train_transforms = self.create_transforms(normalization)
         self.val_transforms = self.create_transforms(normalization, partition="val")
-        self.dataloader = self.create_train_dataloader(IDUN_OCELOT_DATA_PATH)
+        self.dataloader = self.create_train_dataloader(data_dir=data_dir)
         self.model = self.create_model(
             backbone_name=self.backbone_model,
             pretrained=self.pretrained,
@@ -213,6 +214,7 @@ class DeeplabCellOnlyTrainable(Trainable):
         batch_size: int,
         pretrained: bool,
         device: torch.device,
+        data_dir: str
     ):
         self.name = "DeeplabV3+ Cell-Only"
         super().__init__(
@@ -221,6 +223,7 @@ class DeeplabCellOnlyTrainable(Trainable):
             pretrained=pretrained,
             device=device,
             backbone_model="resnet50",
+            data_dir=data_dir
         )
 
     def create_train_dataloader(self, data_dir: str):
@@ -282,6 +285,7 @@ class DeeplabTissueCellTrainable(Trainable):
         batch_size: int,
         pretrained: bool,
         device: torch.device,
+        data_dir: str,
         leak_labels: bool = False,
     ):
         self.leak_labels = leak_labels
@@ -297,6 +301,7 @@ class DeeplabTissueCellTrainable(Trainable):
             pretrained=pretrained,
             device=device,
             backbone_model="resnet50",
+            data_dir=data_dir
         )
 
     def get_tissue_folder(self, partition: str) -> str:
@@ -393,6 +398,7 @@ class SegformerCellOnlyTrainable(Trainable):
         backbone_model: str,
         pretrained_dataset: str,
         resize: Optional[int],
+        data_dir: str,
     ):
         self.name = "Segformer Cell-Only"
         self.pretrained_dataset = pretrained_dataset
@@ -403,6 +409,7 @@ class SegformerCellOnlyTrainable(Trainable):
             pretrained=pretrained,
             device=device,
             backbone_model=backbone_model,
+            data_dir=data_dir,
         )
 
     def build_transform_function_with_extra_transforms(
@@ -504,6 +511,7 @@ class SegformerTissueTrainable(Trainable):
         device: torch.device,
         backbone_model: str,
         pretrained_dataset: str,
+        data_dir: str,
         resize: Optional[int] = 1024,
     ):
         self.name = "Segformer Tissue-Branch"
@@ -515,6 +523,7 @@ class SegformerTissueTrainable(Trainable):
             pretrained=pretrained,
             device=device,
             backbone_model=backbone_model,
+            data_dir=data_dir
         )
 
     def build_transform_function_with_extra_transforms(
@@ -621,6 +630,7 @@ class SegformerTissueCellTrainable(Trainable):
         backbone_model: str,
         pretrained_dataset: str,
         resize: Optional[int],
+        data_dir: str,
         leak_labels: bool = False,
         debug: bool = False,
     ):
@@ -640,6 +650,7 @@ class SegformerTissueCellTrainable(Trainable):
             pretrained=pretrained,
             device=device,
             backbone_model=backbone_model,
+            data_dir=data_dir
         )
 
     def get_tissue_folder(self, partition: str) -> str:
@@ -797,6 +808,7 @@ class SegformerSharingTrainable(Trainable):
         backbone_model: str,
         pretrained_dataset: str,
         resize: Optional[int],
+        data_dir: str,
         debug: bool = False,
     ):
         self.pretrained_dataset = pretrained_dataset
@@ -808,6 +820,7 @@ class SegformerSharingTrainable(Trainable):
             pretrained=pretrained,
             device=device,
             backbone_model=backbone_model,
+            data_dir=data_dir
         )
 
     def build_transform_function_with_extra_transforms(
@@ -1030,6 +1043,7 @@ class ViTUnetTrainable(Trainable):
         device: torch.device,
         backbone_model: str,
         pretrained_dataset: str,
+        data_dir: str,
         resize: Optional[int] = 1024,
     ):
         self.name = "ViTUnet"
@@ -1041,6 +1055,7 @@ class ViTUnetTrainable(Trainable):
             pretrained=pretrained,
             device=device,
             backbone_model=backbone_model,
+            data_dir=data_dir
         )
 
     def build_transform_function_with_extra_transforms(
