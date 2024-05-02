@@ -1127,7 +1127,7 @@ class ViTUnetTrainable(Trainable):
     ) -> nn.Module:
 
         model = ViTUNetModel(
-            pretrained_dataset=self.pretrained_dataset,
+            pretrained_dataset=self.pretrained_dataset, input_spatial_shape=self.resize
         )
         if model_path is not None:
             model.load_state_dict(torch.load(model_path))
