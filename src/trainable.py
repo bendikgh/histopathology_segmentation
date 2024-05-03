@@ -11,7 +11,6 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import partial
 from glob import glob
-from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import (
@@ -31,7 +30,7 @@ from ocelot23algo.user.inference import (
     SegformerTissueFromFile,
 )
 from ocelot23algo.user.inference import (
-    SegformerJointPred2InputModel as SegformerSimulPredToInputModule,
+    SegformerJointPred2InputModel as SegformerJointPred2InputModule,
     SegformerTissueToCellDecoderModel as SegformerTissueToCellDecoderModule,
 )
 
@@ -41,13 +40,7 @@ from src.dataset import (
     SegformerJointPred2InputDataset,
     TissueDataset,
 )
-from src.utils.constants import (
-    CELL_IMAGE_MEAN,
-    CELL_IMAGE_STD,
-    IDUN_OCELOT_DATA_PATH,
-    SEGFORMER_JOINT_TISSUE_IMAGE_SIZE,
-    SEGFORMER_JOINT_CELL_IMAGE_SIZE,
-)
+from src.utils.constants import *
 from src.utils.metrics import (
     create_cellwise_evaluation_function,
     create_tissue_evaluation_function,
@@ -1019,7 +1012,7 @@ class SegformerJointPred2InputTrainable(Trainable):
         tissue_transform = self._create_dual_transform(
             normalization=self.normalization, partition=partition, kind="tissue"
         )
-        return SegformerSimulPredToInputModule(
+        return SegformerJointPred2InputModule(
             metadata=metadata,
             cell_model=self.model,
             cell_transform=cell_transform,

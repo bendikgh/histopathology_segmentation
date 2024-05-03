@@ -78,7 +78,7 @@ def get_trainable(
             leak_labels=leak_labels,
             data_dir=data_dir,
         )
-    elif model_architecture == "segformer_sharing":
+    elif model_architecture == "segformer_joint_pred2input":
         trainable = SegformerJointPred2InputTrainable(
             normalization=normalization,
             batch_size=batch_size,
@@ -145,6 +145,7 @@ def main():
     backbone_model: str = args.backbone
     model_architecture: str = args.model_architecture
     learning_rate: float = args.learning_rate
+    learning_rate_end: float = args.learning_rate_end
     pretrained: bool = args.pretrained
     warmup_epochs: int = args.warmup_epochs
     do_save: bool = args.do_save
@@ -206,6 +207,7 @@ def main():
         optimizer,
         num_warmup_steps=warmup_epochs,
         num_training_steps=num_epochs,
+        lr_end=learning_rate_end,
         power=1,
     )
 

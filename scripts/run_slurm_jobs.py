@@ -15,6 +15,7 @@ def generate_slurm_script(
     backbone,
     dropout,
     learning_rate,
+    learning_rate_end,
     pretrained,
     warmup_epochs,
     do_save,
@@ -63,6 +64,7 @@ python {python_file} \\
   --backbone {backbone} \\
   --dropout {dropout} \\
   --learning-rate {learning_rate} \\
+  --learning-rate-end {learning_rate_end} \\
   --pretrained {pretrained} \\
   --warmup-epochs {warmup_epochs} \\
   --do-save {do_save} \\
@@ -91,14 +93,15 @@ def main():
     work_dir = os.getcwd()
 
     # Script-specific parameters
-    # "segformer_cell_only", "segformer_tissue_branch", "segformer_cell_branch", "segformer_sharing", "segformer_sum_sharing", "deeplab_cell_only", "deeplab_tissue_cell", "vit_unet"
-    model_architecture = "segformer_sharing"
-    epochs = 300
+    # "segformer_cell_only", "segformer_tissue_branch", "segformer_cell_branch", "segformer_joint_pred2input", "segformer_sum_sharing", "deeplab_cell_only", "deeplab_tissue_cell", "vit_unet"
+    model_architecture = "segformer_joint_pred2input"
+    epochs = 5
     batch_size = 2
     checkpoint_interval = 10
     backbone = "b3"
     dropout = 0.3
     learning_rate = 6e-5
+    learning_rate_end = 2e-5
     pretrained = 1
     warmup_epochs = 0
     do_save = 1
@@ -128,6 +131,7 @@ def main():
             backbone=backbone,
             dropout=dropout,
             learning_rate=learning_rate,
+            learning_rate_end=learning_rate_end,
             pretrained=pretrained,
             warmup_epochs=warmup_epochs,
             do_save=do_save,

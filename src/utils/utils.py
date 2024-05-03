@@ -542,6 +542,12 @@ def get_ocelot_args() -> argparse.Namespace:
         help="Learning rate",
     )
     parser.add_argument(
+        "--learning-rate-end",
+        type=float,
+        default=DEFAULT_LEARNING_RATE_END,
+        help="Learning rate end",
+    )
+    parser.add_argument(
         "--warmup-epochs",
         type=int,
         default=DEFAULT_WARMUP_EPOCHS,
