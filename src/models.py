@@ -1,26 +1,11 @@
-import json
 import os
 import sys
 import torch
-import albumentations as A
 import torch.nn.functional as F
 
-sys.path.append(os.getcwd())
 
 from torch import nn
-import torch.nn.functional as F
 from typing import Union, Optional, Dict
-from src.deeplabv3.network.utils import IntermediateLayerGetter
-from src.deeplabv3.network.backbone import resnet
-
-from src.deeplabv3.network._deeplab import (
-    DeepLabHeadV3Plus,
-    DeepLabV3,
-)
-
-from src.utils.constants import OCELOT_IMAGE_SIZE, SEGFORMER_ARCHITECTURES
-from src.utils.utils import crop_and_resize_tissue_faster
-
 from torchvision import transforms
 from transformers import (
     SegformerForSemanticSegmentation,
@@ -30,6 +15,17 @@ from transformers import (
     Dinov2PreTrainedModel,
     ViTModel,
 )
+
+sys.path.append(os.getcwd())
+
+from src.deeplabv3.network.utils import IntermediateLayerGetter
+from src.deeplabv3.network.backbone import resnet
+from src.deeplabv3.network._deeplab import (
+    DeepLabHeadV3Plus,
+    DeepLabV3,
+)
+from src.utils.constants import OCELOT_IMAGE_SIZE, SEGFORMER_ARCHITECTURES
+from src.utils.utils import crop_and_resize_tissue_faster
 
 
 class DeepLabV3plusModel(nn.Module):
@@ -115,13 +111,12 @@ class CustomSegformerModel(nn.Module):
             pretrained_dataset=pretrained_dataset,
         )
 
-
     def forward(self, x):
         logits = self.model(x).logits
 
         # Upscaling the result to the shape of the ground truth
         if logits.shape[1:] != self.output_spatial_shape:
-            logits = nn.functional.interpolate(
+            logits = F.interpolate(
                 logits,
                 size=OCELOT_IMAGE_SIZE,  # (height, width) # TODO: this should be self.output_spatial_shape?
                 mode="bilinear",
@@ -331,21 +326,21 @@ class TissueCellSharingSegformerModel(nn.Module):
 
         # Upscaling the result to the shape of the ground truth
         if logits_cell.shape[1:] != self.output_spatial_shape:
-            logits_cell = nn.functional.interpolate(
+            logits_cell = F.interpolate(
                 logits_cell,
                 size=OCELOT_IMAGE_SIZE,  # (height, width)
                 mode="bilinear",
                 align_corners=False,
             )
 
-            logits_tissue = nn.functional.interpolate(
+            logits_tissue = F.interpolate(
                 logits_tissue.unsqueeze(1).float(),
                 size=OCELOT_IMAGE_SIZE,  # (height, width)
                 mode="nearest",
                 # align_corners=False,
             )
 
-        logits_tissue = nn.functional.one_hot(
+        logits_tissue = F.one_hot(
             logits_tissue.squeeze(1).long(), num_classes=3
         ).permute(0, 3, 1, 2)
         merged_logits = torch.concatenate([logits_cell, logits_tissue], dim=1)
@@ -373,6 +368,7 @@ class Dinov2ForSemanticSegmentation(Dinov2PreTrainedModel):
     """
     Dinov2 with a linear classifier attached for semantic segmentation.
     """
+
     def __init__(self, config):
         super().__init__(config)
 
@@ -399,7 +395,7 @@ class Dinov2ForSemanticSegmentation(Dinov2PreTrainedModel):
 
         # convert to logits and upsample to the size of the pixel values
         logits = self.classifier(patch_embeddings)
-        logits = torch.nn.functional.interpolate(
+        logits = F.interpolate(
             logits, size=pixel_values.shape[2:], mode="bilinear", align_corners=False
         )
 
@@ -496,7 +492,7 @@ class Conv2DBlock(nn.Module):
     """
     Conv2DBlock with convolution followed by batch-normalisation, ReLU activation and dropout
     This model is copied form https://github.com/Lzy-dot/OCELOT2023/tree/main
-    
+
     Args:
         in_channels (int): Number of input channels for convolution
         out_channels (int): Number of output channels for convolution
@@ -537,11 +533,12 @@ class Conv2DBlock(nn.Module):
 
 class ViTDecoder(nn.Module):
     """
-    Decoder which processes the patch embeddings from the transformer blocks. 
+    Decoder which processes the patch embeddings from the transformer blocks.
     The embeddings are transformed and upsampled in a UNet manner.
 
-    This decoder is mostly copied from https://github.com/Lzy-dot/OCELOT2023/tree/main 
+    This decoder is mostly copied from https://github.com/Lzy-dot/OCELOT2023/tree/main
     """
+
     def __init__(self, backbone_config, drop_rate=0) -> None:
         super().__init__()
 
@@ -614,7 +611,7 @@ class ViTDecoder(nn.Module):
                 padding=0,
             ),
         )
-        
+
         # Decoder for merging and upsampling patch embeddings
         self.decoder0 = nn.Sequential(
             Conv2DBlock(3, 32, 3, dropout=self.drop_rate),
@@ -659,13 +656,13 @@ class ViTDecoder(nn.Module):
 
         b3 = self.decoder3(z3)
         b3 = self.decoder3_upsampler(torch.cat([b3, b4], dim=1))
-        
+
         b2 = self.decoder2(z2)
         b2 = self.decoder2_upsampler(torch.cat([b2, b3], dim=1))
-        
+
         b1 = self.decoder1(z1)
         b1 = self.decoder1_upsampler(torch.cat([b1, b2], dim=1))
-        
+
         b0 = self.decoder0(z0)
         branch_output = self.decoder0_header(torch.cat([b0, b1], dim=1))
 
@@ -674,16 +671,25 @@ class ViTDecoder(nn.Module):
 
 class ViTUNetModel(torch.nn.Module):
     """
-    Vision transformer with UNet structure. 
+    Vision transformer with UNet structure.
     This model is recreated from https://github.com/Lzy-dot/OCELOT2023/tree/main
     """
 
-    def __init__(self, pretrained_dataset="owkin/phikon", output_spatial_shape=1024, extract_layers=[3, 6, 9, 12], *args, **kwargs) -> None:
+    def __init__(
+        self,
+        pretrained_dataset="owkin/phikon",
+        output_spatial_shape=1024,
+        extract_layers=[3, 6, 9, 12],
+        *args,
+        **kwargs,
+    ) -> None:
         super().__init__(*args, **kwargs)
 
         if len(extract_layers) != 4:
-            raise ValueError("The argument extract layers should be a list of length four")
-        
+            raise ValueError(
+                "The argument extract layers should be a list of length four"
+            )
+
         self.output_spatial_shape = output_spatial_shape
 
         # Load pretrained weights
@@ -693,7 +699,7 @@ class ViTUNetModel(torch.nn.Module):
             )
         else:
             self.vit_encoder = ViTModel(add_pooling_layer=False)
-        
+
         # Which patch embeddings to extract for the decoder
         self.extract_layers = extract_layers
 
@@ -709,7 +715,7 @@ class ViTUNetModel(torch.nn.Module):
 
         # Resize to desired spatial shape
         pixel_values = self.resize_transform(pixel_values)
-        
+
         # Extract encodings and patch embeddings
         outputs = self.vit_encoder(pixel_values, output_hidden_states=True)
         hidden_states = outputs.hidden_states
@@ -726,7 +732,7 @@ class ViTUNetModel(torch.nn.Module):
         logits = self.decoder(*input_decoder)
 
         if logits.shape[1:] != self.output_spatial_shape:
-            logits = nn.functional.interpolate(
+            logits = F.interpolate(
                 logits,
                 size=(self.output_spatial_shape, self.output_spatial_shape),
                 mode="bilinear",
@@ -736,7 +742,7 @@ class ViTUNetModel(torch.nn.Module):
         return logits
 
 
-class SegformerSharingModel(nn.Module):
+class SegformerJointPred2InputModel(nn.Module):
     def __init__(
         self,
         backbone_model,
@@ -759,38 +765,45 @@ class SegformerSharingModel(nn.Module):
             backbone_name=self.backbone_model,
             num_classes=3,
             num_channels=6,
-            # num_channels=3,
             pretrained_dataset=self.pretrained_dataset,
         )
 
         self.tissue_model = setup_segformer(
-            backbone_name="b1",
+            backbone_name="b0",
             num_classes=3,
             num_channels=3,
             pretrained_dataset=self.pretrained_dataset,
         )
 
-    def forward(self, x: torch.Tensor, offsets: torch.Tensor):
+    def forward(
+        self,
+        cell_input: torch.Tensor,
+        tissue_input: torch.Tensor,
+        offsets: torch.Tensor,
+    ):
         """
-        Assumes that input x has shape (B, 6, H, W), where the first three
-        channels in the second dimension correspond to the cell image and
-        the three last channels in the second dimension correspond to the
-        tissue image
+        Performs inference on the inputs with the model. Cell and input images
+        might have different dimensions, but the output will be resized to the
+        output_image_dimensions. H_c and W_c refer to height and width for
+        the cell image, and H_t and W_t refer to height and width for the tissue
+        image.
 
-        offsets: (B, 2)
+        Args:
+            cell_input: Input tensor for the cell model, (B, 3, H_c, W_c)
+            tissue_input: Input tensor for the tissue model, (B, 3, H_t, W_t)
+            offsets: Offset tensor for the tissue model, (B, 2)
+
         """
-        cell_image = x[:, :3]
-        tissue_image = x[:, 3:]
 
         # Tissue-branch
-        tissue_logits = self.tissue_model(tissue_image)  # .logits
-        tissue_logits_orig = torch.nn.functional.interpolate(
+        tissue_logits = self.tissue_model(tissue_input).logits
+        tissue_logits_orig = F.interpolate(
             tissue_logits,
             size=self.input_image_size,
             mode="bilinear",
             align_corners=False,
         )
-        tissue_logits = torch.nn.functional.softmax(tissue_logits_orig, dim=1)
+        tissue_logits = F.softmax(tissue_logits_orig, dim=1)
         cropped_tissue_logits = []
         for batch_idx in range(tissue_logits.shape[0]):
             crop = crop_and_resize_tissue_faster(
@@ -803,12 +816,12 @@ class SegformerSharingModel(nn.Module):
         tissue_logits = torch.stack(cropped_tissue_logits)
 
         # Cell-branch
-        model_input = torch.cat((cell_image, tissue_logits), dim=1)
+        model_input = torch.cat((cell_input, tissue_logits), dim=1)
         cell_logits = self.cell_model(model_input).logits
         # cell_logits = self.cell_model(cell_image).logits
 
         if cell_logits.shape[1:] != self.output_image_dimensions:
-            cell_logits = torch.nn.functional.interpolate(
+            cell_logits = F.interpolate(
                 cell_logits,
                 size=self.output_image_dimensions,
                 mode="bilinear",
@@ -816,7 +829,7 @@ class SegformerSharingModel(nn.Module):
             )
 
         if tissue_logits_orig.shape[1:] != self.output_image_dimensions:
-            tissue_logits_orig = torch.nn.functional.interpolate(
+            tissue_logits_orig = F.interpolate(
                 tissue_logits_orig,
                 size=self.output_image_dimensions,
                 mode="bilinear",
@@ -824,7 +837,6 @@ class SegformerSharingModel(nn.Module):
             )
 
         return cell_logits, tissue_logits_orig
-        # return cell_logits, cell_logits
 
 
 class SegformerTissueToCellDecoderModel(nn.Module):
@@ -856,7 +868,7 @@ class SegformerTissueToCellDecoderModel(nn.Module):
         )
 
         self.tissue_model = setup_segformer(
-            backbone_name="b1", # TODO: make this into an argument?
+            backbone_name="b1",  # TODO: make this into an argument?
             num_classes=3,
             num_channels=3,
             pretrained_dataset=self.pretrained_dataset,
@@ -925,13 +937,13 @@ class SegformerTissueToCellDecoderModel(nn.Module):
 
         # Tissue-branch
         tissue_logits = self.tissue_model(tissue_image).logits
-        tissue_logits_orig = torch.nn.functional.interpolate(
+        tissue_logits_orig = F.interpolate(
             tissue_logits,
             size=self.input_image_size,
             mode="bilinear",
             align_corners=False,
         )
-        tissue_logits = torch.nn.functional.softmax(tissue_logits_orig, dim=1)
+        tissue_logits = F.softmax(tissue_logits_orig, dim=1)
         cropped_tissue_logits = []
         for batch_idx in range(tissue_logits.shape[0]):
             crop = crop_and_resize_tissue_faster(
@@ -988,7 +1000,7 @@ class SegformerTissueToCellDecoderModel(nn.Module):
 
         # Interpolation to desired output shape
         if cell_logits.shape[1:] != self.output_image_dimensions:
-            cell_logits = torch.nn.functional.interpolate(
+            cell_logits = F.interpolate(
                 cell_logits,
                 size=self.output_image_dimensions,
                 mode="bilinear",
@@ -996,7 +1008,7 @@ class SegformerTissueToCellDecoderModel(nn.Module):
             )
 
         if tissue_logits_orig.shape[1:] != self.output_image_dimensions:
-            tissue_logits_orig = torch.nn.functional.interpolate(
+            tissue_logits_orig = F.interpolate(
                 tissue_logits_orig,
                 size=self.output_image_dimensions,
                 mode="bilinear",
@@ -1013,10 +1025,7 @@ if __name__ == "__main__":
     width = 1024
 
     model = CustomSegformerModel(
-        backbone_name="b1",
-        num_classes=3,
-        num_channels=3,
-        pretrained_dataset="ade"
+        backbone_name="b1", num_classes=3, num_channels=3, pretrained_dataset="ade"
     )
 
     x = torch.ones(batch_size, channels, height, width)

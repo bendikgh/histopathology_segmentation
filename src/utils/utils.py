@@ -21,6 +21,14 @@ from typing import List, Tuple
 from src.utils.constants import *
 
 
+def save_model(model: nn.Module, save_path: str) -> None:
+    """
+    Save the model to the specified path and create the directory if it does not exist.
+    """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    torch.save(model.state_dict(), save_path)
+
+
 def get_partition_from_file_name(file_name: str) -> str:
     """
     Returns 'train', 'val' or 'test', depending on which number the file name
@@ -317,7 +325,9 @@ def get_predicted_tissue(
         if os.path.basename(file).split(".")[0] in image_train_nums
     ]
 
-    val_tissue_predicted = glob(os.path.join(data_dir, "annotations", "val", "pred_tissue", "*"))
+    val_tissue_predicted = glob(
+        os.path.join(data_dir, "annotations", "val", "pred_tissue", "*")
+    )
     val_tissue_predicted = [
         file
         for file in val_tissue_predicted

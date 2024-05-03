@@ -92,15 +92,15 @@ def main():
 
     # Script-specific parameters
     # "segformer_cell_only", "segformer_tissue_branch", "segformer_cell_branch", "segformer_sharing", "segformer_sum_sharing", "deeplab_cell_only", "deeplab_tissue_cell", "vit_unet"
-    model_architecture = "segformer_cell_branch"
-    epochs = 100
+    model_architecture = "segformer_sharing"
+    epochs = 300
     batch_size = 2
     checkpoint_interval = 10
     backbone = "b3"
     dropout = 0.3
-    learning_rate = 1e-4
+    learning_rate = 6e-5
     pretrained = 1
-    warmup_epochs = 10
+    warmup_epochs = 0
     do_save = 1
     do_eval = 1
     break_early = 0

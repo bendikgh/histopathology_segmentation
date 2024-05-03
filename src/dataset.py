@@ -216,9 +216,7 @@ class CellTissueDataset(Dataset):
 
         cell_image = cv2.imread(cell_image_path)
         cell_label = cv2.imread(cell_target_path)
-        tissue_pred = cv2.imread(
-            tissue_pred_path
-        )  
+        tissue_pred = cv2.imread(tissue_pred_path)
 
         cell_image = cv2.cvtColor(cell_image, cv2.COLOR_BGR2RGB)
         cell_label = cv2.cvtColor(cell_label, cv2.COLOR_BGR2RGB)
@@ -575,7 +573,7 @@ class CellTissueSharingDataset(Dataset):
         return np.loadtxt(cell_annotation_path, delimiter=",", dtype=np.int32, ndmin=2)
 
 
-class SegformerSharingDataset(Dataset):
+class SegformerJointPred2InputDataset(Dataset):
 
     def __init__(
         self,
@@ -584,7 +582,8 @@ class SegformerSharingDataset(Dataset):
         tissue_image_files: list,
         tissue_target_files: list,
         metadata: Dict,
-        transform=None,
+        cell_transform=None,
+        tissue_transform=None,
         debug=True,
     ):
         len1 = len(cell_image_files)
@@ -600,7 +599,8 @@ class SegformerSharingDataset(Dataset):
         self.cell_target_files = cell_target_files
         self.tissue_image_files = tissue_image_files
         self.tissue_target_files = tissue_target_files
-        self.transform = transform
+        self.cell_transform = cell_transform
+        self.tissue_transform = tissue_transform
         self.debug = debug
         self.metadata = metadata
 
@@ -614,11 +614,10 @@ class SegformerSharingDataset(Dataset):
         tissue_target_path = self.tissue_target_files[idx]
 
         # Checking that the index points to the same image number
-        num1 = cell_image_path.split("/")[-1].split(".")[0]
-        num2 = cell_target_path.split("/")[-1].split(".")[0]
-        num3 = tissue_image_path.split("/")[-1].split(".")[0]
-        num4 = tissue_target_path.split("/")[-1].split(".")[0]
-
+        num1 = os.path.basename(cell_image_path).split(".")[0]
+        num2 = os.path.basename(cell_target_path).split(".")[0]
+        num3 = os.path.basename(tissue_image_path).split(".")[0]
+        num4 = os.path.basename(tissue_target_path).split(".")[0]
         assert num1 == num2 == num3 == num4
 
         metadata = self.metadata["sample_pairs"][num1]
@@ -635,17 +634,20 @@ class SegformerSharingDataset(Dataset):
         cell_label = cv2.cvtColor(cell_label, cv2.COLOR_BGR2RGB)
         tissue_image = cv2.cvtColor(tissue_image, cv2.COLOR_BGR2RGB)
 
-        if self.transform is not None:
-            transformed = self.transform(
-                cell_image=cell_image,
-                cell_label=cell_label,
-                tissue_image=tissue_image,
-                tissue_label=tissue_label,
+        if self.cell_transform is not None:
+            cell_transformed = self.cell_transform(
+                image=cell_image,
+                mask=cell_label,
             )
-            cell_image = transformed["cell_image"]
-            cell_label = transformed["cell_label"]
-            tissue_image = transformed["tissue_image"]
-            tissue_label = transformed["tissue_label"]
+            cell_image = cell_transformed["image"]
+            cell_label = cell_transformed["mask"]
+
+        if self.tissue_transform is not None:
+            tissue_transformed = self.tissue_transform(
+                image=tissue_image, mask=tissue_label
+            )
+            tissue_image = tissue_transformed["image"]
+            tissue_label = tissue_transformed["mask"]
 
         # Fixing types and scaling
         if cell_image.dtype == np.uint8:
@@ -667,7 +669,5 @@ class SegformerSharingDataset(Dataset):
         tissue_image = torch.from_numpy(tissue_image).permute(2, 0, 1)
         tissue_label = torch.from_numpy(tissue_label).permute(2, 0, 1)
 
-        image = torch.cat((cell_image, tissue_image), dim=0)
-        mask = torch.cat((cell_label, tissue_label), dim=0)
         offset = torch.tensor([offset_x, offset_y])
-        return image, mask, offset
+        return cell_image, tissue_image, cell_label, tissue_label, offset

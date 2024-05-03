@@ -23,7 +23,7 @@ from src.trainable import (
     SegformerTissueCellTrainable,
     DeeplabTissueCellTrainable,
     DeeplabCellOnlyTrainable,
-    SegformerSharingTrainable,
+    SegformerJointPred2InputTrainable,
     SegformerTissueTrainable,
     SegformerTissueToCellDecoderTrainable,
     Trainable,
@@ -79,7 +79,7 @@ def get_trainable(
             data_dir=data_dir,
         )
     elif model_architecture == "segformer_sharing":
-        trainable = SegformerSharingTrainable(
+        trainable = SegformerJointPred2InputTrainable(
             normalization=normalization,
             batch_size=batch_size,
             pretrained=pretrained,
@@ -190,7 +190,7 @@ def main():
         pretrained_dataset=pretrained_dataset,
         resize=resize,
         leak_labels=leak_labels,
-        data_dir=data_dir
+        data_dir=data_dir,
     )
 
     if loss_function_arg == "dice":

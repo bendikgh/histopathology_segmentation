@@ -11,7 +11,7 @@ from torch import nn
 from tqdm import tqdm
 from typing import Union, List
 
-from src.utils.constants import DATASET_PARTITION_OFFSETS
+from src.utils.utils import save_model
 
 
 def plot_losses(training_losses: List, val_scores: List, save_path: str):
@@ -43,68 +43,7 @@ def plot_losses(training_losses: List, val_scores: List, save_path: str):
     plt.close()
 
 
-def run_training_sharing(
-    model: nn.Module,
-    train_dataloader: DataLoader,
-    optimizer,
-    loss_function,
-    device,
-    break_after_one_iteration: bool = False,
-) -> float:
-    model.train()
-    training_loss = 0.0
-
-    for images, masks, pair_id in tqdm(train_dataloader, total=len(train_dataloader)):
-        images, masks = images.to(device), masks.to(device)
-        pair_id = pair_id.to(device)
-
-        optimizer.zero_grad()
-        outputs = model(images, pair_id)
-        loss = loss_function(outputs, masks)
-        loss.backward()
-        optimizer.step()
-
-        training_loss += loss.item()
-
-        if break_after_one_iteration:
-            print("Breaking after one iteration")
-            break
-
-    if not break_after_one_iteration:
-        training_loss /= len(train_dataloader)
-
-    return training_loss
-
-
-def run_validation_sharing(
-    model: nn.Module,
-    val_dataloader: DataLoader,
-    loss_function,
-    device,
-    break_after_one_iteration: bool = False,
-) -> float:
-    model.eval()
-    val_loss = 0.0
-    with torch.no_grad():
-        for images, masks, pair_id in tqdm(val_dataloader, total=len(val_dataloader)):
-            images, masks = images.to(device), masks.to(device)
-
-            id = pair_id + DATASET_PARTITION_OFFSETS["val"]
-
-            outputs = model(images, id)
-            loss = loss_function(outputs, masks)
-
-            val_loss += loss.item()
-            if break_after_one_iteration:
-                print("Breaking after one iteration")
-                break
-
-    if not break_after_one_iteration:
-        val_loss /= len(val_dataloader)
-    return val_loss
-
-
-def run_training_sharing2(
+def run_training_joint_pred2input(
     model: nn.Module,
     train_dataloader: DataLoader,
     optimizer,
@@ -115,18 +54,19 @@ def run_training_sharing2(
     model.train()
     training_loss = 0.0
 
-    for images, masks, offsets in tqdm(train_dataloader):
-        images, masks = images.to(device), masks.to(device)
+    for cell_images, tissue_images, cell_labels, tissue_labels, offsets in tqdm(
+        train_dataloader
+    ):
 
-        cell_masks = masks[:, :3]
-        tissue_masks = masks[:, 3:]
+        cell_images, tissue_images = cell_images.to(device), tissue_images.to(device)
+        cell_labels, tissue_labels = cell_labels.to(device), tissue_labels.to(device)
+
         optimizer.zero_grad()
-
-        cell_logits, tissue_logits = model(images, offsets)
+        cell_logits, tissue_logits = model(cell_images, tissue_images, offsets)
 
         # loss = loss_function(cell_logits, cell_masks)
-        cell_loss = loss_function(cell_logits, cell_masks)
-        tissue_loss = loss_function(tissue_logits, tissue_masks)
+        cell_loss = loss_function(cell_logits, cell_labels)
+        tissue_loss = loss_function(tissue_logits, tissue_labels)
         loss = cell_loss + tissue_loss
 
         loss.backward()
@@ -202,6 +142,19 @@ def run_validation(
     return val_loss
 
 
+def write_logs(
+    save_path: str, epoch: int, start: float, training_losses: List, val_scores: List
+) -> None:
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    end = time.time()
+    with open(save_path, "w") as file:
+        file.write(
+            f"Number of epochs: {epoch + 1}, total time: {end - start:.3f} seconds \n"
+        )
+        file.write(f"training_losses = {str(training_losses)}\n")
+        file.write(f"val_scores = {str(val_scores)}\n")
+
+
 def train(
     num_epochs: int,
     train_dataloader: DataLoader,
@@ -226,6 +179,11 @@ def train(
     val_scores = []
     highest_val_score = -float("inf")
     best_model_save_path: Union[str, None] = None
+
+    model_dir = os.path.join("outputs", "models")
+    plot_dir = os.path.join("outputs", "plots")
+    log_dir = os.path.join("outputs", "logs")
+    log_file_path = os.path.join(log_dir, f"{save_name}.txt")
 
     for epoch in range(num_epochs):
         model.train()
@@ -252,30 +210,30 @@ def train(
         # Plotting results and saving model
         if val_score > highest_val_score and do_save_model_and_plot:
             highest_val_score = val_score
-            best_model_save_path = f"outputs/models/{save_name}_best.pth"
-            os.makedirs(os.path.dirname(best_model_save_path), exist_ok=True)
-            torch.save(model.state_dict(), best_model_save_path)
+            best_model_save_path = os.path.join(model_dir, f"{save_name}_best.pth")
+            save_model(model, best_model_save_path)
             print(f"New best model saved after {epoch + 1} epochs!")
 
-        if do_save_model_and_plot and (
-            (epoch + 1) % checkpoint_interval == 0 or (epoch + 1) == num_epochs
-        ):
-            model_save_path = f"outputs/models/{save_name}_epochs-{epoch + 1}.pth"
-            os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-            torch.save(model.state_dict(), model_save_path)
-            plot_losses(
-                training_losses, val_scores, save_path=f"outputs/plots/{save_name}.png"
-            )
+        at_checkpoint_interval = (epoch + 1) % checkpoint_interval == 0
+        at_last_epoch = (epoch + 1) == num_epochs
+
+        if do_save_model_and_plot and (at_checkpoint_interval or at_last_epoch):
+            model_path_suffix = f"{save_name}_epochs-{epoch + 1}.pth"
+            model_save_path = os.path.join(model_dir, model_path_suffix)
+            save_model(model, model_save_path)
+
+            plot_path_suffix = f"{save_name}_epochs-{epoch + 1}.png"
+            plot_save_path = os.path.join(plot_dir, plot_path_suffix)
+            plot_losses(training_losses, val_scores, save_path=plot_save_path)
 
             # Writing logs
-            log_file_path = f"outputs/logs/{save_name}.txt"
-            os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
-            with open(log_file_path, "w") as file:
-                file.write(
-                    f"Number of epochs: {epoch + 1}, total time: {time.time() - start:.3f} seconds \n"
-                )
-                file.write(f"training_losses = {str(training_losses)}\n")
-                file.write(f"val_scores = {str(val_scores)}\n")
+            write_logs(
+                save_path=log_file_path,
+                epoch=epoch,
+                start=start,
+                training_losses=training_losses,
+                val_scores=val_scores,
+            )
             print(
                 f"Saved model and logs, and plotted results after {epoch + 1} epochs!"
             )

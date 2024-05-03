@@ -9,6 +9,7 @@ import torch.nn as nn
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from functools import partial
 from glob import glob
 from monai.losses import DiceLoss
 from torch.utils.data import DataLoader
@@ -30,20 +31,22 @@ from ocelot23algo.user.inference import (
     SegformerTissueFromFile,
 )
 from ocelot23algo.user.inference import (
-    SegformerSharingModel as SegformerSharingModule,
+    SegformerJointPred2InputModel as SegformerSimulPredToInputModule,
     SegformerTissueToCellDecoderModel as SegformerTissueToCellDecoderModule,
 )
 
 from src.dataset import (
     CellOnlyDataset,
     CellTissueDataset,
-    SegformerSharingDataset,
+    SegformerJointPred2InputDataset,
     TissueDataset,
 )
 from src.utils.constants import (
     CELL_IMAGE_MEAN,
     CELL_IMAGE_STD,
     IDUN_OCELOT_DATA_PATH,
+    SEGFORMER_JOINT_TISSUE_IMAGE_SIZE,
+    SEGFORMER_JOINT_CELL_IMAGE_SIZE,
 )
 from src.utils.metrics import (
     create_cellwise_evaluation_function,
@@ -55,11 +58,11 @@ from src.utils.utils import (
     get_ocelot_files,
 )
 from src.utils import training
-from src.utils.training import run_training_sharing2
+from src.utils.training import run_training_joint_pred2input
 from src.models import (
     CustomSegformerModel,
     DeepLabV3plusModel,
-    SegformerSharingModel,
+    SegformerJointPred2InputModel,
     SegformerTissueToCellDecoderModel,
     ViTUNetModel,
 )
@@ -91,6 +94,7 @@ class Trainable(ABC):
         self.pretrained = pretrained
         self.device = device
         self.backbone_model = backbone_model
+        self.normalization = normalization
 
         self.train_transforms = self.create_transforms(normalization)
         self.val_transforms = self.create_transforms(normalization, partition="val")
@@ -214,7 +218,7 @@ class DeeplabCellOnlyTrainable(Trainable):
         batch_size: int,
         pretrained: bool,
         device: torch.device,
-        data_dir: str
+        data_dir: str,
     ):
         self.name = "DeeplabV3+ Cell-Only"
         super().__init__(
@@ -223,7 +227,7 @@ class DeeplabCellOnlyTrainable(Trainable):
             pretrained=pretrained,
             device=device,
             backbone_model="resnet50",
-            data_dir=data_dir
+            data_dir=data_dir,
         )
 
     def create_train_dataloader(self, data_dir: str):
@@ -291,17 +295,21 @@ class DeeplabTissueCellTrainable(Trainable):
         self.leak_labels = leak_labels
         if self.leak_labels:
             self.name = "DeeplabV3+ Tissue-Leaking"
-            self.tissue_training_file_path = os.path.join("annotations", "train", "cropped_tissue", "*")
+            self.tissue_training_file_path = os.path.join(
+                "annotations", "train", "cropped_tissue", "*"
+            )
         else:
             self.name = "DeeplabV3+ Tissue-Cell"
-            self.tissue_training_file_path = os.path.join("predictions", "train", "cropped_tissue_deeplab", "*")
+            self.tissue_training_file_path = os.path.join(
+                "predictions", "train", "cropped_tissue_deeplab", "*"
+            )
         super().__init__(
             normalization=normalization,
             batch_size=batch_size,
             pretrained=pretrained,
             device=device,
             backbone_model="resnet50",
-            data_dir=data_dir
+            data_dir=data_dir,
         )
 
     def get_tissue_folder(self, partition: str) -> str:
@@ -341,7 +349,9 @@ class DeeplabTissueCellTrainable(Trainable):
             if os.path.basename(file).split(".")[0] in train_image_nums
         ]
 
-        train_tissue_predicted.sort(key=lambda x: int(os.path.basename(x).split(".")[0]))
+        train_tissue_predicted.sort(
+            key=lambda x: int(os.path.basename(x).split(".")[0])
+        )
 
         train_dataset = CellTissueDataset(
             cell_image_files=train_cell_image_files,
@@ -523,7 +533,7 @@ class SegformerTissueTrainable(Trainable):
             pretrained=pretrained,
             device=device,
             backbone_model=backbone_model,
-            data_dir=data_dir
+            data_dir=data_dir,
         )
 
     def build_transform_function_with_extra_transforms(
@@ -638,10 +648,14 @@ class SegformerTissueCellTrainable(Trainable):
         self.debug = debug
         if self.leak_labels:
             self.name = "Segformer Tissue-Leaking"
-            self.tissue_training_file_path = os.path.join("annotations", "train", "cropped_tissue", "*")
+            self.tissue_training_file_path = os.path.join(
+                "annotations", "train", "cropped_tissue", "*"
+            )
         else:
             self.name = "Segformer Tissue-Cell"
-            self.tissue_training_file_path = os.path.join("predictions", "train", "cropped_tissue_segformer", "*")
+            self.tissue_training_file_path = os.path.join(
+                "predictions", "train", "cropped_tissue_segformer", "*"
+            )
         self.pretrained_dataset = pretrained_dataset
         self.resize = resize
         super().__init__(
@@ -650,7 +664,7 @@ class SegformerTissueCellTrainable(Trainable):
             pretrained=pretrained,
             device=device,
             backbone_model=backbone_model,
-            data_dir=data_dir
+            data_dir=data_dir,
         )
 
     def get_tissue_folder(self, partition: str) -> str:
@@ -740,7 +754,9 @@ class SegformerTissueCellTrainable(Trainable):
             if os.path.basename(file).split(".")[0] in train_image_nums
         ]
 
-        train_tissue_predicted.sort(key=lambda x: int(os.path.basename(x).split(".")[0]))
+        train_tissue_predicted.sort(
+            key=lambda x: int(os.path.basename(x).split(".")[0])
+        )
 
         if self.resize is not None:
             image_shape = (self.resize, self.resize)
@@ -797,7 +813,7 @@ class SegformerTissueCellTrainable(Trainable):
         )
 
 
-class SegformerSharingTrainable(Trainable):
+class SegformerJointPred2InputTrainable(Trainable):
 
     def __init__(
         self,
@@ -814,86 +830,103 @@ class SegformerSharingTrainable(Trainable):
         self.pretrained_dataset = pretrained_dataset
         self.resize = resize
         self.name = "Segformer Sharing"
+
+        self.resize_dict = {
+            "cell": SEGFORMER_JOINT_CELL_IMAGE_SIZE,
+            "tissue": SEGFORMER_JOINT_TISSUE_IMAGE_SIZE,
+        }
+
         super().__init__(
             normalization=normalization,
             batch_size=batch_size,
             pretrained=pretrained,
             device=device,
             backbone_model=backbone_model,
-            data_dir=data_dir
+            data_dir=data_dir,
         )
 
-    def build_transform_function_with_extra_transforms(
-        self, transforms, extra_transform_cell_tissue
-    ):
-        """
-        Builds a transform function that takes in one image and two masks,
-        in such a way that it applies resize only to the image and second
-        mask
+    # def build_transform_function_with_extra_transforms(
+    #     self, transforms, extra_transform_cell_tissue
+    # ):
+    #     """
+    #     Builds a transform function that takes in one image and two masks,
+    #     in such a way that it applies resize only to the image and second
+    #     mask
 
-        Args:
-            transforms: Regular transforms including both geometric and
-                pixel-level transforms that should be applied to all images
-            extra_transform_cell_tissue: Additional transforms that should
-                be applied to the cell image and tissue image only
-        """
+    #     Args:
+    #         transforms: Regular transforms including both geometric and
+    #             pixel-level transforms that should be applied to all images
+    #         extra_transform_cell_tissue: Additional transforms that should
+    #             be applied to the cell image and tissue image only
+    #     """
 
-        def transform(cell_image, cell_label, tissue_image, tissue_label):
-            """
-            Performs resize and pixel-level transformations only on cell_image
-            and tissue_image, but performs other geometric transformations, such
-            as flips and rotations, on all inputs.
-            """
+    #     def transform(cell_image, cell_label, tissue_image, tissue_label):
+    #         """
+    #         Performs resize and pixel-level transformations only on cell_image
+    #         and tissue_image, but performs other geometric transformations, such
+    #         as flips and rotations, on all inputs.
+    #         """
 
-            transformed = transforms(
-                image=cell_image,
-                cell_label=cell_label,
-                tissue_image=tissue_image,
-                tissue_label=tissue_label,
-            )
-            cell_image = transformed["image"]
-            cell_label = transformed["cell_label"]
-            tissue_image = transformed["tissue_image"]
-            tissue_label = transformed["tissue_label"]
+    #         transformed = transforms(
+    #             image=cell_image,
+    #             cell_label=cell_label,
+    #             tissue_image=tissue_image,
+    #             tissue_label=tissue_label,
+    #         )
+    #         cell_image = transformed["image"]
+    #         cell_label = transformed["cell_label"]
+    #         tissue_image = transformed["tissue_image"]
+    #         tissue_label = transformed["tissue_label"]
 
-            # Perform additional transforms (usually resize)
-            transformed = extra_transform_cell_tissue(
-                image=cell_image, mask=tissue_image
-            )
-            cell_image = transformed["image"]
-            tissue_image = transformed["mask"]
+    #         # Perform additional transforms (usually resize)
+    #         transformed = extra_transform_cell_tissue(
+    #             image=cell_image, mask=tissue_image
+    #         )
+    #         cell_image = transformed["image"]
+    #         tissue_image = transformed["mask"]
 
-            return {
-                "cell_image": cell_image,
-                "cell_label": cell_label,
-                "tissue_image": tissue_image,
-                "tissue_label": tissue_label,
-            }
+    #         return {
+    #             "cell_image": cell_image,
+    #             "cell_label": cell_label,
+    #             "tissue_image": tissue_image,
+    #             "tissue_label": tissue_label,
+    #         }
 
-        return transform
+    #     return transform
 
     def create_transforms(self, normalization, partition: str = "train"):
-        transform_list = self._create_transform_list(normalization, partition=partition)
-        transforms = A.Compose(
-            transform_list,
-            additional_targets={
-                "image": "image",
-                "cell_label": "mask",
-                "tissue_image": "image",
-                "tissue_label": "mask",
-            },
+        return None
+
+    def _transform(self, regular_transform, resize_transform, image, mask):
+        """
+        Transformation that applies regular_transform to both image and mask,
+        and resize_transform to the image only.
+        """
+        transformed = regular_transform(image=image, mask=mask)
+        transformed_image = transformed["image"]
+        transformed_label = transformed["mask"]
+
+        transformed_image = resize_transform(image=transformed_image)["image"]
+        return {"image": transformed_image, "mask": transformed_label}
+
+    def _create_dual_transform(
+        self, normalization, partition: str = "train", kind: str = "cell"
+    ):
+        if kind not in ["cell", "tissue"]:
+            raise ValueError(f"kind must be either 'cell' or 'tissue'. Got {kind}")
+        if partition not in ["train", "val", "test"]:
+            raise ValueError(
+                f"partition must be either 'train', 'val', or 'test'. Got {partition}"
+            )
+
+        resize = self.resize_dict[kind]
+        regular_transform_list = self._create_transform_list(
+            normalization, partition=partition
         )
+        regular_transform = A.Compose(regular_transform_list)
+        resize_transform = A.Resize(height=resize, width=resize)
 
-        if self.resize is not None:
-            extra_transform_cell_tissue = A.Resize(
-                height=self.resize, width=self.resize
-            )
-            transforms = self.build_transform_function_with_extra_transforms(
-                transforms=transforms,
-                extra_transform_cell_tissue=extra_transform_cell_tissue,
-            )
-
-        return transforms
+        return partial(self._transform, regular_transform, resize_transform)
 
     def create_train_dataloader(self, data_dir: str) -> DataLoader:
         train_cell_image_files, train_cell_target_files = get_ocelot_files(
@@ -910,7 +943,9 @@ class SegformerSharingTrainable(Trainable):
         )
 
         # Removing image numbers from tissue images to match cell and tissue
-        image_numbers = [os.path.basename(x).split(".")[0] for x in train_cell_image_files]
+        image_numbers = [
+            os.path.basename(x).split(".")[0] for x in train_cell_image_files
+        ]
         train_tissue_image_files = [
             file
             for file in train_tissue_image_files
@@ -921,6 +956,7 @@ class SegformerSharingTrainable(Trainable):
             for file in train_tissue_target_files
             if os.path.basename(file).split(".")[0] in image_numbers
         ]
+
         len1 = len(train_cell_image_files)
         len2 = len(train_cell_target_files)
         len3 = len(train_tissue_image_files)
@@ -929,13 +965,21 @@ class SegformerSharingTrainable(Trainable):
 
         metadata = get_metadata_dict(data_dir=data_dir)
 
-        train_dataset = SegformerSharingDataset(
+        cell_transform = self._create_dual_transform(
+            normalization=self.normalization, partition="train", kind="cell"
+        )
+        tissue_transform = self._create_dual_transform(
+            normalization=self.normalization, partition="train", kind="tissue"
+        )
+
+        train_dataset = SegformerJointPred2InputDataset(
             cell_image_files=train_cell_image_files,
             cell_target_files=train_cell_target_files,
             tissue_image_files=train_tissue_image_files,
             tissue_target_files=train_tissue_target_files,
             metadata=metadata,
-            transform=self.train_transforms,
+            cell_transform=cell_transform,
+            tissue_transform=tissue_transform,
         )
 
         train_dataloader = DataLoader(
@@ -954,7 +998,7 @@ class SegformerSharingTrainable(Trainable):
         model_path: Optional[str] = None,
     ) -> nn.Module:
 
-        model = SegformerSharingModel(
+        model = SegformerJointPred2InputModel(
             backbone_model=backbone_name,
             pretrained_dataset=self.pretrained_dataset,
             input_image_size=self.resize,
@@ -969,7 +1013,18 @@ class SegformerSharingTrainable(Trainable):
         metadata = get_metadata_with_offset(
             data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
         )
-        return SegformerSharingModule(metadata=metadata, cell_model=self.model)
+        cell_transform = self._create_dual_transform(
+            normalization=self.normalization, partition=partition, kind="cell"
+        )
+        tissue_transform = self._create_dual_transform(
+            normalization=self.normalization, partition=partition, kind="tissue"
+        )
+        return SegformerSimulPredToInputModule(
+            metadata=metadata,
+            cell_model=self.model,
+            cell_transform=cell_transform,
+            tissue_transform=tissue_transform,
+        )
 
     def train(
         self,
@@ -997,13 +1052,13 @@ class SegformerSharingTrainable(Trainable):
             scheduler=scheduler,
             do_save_model_and_plot=do_save_model_and_plot,
             validation_function=self.get_evaluation_function(partition="val"),
-            training_func=run_training_sharing2,
+            training_func=run_training_joint_pred2input,
         )
 
         return best_model_path
 
 
-class SegformerTissueToCellDecoderTrainable(SegformerSharingTrainable):
+class SegformerTissueToCellDecoderTrainable(SegformerJointPred2InputTrainable):
 
     def create_model(
         self,
@@ -1055,7 +1110,7 @@ class ViTUnetTrainable(Trainable):
             pretrained=pretrained,
             device=device,
             backbone_model=backbone_model,
-            data_dir=data_dir
+            data_dir=data_dir,
         )
 
     def build_transform_function_with_extra_transforms(
