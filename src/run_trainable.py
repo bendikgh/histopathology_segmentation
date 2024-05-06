@@ -25,7 +25,7 @@ from src.trainable import (
     DeeplabCellOnlyTrainable,
     SegformerJointPred2InputTrainable,
     SegformerTissueTrainable,
-    SegformerTissueToCellDecoderTrainable,
+    SegformerAdditiveJointPred2DecoderTrainable,
     Trainable,
     ViTUnetTrainable,
 )
@@ -91,8 +91,8 @@ def get_trainable(
             resize=resize,
             data_dir=data_dir,
         )
-    elif model_architecture == "segformer_sum_sharing":
-        trainable = SegformerTissueToCellDecoderTrainable(
+    elif model_architecture == "segformer_additive_joint_pred2decoder":
+        trainable = SegformerAdditiveJointPred2DecoderTrainable(
             normalization=normalization,
             batch_size=batch_size,
             pretrained=pretrained,
@@ -253,9 +253,9 @@ def main():
     test_evaluation_function = trainable.get_evaluation_function(partition="test")
 
     val_score = val_evaluation_function()
-    print(f"val score: {val_score}")
+    print(f"val score: {val_score:.4f}")
     test_score = test_evaluation_function()
-    print(f"test score: {test_score}")
+    print(f"test score: {test_score:.4f}")
 
 
 if __name__ == "__main__":

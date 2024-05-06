@@ -157,23 +157,23 @@ def main():
     #SBATCH --constraint="gpu32g|gpu40g|gpu80g"
     """
 
-    run_slurm = False
+    run_slurm = True
 
     # General parameters
-    job_name = "exp5-tc-b3-512"
+    job_name = "exp8-additive-2"
     python_file = "src/run_trainable.py"
-    duration_str: str = "0-04:00:00"
+    duration_str: str = "0-08:00:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
     # "segformer_cell_only", "segformer_tissue_branch", "segformer_cell_branch", "segformer_joint_pred2input", "segformer_sum_sharing", "deeplab_cell_only", "deeplab_tissue_cell", "vit_unet"
-    model_architecture = "segformer_joint_pred2input"
+    model_architecture = "segformer_additive_joint_pred2decoder"
     epochs = 100
     batch_size = 2
     checkpoint_interval = 10
     backbone = "b3"
     dropout = 0.3
-    learning_rate = 6e-5
+    learning_rate = 1e-4
     learning_rate_end = 2e-5
     pretrained = 1
     warmup_epochs = 10

@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 
 from torch import nn
-from typing import Union, Optional, Dict
+from typing import Union, Optional, Dict, List
 from torchvision import transforms
 from transformers import (
     SegformerForSemanticSegmentation,
@@ -119,7 +119,7 @@ class CustomSegformerModel(nn.Module):
         if logits.shape[1:] != self.output_spatial_shape:
             logits = F.interpolate(
                 logits,
-                size=OCELOT_IMAGE_SIZE,  # (height, width) # TODO: this should be self.output_spatial_shape?
+                size=self.output_spatial_shape,
                 mode="bilinear",
                 align_corners=False,
             )
@@ -187,166 +187,166 @@ def setup_segformer(
     return model
 
 
-class TissueCellSharingSegformerModel(nn.Module):
+# class TissueCellSharingSegformerModel(nn.Module):
 
-    def __init__(
-        self,
-        backbone_name: str,
-        num_classes: int,
-        num_channels: int,
-        metadata: str,  # TODO: It is not str, right?
-        pretrained_dataset: Union[str, None] = None,
-        output_spatial_shape=OCELOT_IMAGE_SIZE,
-    ):
-        if num_channels < 6:
-            raise ValueError("Number of input channels must be at least 6")
-        if num_channels % 2 != 0:
-            raise ValueError("Number of input channels must be even")
+#     def __init__(
+#         self,
+#         backbone_name: str,
+#         num_classes: int,
+#         num_channels: int,
+#         metadata: str,  # TODO: It is not str, right?
+#         pretrained_dataset: Union[str, None] = None,
+#         output_spatial_shape=OCELOT_IMAGE_SIZE,
+#     ):
+#         if num_channels < 6:
+#             raise ValueError("Number of input channels must be at least 6")
+#         if num_channels % 2 != 0:
+#             raise ValueError("Number of input channels must be even")
 
-        super().__init__()
+#         super().__init__()
 
-        # keeping track of what the model is pretrained on
-        self.pretrained_dataset = pretrained_dataset
-        self.num_channels = num_channels
-        self.output_spatial_shape = output_spatial_shape
+#         # keeping track of what the model is pretrained on
+#         self.pretrained_dataset = pretrained_dataset
+#         self.num_channels = num_channels
+#         self.output_spatial_shape = output_spatial_shape
 
-        # Fetching the parameters for the segformer model
+#         # Fetching the parameters for the segformer model
 
-        self.model_tissue = setup_segformer(
-            backbone_name=backbone_name,
-            num_classes=num_classes,
-            # Why do we divide by 2 here?
-            # Couldn't we just use the full num_channels and expect the user to input a smaller number?
-            # They seem to be equal either way
-            num_channels=int(num_channels / 2),
-            pretrained_dataset=pretrained_dataset,
-        )
+#         self.model_tissue = setup_segformer(
+#             backbone_name=backbone_name,
+#             num_classes=num_classes,
+#             # Why do we divide by 2 here?
+#             # Couldn't we just use the full num_channels and expect the user to input a smaller number?
+#             # They seem to be equal either way
+#             num_channels=int(num_channels / 2),
+#             pretrained_dataset=pretrained_dataset,
+#         )
 
-        self.model_cell = setup_segformer(
-            backbone_name=backbone_name,
-            num_classes=num_classes,
-            num_channels=int(num_channels / 2),
-            pretrained_dataset=pretrained_dataset,
-        )
+#         self.model_cell = setup_segformer(
+#             backbone_name=backbone_name,
+#             num_classes=num_classes,
+#             num_channels=int(num_channels / 2),
+#             pretrained_dataset=pretrained_dataset,
+#         )
 
-        # Why do this here, as opposed to just using the model directly
-        # in the forward() method?
-        self.model_cell_encoder = self.model_cell.segformer
-        self.model_cell_decoder = self.model_cell.decode_head
+#         # Why do this here, as opposed to just using the model directly
+#         # in the forward() method?
+#         self.model_cell_encoder = self.model_cell.segformer
+#         self.model_cell_decoder = self.model_cell.decode_head
 
-        self.metadata = metadata
-        self.dim_reduction = None
-        self.device = device
+#         self.metadata = metadata
+#         self.dim_reduction = None
+#         self.device = device
 
-    def forward(self, x, pair_id):
+#     def forward(self, x, pair_id):
 
-        # x.shape: (2, 6, 512, 512) with resize = 512
-        # pair_id.shape: (2,), e.g. [100, 63]
+#         # x.shape: (2, 6, 512, 512) with resize = 512
+#         # pair_id.shape: (2,), e.g. [100, 63]
 
-        # pair_id is a list of indices that correspond to the metadata, since
-        # we process a batch at a time
+#         # pair_id is a list of indices that correspond to the metadata, since
+#         # we process a batch at a time
 
-        # Assuming the three first channels belong to cell
+#         # Assuming the three first channels belong to cell
 
-        # TODO: Maybe scary to have to call int() here? Surely that allows for
-        # bugs to pass through?
-        logits_tissue = self.model_tissue(x[:, int(self.num_channels / 2) :]).logits
+#         # TODO: Maybe scary to have to call int() here? Surely that allows for
+#         # bugs to pass through?
+#         logits_tissue = self.model_tissue(x[:, int(self.num_channels / 2) :]).logits
 
-        scaled_list = []
+#         scaled_list = []
 
-        # Go through each image in the batch, crop and resize, and then
-        # concatenate them for further processing
-        for i in range(len(pair_id)):
-            # TODO: Do we fetch the correct metadata for the sample
-            meta_pair = self.metadata[pair_id[i]]
-            x_offset = meta_pair["patch_x_offset"]
-            y_offset = meta_pair["patch_y_offset"]
+#         # Go through each image in the batch, crop and resize, and then
+#         # concatenate them for further processing
+#         for i in range(len(pair_id)):
+#             # TODO: Do we fetch the correct metadata for the sample
+#             meta_pair = self.metadata[pair_id[i]]
+#             x_offset = meta_pair["patch_x_offset"]
+#             y_offset = meta_pair["patch_y_offset"]
 
-            argmaxed = logits_tissue[i].argmax(dim=0).to(dtype=torch.int)
+#             argmaxed = logits_tissue[i].argmax(dim=0).to(dtype=torch.int)
 
-            scaled_tissue: torch.Tensor = crop_and_resize_tissue_faster(
-                image=argmaxed,
-                x_offset=x_offset,
-                y_offset=y_offset,
-            )
-            cell_weights = outputs.hidden_states
+#             scaled_tissue: torch.Tensor = crop_and_resize_tissue_faster(
+#                 image=argmaxed,
+#                 x_offset=x_offset,
+#                 y_offset=y_offset,
+#             )
+#             cell_weights = outputs.hidden_states
 
-        logits_tissue = torch.cat(scaled_list, dim=0)
+#         logits_tissue = torch.cat(scaled_list, dim=0)
 
-        outputs = self.model_cell_encoder(
-            x[:, : int(self.num_channels / 2)], output_hidden_states=True
-        )
+#         outputs = self.model_cell_encoder(
+#             x[:, : int(self.num_channels / 2)], output_hidden_states=True
+#         )
 
-        # Surely one could do this using outputs.last_hidden_state?
-        cell_weights = outputs.hidden_states
-        cell_encodings = cell_weights[-1]
+#         # Surely one could do this using outputs.last_hidden_state?
+#         cell_weights = outputs.hidden_states
+#         cell_encodings = cell_weights[-1]
 
-        # Flatten cell encodings to match the logits_tissue_flat shape
-        cell_encodings_flat = cell_encodings.reshape(cell_encodings.size(0), -1)
+#         # Flatten cell encodings to match the logits_tissue_flat shape
+#         cell_encodings_flat = cell_encodings.reshape(cell_encodings.size(0), -1)
 
-        # Flatten logits_tissue (B, C*H*W)
-        # (B, H*W*C)
+#         # Flatten logits_tissue (B, C*H*W)
+#         # (B, H*W*C)
 
-        # tissue: (2, 350)
-        # cell: (2, 140)
+#         # tissue: (2, 350)
+#         # cell: (2, 140)
 
-        # (3, 1024, 1024)
-        # (3, 1024, 1024)
+#         # (3, 1024, 1024)
+#         # (3, 1024, 1024)
 
-        # (2, 490)
+#         # (2, 490)
 
-        # [[1, 2, 3], [4, 5, 6]]    -> [1, 2, 3, 4, 5, 6]
-        # [[1, 2], [3, 4], [5, 6]]  -> [1, 2, 3, 4, 5, 6]
+#         # [[1, 2, 3], [4, 5, 6]]    -> [1, 2, 3, 4, 5, 6]
+#         # [[1, 2], [3, 4], [5, 6]]  -> [1, 2, 3, 4, 5, 6]
 
-        # [[1, 3],
-        #  [2, 5],
-        #  [4, 6]]
+#         # [[1, 3],
+#         #  [2, 5],
+#         #  [4, 6]]
 
-        # [[1, 2, 3],
-        #  [4, 5, 6]]
+#         # [[1, 2, 3],
+#         #  [4, 5, 6]]
 
-        logits_tissue_flat = logits_tissue.reshape(logits_tissue.size(0), -1)
+#         logits_tissue_flat = logits_tissue.reshape(logits_tissue.size(0), -1)
 
-        if self.dim_reduction is None:
-            self.dim_reduction = nn.Sequential(
-                nn.Linear(merged_tensor.shape[1], 4096),
-                nn.ReLU(),
-                nn.Linear(4096, cell_encodings_flat.shape[1]),
-                nn.ReLU(),
-            )
-            self.dim_reduction.to(self.device)
+#         if self.dim_reduction is None:
+#             self.dim_reduction = nn.Sequential(
+#                 nn.Linear(merged_tensor.shape[1], 4096),
+#                 nn.ReLU(),
+#                 nn.Linear(4096, cell_encodings_flat.shape[1]),
+#                 nn.ReLU(),
+#             )
+#             self.dim_reduction.to(self.device)
 
-        # (B, 512, image_size / 32, image_size / 32)
+#         # (B, 512, image_size / 32, image_size / 32)
 
-        # Step 3: Concatenate flattened arrays
-        merged_tensor = torch.cat((cell_encodings_flat, logits_tissue_flat), dim=1)
+#         # Step 3: Concatenate flattened arrays
+#         merged_tensor = torch.cat((cell_encodings_flat, logits_tissue_flat), dim=1)
 
-        cell_weights = (*cell_weights[: len(cell_weights) - 1], cell_encodings)
+#         cell_weights = (*cell_weights[: len(cell_weights) - 1], cell_encodings)
 
-        logits_cell = self.model_cell_decoder(cell_weights)
+#         logits_cell = self.model_cell_decoder(cell_weights)
 
-        # Upscaling the result to the shape of the ground truth
-        if logits_cell.shape[1:] != self.output_spatial_shape:
-            logits_cell = F.interpolate(
-                logits_cell,
-                size=OCELOT_IMAGE_SIZE,  # (height, width)
-                mode="bilinear",
-                align_corners=False,
-            )
+#         # Upscaling the result to the shape of the ground truth
+#         if logits_cell.shape[1:] != self.output_spatial_shape:
+#             logits_cell = F.interpolate(
+#                 logits_cell,
+#                 size=OCELOT_IMAGE_SIZE,  # (height, width)
+#                 mode="bilinear",
+#                 align_corners=False,
+#             )
 
-            logits_tissue = F.interpolate(
-                logits_tissue.unsqueeze(1).float(),
-                size=OCELOT_IMAGE_SIZE,  # (height, width)
-                mode="nearest",
-                # align_corners=False,
-            )
+#             logits_tissue = F.interpolate(
+#                 logits_tissue.unsqueeze(1).float(),
+#                 size=OCELOT_IMAGE_SIZE,  # (height, width)
+#                 mode="nearest",
+#                 # align_corners=False,
+#             )
 
-        logits_tissue = F.one_hot(
-            logits_tissue.squeeze(1).long(), num_classes=3
-        ).permute(0, 3, 1, 2)
-        merged_logits = torch.concatenate([logits_cell, logits_tissue], dim=1)
+#         logits_tissue = F.one_hot(
+#             logits_tissue.squeeze(1).long(), num_classes=3
+#         ).permute(0, 3, 1, 2)
+#         merged_logits = torch.concatenate([logits_cell, logits_tissue], dim=1)
 
-        return merged_logits
+#         return merged_logits
 
 
 class LinearClassifier(torch.nn.Module):
@@ -403,37 +403,37 @@ class Dinov2ForSemanticSegmentation(Dinov2PreTrainedModel):
         return logits
 
 
-class SimpleDecoder(nn.Module):
-    def __init__(self):
-        super(SimpleDecoder, self).__init__()
-        self.up1 = nn.ConvTranspose2d(
-            768, 384, kernel_size=3, stride=2, padding=1, output_padding=1
-        )  # Upsample to 28x28
-        self.conv1 = nn.Conv2d(384, 384, kernel_size=3, padding=1)
-        self.up2 = nn.ConvTranspose2d(
-            384, 192, kernel_size=3, stride=2, padding=1, output_padding=1
-        )  # Upsample to 56x56
-        self.conv2 = nn.Conv2d(192, 192, kernel_size=3, padding=1)
-        self.up3 = nn.ConvTranspose2d(
-            192, 96, kernel_size=3, stride=2, padding=1, output_padding=1
-        )  # Upsample to 112x112
-        self.conv3 = nn.Conv2d(96, 96, kernel_size=3, padding=1)
-        self.up4 = nn.ConvTranspose2d(
-            96, 48, kernel_size=3, stride=2, padding=1, output_padding=1
-        )  # Upsample to 224x224
-        self.final_conv = nn.Conv2d(48, 3, kernel_size=1)
+# class SimpleDecoder(nn.Module):
+#     def __init__(self):
+#         super(SimpleDecoder, self).__init__()
+#         self.up1 = nn.ConvTranspose2d(
+#             768, 384, kernel_size=3, stride=2, padding=1, output_padding=1
+#         )  # Upsample to 28x28
+#         self.conv1 = nn.Conv2d(384, 384, kernel_size=3, padding=1)
+#         self.up2 = nn.ConvTranspose2d(
+#             384, 192, kernel_size=3, stride=2, padding=1, output_padding=1
+#         )  # Upsample to 56x56
+#         self.conv2 = nn.Conv2d(192, 192, kernel_size=3, padding=1)
+#         self.up3 = nn.ConvTranspose2d(
+#             192, 96, kernel_size=3, stride=2, padding=1, output_padding=1
+#         )  # Upsample to 112x112
+#         self.conv3 = nn.Conv2d(96, 96, kernel_size=3, padding=1)
+#         self.up4 = nn.ConvTranspose2d(
+#             96, 48, kernel_size=3, stride=2, padding=1, output_padding=1
+#         )  # Upsample to 224x224
+#         self.final_conv = nn.Conv2d(48, 3, kernel_size=1)
 
-    def forward(self, x):
-        x = x.permute(0, 3, 1, 2)
-        x = F.relu(self.up1(x))
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.up2(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.up3(x))
-        x = F.relu(self.conv3(x))
-        x = self.up4(x)
-        x = self.final_conv(x)
-        return x
+#     def forward(self, x):
+#         x = x.permute(0, 3, 1, 2)
+#         x = F.relu(self.up1(x))
+#         x = F.relu(self.conv1(x))
+#         x = F.relu(self.up2(x))
+#         x = F.relu(self.conv2(x))
+#         x = F.relu(self.up3(x))
+#         x = F.relu(self.conv3(x))
+#         x = self.up4(x)
+#         x = self.final_conv(x)
+#         return x
 
 
 class Deconv2DBlock(nn.Module):
@@ -845,17 +845,20 @@ class SegformerJointPred2InputModel(nn.Module):
             mode="bilinear",
             align_corners=False,
         )
-        tissue_logits = F.softmax(tissue_logits_orig, dim=1)
         cropped_tissue_logits = []
-        for batch_idx in range(tissue_logits.shape[0]):
+        for batch_idx in range(tissue_logits_orig.shape[0]):
+            x_offset = offsets[batch_idx][0]
+            y_offset = offsets[batch_idx][1]
             crop = crop_and_resize_tissue_faster(
-                tissue_logits[batch_idx],
-                x_offset=offsets[batch_idx][0],
-                y_offset=offsets[batch_idx][1],
+                tissue_logits_orig[batch_idx],
+                x_offset=x_offset,
+                y_offset=y_offset,
             )
             cropped_tissue_logits.append(crop)
         # Restoring the original shape, but now cropped
         tissue_logits = torch.stack(cropped_tissue_logits)
+        tissue_logits = F.softmax(tissue_logits_orig, dim=1)
+        # NOTE: Moved the softmax to after the cropping, so could be a mistake
 
         # Cell-branch
         model_input = torch.cat((cell_input, tissue_logits), dim=1)
@@ -881,7 +884,7 @@ class SegformerJointPred2InputModel(nn.Module):
         return cell_logits, tissue_logits_orig
 
 
-class SegformerTissueToCellDecoderModel(nn.Module):
+class SegformerAdditiveJointPred2DecoderModel(nn.Module):
     def __init__(
         self,
         backbone_model,
@@ -910,14 +913,14 @@ class SegformerTissueToCellDecoderModel(nn.Module):
         )
 
         self.tissue_model = setup_segformer(
-            backbone_name="b1",  # TODO: make this into an argument?
+            backbone_name="b0",  # TODO: make this into an argument?
             num_classes=3,
             num_channels=3,
             pretrained_dataset=self.pretrained_dataset,
         )
 
         segformer_info = SEGFORMER_ARCHITECTURES[self.backbone_model]
-        hidden_sizes = segformer_info["hidden_sizes"]
+        hidden_sizes: List = segformer_info["hidden_sizes"]
 
         self.model_cell_encoder = self.cell_model.segformer
         self.model_cell_segformer_decoder = self.cell_model.decode_head
@@ -965,17 +968,25 @@ class SegformerTissueToCellDecoderModel(nn.Module):
         # Outputs the cell predictions
         self.conv_output = nn.Conv2d(in_channels=6, out_channels=3, kernel_size=1)
 
-    def forward(self, x: torch.Tensor, offsets: torch.Tensor):
+    def forward(
+        self,
+        cell_image: torch.Tensor,
+        tissue_image: torch.Tensor,
+        offsets: torch.Tensor,
+    ):
         """
-        Assumes that input x has shape (B, 6, H, W), where the first three
-        channels in the second dimension correspond to the cell image and
-        the three last channels in the second dimension correspond to the
-        tissue image
+        Performs inference on the inputs with the model. Cell and input images
+        might have different dimensions, but the output will be resized to the
+        output_image_dimensions. H_c and W_c refer to height and width for
+        the cell image, and H_t and W_t refer to height and width for the tissue
+        image.
 
-        offsets: (B, 2)
+        Args:
+            cell_input: Input tensor for the cell model, (B, 3, H_c, W_c)
+            tissue_input: Input tensor for the tissue model, (B, 3, H_t, W_t)
+            offsets: Offset tensor for the tissue model, (B, 2)
+
         """
-        cell_image = x[:, :3]
-        tissue_image = x[:, 3:]
 
         # Tissue-branch
         tissue_logits = self.tissue_model(tissue_image).logits
@@ -985,22 +996,25 @@ class SegformerTissueToCellDecoderModel(nn.Module):
             mode="bilinear",
             align_corners=False,
         )
-        tissue_logits = F.softmax(tissue_logits_orig, dim=1)
         cropped_tissue_logits = []
-        for batch_idx in range(tissue_logits.shape[0]):
+        for batch_idx in range(tissue_logits_orig.shape[0]):
+            x_offset: float = offsets[batch_idx][0]
+            y_offset: float = offsets[batch_idx][1]
             crop = crop_and_resize_tissue_faster(
-                tissue_logits[batch_idx],
-                x_offset=offsets[batch_idx][0],
-                y_offset=offsets[batch_idx][1],
+                tissue_logits_orig[batch_idx],
+                x_offset=x_offset,
+                y_offset=y_offset,
             )
             cropped_tissue_logits.append(crop)
         # Restoring the original shape, but now cropped
         tissue_logits = torch.stack(cropped_tissue_logits)
+        tissue_logits = F.softmax(tissue_logits, dim=1)
 
         # Cell-encoder
-        cell_encodings = self.model_cell_encoder(
+        cell_encoder_outputs = self.model_cell_encoder(
             cell_image, output_hidden_states=True
-        ).hidden_states
+        )
+        cell_encodings = cell_encoder_outputs.hidden_states
 
         # Extract encodings from different layers in the segformer
         encodings1 = cell_encodings[0]

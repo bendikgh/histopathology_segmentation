@@ -31,7 +31,7 @@ from ocelot23algo.user.inference import (
 )
 from ocelot23algo.user.inference import (
     SegformerJointPred2InputModel as SegformerJointPred2InputModule,
-    SegformerTissueToCellDecoderModel as SegformerTissueToCellDecoderModule,
+    SegformerAdditiveJointPred2DecoderModel as SegformerTissueToCellDecoderModule,
 )
 
 from src.dataset import (
@@ -56,7 +56,7 @@ from src.models import (
     CustomSegformerModel,
     DeepLabV3plusModel,
     SegformerJointPred2InputModel,
-    SegformerTissueToCellDecoderModel,
+    SegformerAdditiveJointPred2DecoderModel,
     ViTUNetModel,
 )
 from src.loss import DiceLossWrapper
@@ -847,55 +847,6 @@ class SegformerJointPred2InputTrainable(Trainable):
             data_dir=data_dir,
         )
 
-    # def build_transform_function_with_extra_transforms(
-    #     self, transforms, extra_transform_cell_tissue
-    # ):
-    #     """
-    #     Builds a transform function that takes in one image and two masks,
-    #     in such a way that it applies resize only to the image and second
-    #     mask
-
-    #     Args:
-    #         transforms: Regular transforms including both geometric and
-    #             pixel-level transforms that should be applied to all images
-    #         extra_transform_cell_tissue: Additional transforms that should
-    #             be applied to the cell image and tissue image only
-    #     """
-
-    #     def transform(cell_image, cell_label, tissue_image, tissue_label):
-    #         """
-    #         Performs resize and pixel-level transformations only on cell_image
-    #         and tissue_image, but performs other geometric transformations, such
-    #         as flips and rotations, on all inputs.
-    #         """
-
-    #         transformed = transforms(
-    #             image=cell_image,
-    #             cell_label=cell_label,
-    #             tissue_image=tissue_image,
-    #             tissue_label=tissue_label,
-    #         )
-    #         cell_image = transformed["image"]
-    #         cell_label = transformed["cell_label"]
-    #         tissue_image = transformed["tissue_image"]
-    #         tissue_label = transformed["tissue_label"]
-
-    #         # Perform additional transforms (usually resize)
-    #         transformed = extra_transform_cell_tissue(
-    #             image=cell_image, mask=tissue_image
-    #         )
-    #         cell_image = transformed["image"]
-    #         tissue_image = transformed["mask"]
-
-    #         return {
-    #             "cell_image": cell_image,
-    #             "cell_label": cell_label,
-    #             "tissue_image": tissue_image,
-    #             "tissue_label": tissue_label,
-    #         }
-
-    #     return transform
-
     def create_transforms(self, normalization, partition: str = "train"):
         return None
 
@@ -1060,7 +1011,7 @@ class SegformerJointPred2InputTrainable(Trainable):
         return best_model_path
 
 
-class SegformerTissueToCellDecoderTrainable(SegformerJointPred2InputTrainable):
+class SegformerAdditiveJointPred2DecoderTrainable(SegformerJointPred2InputTrainable):
 
     def create_model(
         self,
@@ -1070,7 +1021,7 @@ class SegformerTissueToCellDecoderTrainable(SegformerJointPred2InputTrainable):
         model_path: Optional[str] = None,
     ) -> nn.Module:
 
-        model = SegformerTissueToCellDecoderModel(
+        model = SegformerAdditiveJointPred2DecoderModel(
             backbone_model=backbone_name,
             pretrained_dataset=self.pretrained_dataset,
             input_image_size=self.resize,
@@ -1085,8 +1036,17 @@ class SegformerTissueToCellDecoderTrainable(SegformerJointPred2InputTrainable):
         metadata = get_metadata_with_offset(
             data_dir=IDUN_OCELOT_DATA_PATH, partition=partition
         )
+        cell_transform = self._create_dual_transform(
+            normalization=self.normalization, partition=partition, kind="cell"
+        )
+        tissue_transform = self._create_dual_transform(
+            normalization=self.normalization, partition=partition, kind="tissue"
+        )
         return SegformerTissueToCellDecoderModule(
-            metadata=metadata, cell_model=self.model
+            metadata=metadata,
+            cell_model=self.model,
+            cell_transform=cell_transform,
+            tissue_transform=tissue_transform,
         )
 
 
