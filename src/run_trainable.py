@@ -42,6 +42,7 @@ def get_trainable(
     resize: int,
     leak_labels: bool,
     data_dir: str,
+    oversample: int,
 ) -> Trainable:
     trainable: Trainable
     if model_architecture == "segformer_cell_only":
@@ -65,6 +66,7 @@ def get_trainable(
             pretrained_dataset=pretrained_dataset,
             resize=resize,
             data_dir=data_dir,
+            oversample=oversample,
         )
     elif model_architecture == "segformer_cell_branch":
         trainable = SegformerTissueCellTrainable(
@@ -158,6 +160,7 @@ def main():
     id: str = args.id
     leak_labels = args.leak_labels
     loss_function_arg = args.loss_function
+    oversample = args.oversample
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -178,6 +181,7 @@ def main():
     print(f"pretrained dataset: {pretrained_dataset}")
     print(f"Leak labels: {leak_labels}")
     print(f"Loss function: {loss_function_arg}")
+    print(f"Oversample cancer: {oversample}")
     print(f"ID: {id}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
@@ -192,6 +196,7 @@ def main():
         resize=resize,
         leak_labels=leak_labels,
         data_dir=data_dir,
+        oversample=oversample,
     )
 
     if loss_function_arg == "dice":

@@ -516,10 +516,13 @@ class SegformerTissueTrainable(Trainable):
         pretrained_dataset: str,
         data_dir: str,
         resize: Optional[int] = 1024,
+        oversample = False,
     ):
         self.name = "Segformer Tissue-Branch"
         self.pretrained_dataset = pretrained_dataset
         self.resize = resize
+        self.oversample = oversample
+
         super().__init__(
             normalization=normalization,
             batch_size=batch_size,
@@ -569,6 +572,12 @@ class SegformerTissueTrainable(Trainable):
         else:
             shuffle = False
             transform = self.val_transforms
+
+        if self.oversample and partition == "train":
+            for i in INDICES_TISSUE_MOST_CANCER:
+                # Oversampling with the 100 tissue images with the most cancer to even the distribution of pixel types
+                tissue_image_files.append(tissue_image_files[i])
+                tissue_target_files.append(tissue_target_files[i])
 
         dataset = TissueDataset(
             image_files=tissue_image_files,

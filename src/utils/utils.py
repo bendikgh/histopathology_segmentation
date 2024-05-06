@@ -623,6 +623,12 @@ def get_ocelot_args() -> argparse.Namespace:
         help="Which loss function to use",
         choices=["dice", "dice-ce", "dice-wrapper", "dice-ce-wrapper"],
     )
+    parser.add_argument(
+        "--oversample",
+        type=int,
+        default=0,
+        help="Whether to oversample cancer images",
+    )
 
     args: argparse.Namespace = parser.parse_args()
     return args

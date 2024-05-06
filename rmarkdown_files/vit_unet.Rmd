@@ -1,0 +1,652 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.15.2
+  kernelspec:
+    display_name: master_project
+    language: python
+    name: python3
+---
+
+```{python}
+# Fixing automatic autoreload
+# %load_ext autoreload
+# %autoreload 2
+```
+
+```{python}
+import os
+
+# Making sure we are running the code from the root directory
+current_directory = os.getcwd()
+if current_directory.endswith("notebooks"):
+    os.chdir("..")
+    print("Changed directory to:", os.getcwd())
+else:
+    print("Directory was already correct, so did not change.")
+```
+
+```{python}
+import cv2
+import os
+import sys
+import time
+import torch
+import matplotlib.pyplot as plt
+
+import albumentations as A
+import torch.nn as nn
+
+from abc import ABC, abstractmethod
+from datetime import datetime
+from glob import glob
+from monai.losses import DiceLoss, DiceCELoss
+from torch.utils.data import DataLoader
+from torch.optim import AdamW
+from transformers import (
+    get_polynomial_decay_schedule_with_warmup,
+)
+from typing import Union, Optional, List
+
+
+sys.path.append(os.getcwd())
+
+# Local imports
+from ocelot23algo.user.inference import (
+    Deeplabv3CellOnlyModel,
+    Deeplabv3TissueCellModel,
+    Deeplabv3TissueFromFile,
+    EvaluationModel,
+    SegformerCellOnlyModel,
+    SegformerTissueFromFile,
+)
+from ocelot23algo.user.inference import (
+    SegformerSharingModel as SegformerSharingModule,
+    SegformerTissueToCellDecoderModel as SegformerSharingSumModule,
+)
+
+from src.dataset import (
+    CellOnlyDataset,
+    CellTissueDataset,
+    SegformerSharingDataset,
+    TissueDataset,
+)
+from src.utils.constants import (
+    CELL_IMAGE_MEAN,
+    CELL_IMAGE_STD,
+    IDUN_OCELOT_DATA_PATH,
+)
+from src.utils.metrics import (
+    create_cellwise_evaluation_function,
+    create_tissue_evaluation_function,
+)
+from src.utils.utils import (
+    get_metadata_dict,
+    get_metadata_with_offset,
+    get_ocelot_files,
+)
+from src.utils import training
+from src.utils.training import run_training_sharing2
+from src.models import (
+    CustomSegformerModel,
+    DeepLabV3plusModel,
+    SegformerSharingModel,
+    SegformerTissueToCellDecoderModel,
+)
+from src.loss import DiceLossWrapper
+```
+
+```{python}
+test_cell_image_files, test_cell_target_files = get_ocelot_files(
+    data_dir=IDUN_OCELOT_DATA_PATH,
+    partition="test",
+    zoom="cell",
+    macenko=True,
+)
+test_tissue_image_files, test_tissue_target_files = get_ocelot_files(
+    data_dir=IDUN_OCELOT_DATA_PATH,
+    partition="test",
+    zoom="tissue",
+    macenko=True,
+)
+
+# Removing image numbers from tissue images to match cell and tissue
+image_numbers = [x.split("/")[-1].split(".")[0] for x in test_cell_image_files]
+test_tissue_image_files = [
+    file
+    for file in test_tissue_image_files
+    if file.split("/")[-1].split(".")[0] in image_numbers
+]
+test_tissue_target_files = [
+    file
+    for file in test_tissue_target_files
+    if file.split("/")[-1].split(".")[0] in image_numbers
+]
+len1 = len(test_cell_image_files)
+len2 = len(test_cell_target_files)
+len3 = len(test_tissue_image_files)
+len4 = len(test_tissue_target_files)
+assert len1 == len2 == len3 == len4
+
+metadata = get_metadata_dict(data_dir=IDUN_OCELOT_DATA_PATH)
+
+test_dataset = SegformerSharingDataset(
+    cell_image_files=test_cell_image_files,
+    cell_target_files=test_cell_target_files,
+    tissue_image_files=test_tissue_image_files,
+    tissue_target_files=test_tissue_target_files,
+    metadata=metadata,
+    transform=None,
+)
+
+test_dataloader = DataLoader(
+    dataset=test_dataset,
+    batch_size=2,
+    shuffle=True,
+    drop_last=True,
+)
+```
+
+```{python}
+device = "cpu"  # torch.device("cuda" if torch.cuda.is_available() else "cpu")
+```
+
+```{python}
+class SimpleDecoder(nn.Module):
+    def __init__(self):
+        super(SimpleDecoder, self).__init__()
+        self.up1 = nn.ConvTranspose2d(
+            768, 384, kernel_size=3, stride=2, padding=1, output_padding=1
+        )  # Upsample to 28x28
+        self.conv1 = nn.Conv2d(384, 384, kernel_size=3, padding=1)
+        self.up2 = nn.ConvTranspose2d(
+            384, 192, kernel_size=3, stride=2, padding=1, output_padding=1
+        )  # Upsample to 56x56
+        self.conv2 = nn.Conv2d(192, 192, kernel_size=3, padding=1)
+        self.up3 = nn.ConvTranspose2d(
+            192, 96, kernel_size=3, stride=2, padding=1, output_padding=1
+        )  # Upsample to 112x112
+        self.conv3 = nn.Conv2d(96, 96, kernel_size=3, padding=1)
+        self.up4 = nn.ConvTranspose2d(
+            96, 48, kernel_size=3, stride=2, padding=1, output_padding=1
+        )  # Upsample to 224x224
+        self.final_conv = nn.Conv2d(48, 3, kernel_size=1)
+
+    def forward(self, x):
+        x = x.permute(0, 3, 1, 2)
+        x = F.relu(self.up1(x))
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.up2(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.up3(x))
+        x = F.relu(self.conv3(x))
+        x = self.up4(x)
+        x = self.final_conv(x)
+        return x
+```
+
+```{python}
+from transformers import Dinov2Model, Dinov2PreTrainedModel, ViTModel, ViTConfig
+import torch.nn as nn
+import torch.nn.functional as F
+from torchvision import transforms
+from torch.nn.functional import interpolate
+import torch
+
+class Deconv2DBlock(nn.Module):
+    """
+    Deconvolution block with ConvTranspose2d followed by Conv2d, batch-normalisation, ReLU activation and dropout
+    this model is copied from https://github.com/Lzy-dot/OCELOT2023/tree/main
+
+    Args:
+        in_channels (int): Number of input channels for deconv block
+        out_channels (int): Number of output channels for deconv and convolution.
+        kernel_size (int, optional): Kernel size for convolution. Defaults to 3.
+        dropout (float, optional): Dropout. Defaults to 0.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int = 3,
+        dropout: float = 0,
+    ) -> None:
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.ConvTranspose2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=2,
+                stride=2,
+                padding=0,
+                output_padding=0,
+            ),
+            nn.Conv2d(
+                in_channels=out_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                stride=1,
+                padding=(kernel_size - 1) // 2,
+                groups=out_channels,
+            ),
+            nn.Conv2d(
+                in_channels=out_channels,
+                out_channels=out_channels,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(True),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class Conv2DBlock(nn.Module):
+    """
+    Conv2DBlock with convolution followed by batch-normalisation, ReLU activation and dropout
+    This model is copied form https://github.com/Lzy-dot/OCELOT2023/tree/main
+    
+    Args:
+        in_channels (int): Number of input channels for convolution
+        out_channels (int): Number of output channels for convolution
+        kernel_size (int, optional): Kernel size for convolution. Defaults to 3.
+        dropout (float, optional): Dropout. Defaults to 0.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int = 3,
+        dropout: float = 0,
+    ) -> None:
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=kernel_size,
+                stride=1,
+                padding=((kernel_size - 1) // 2),
+                groups=in_channels,
+            ),
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=1,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(True),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class ViTDecoder(nn.Module):
+    """
+    Decoder which processes the patch embeddings from the transformer blocks. 
+    The embeddings are transformed and upsampled in a UNet manner.
+
+    This decoder is mostly copied from https://github.com/Lzy-dot/OCELOT2023/tree/main 
+    """
+    def __init__(self, backbone_config, drop_rate=0) -> None:
+        super().__init__()
+
+        self.embed_dim = backbone_config.hidden_size  # 768 for vit_base
+        self.skip_dim_11 = 512
+        self.skip_dim_12 = 256
+        self.bottleneck_dim = 512
+        self.drop_rate = drop_rate
+
+        # Deocders for the patch embeddings
+        self.bottleneck_upsampler = nn.ConvTranspose2d(
+            in_channels=self.embed_dim,
+            out_channels=self.bottleneck_dim,
+            kernel_size=2,
+            stride=2,
+            padding=0,
+            output_padding=0,
+        )
+        self.decoder3_upsampler = nn.Sequential(
+            Conv2DBlock(
+                self.bottleneck_dim * 2, self.bottleneck_dim, dropout=self.drop_rate
+            ),
+            Conv2DBlock(
+                self.bottleneck_dim, self.bottleneck_dim, dropout=self.drop_rate
+            ),
+            Conv2DBlock(
+                self.bottleneck_dim, self.bottleneck_dim, dropout=self.drop_rate
+            ),
+            nn.ConvTranspose2d(
+                in_channels=self.bottleneck_dim,
+                out_channels=256,
+                kernel_size=2,
+                stride=2,
+                padding=0,
+                output_padding=0,
+            ),
+        )
+        self.decoder2_upsampler = nn.Sequential(
+            Conv2DBlock(256 * 2, 256, dropout=self.drop_rate),
+            Conv2DBlock(256, 256, dropout=self.drop_rate),
+            nn.ConvTranspose2d(
+                in_channels=256,
+                out_channels=128,
+                kernel_size=2,
+                stride=2,
+                padding=0,
+                output_padding=0,
+            ),
+        )
+        self.decoder1_upsampler = nn.Sequential(
+            Conv2DBlock(128 * 2, 128, dropout=self.drop_rate),
+            Conv2DBlock(128, 128, dropout=self.drop_rate),
+            nn.ConvTranspose2d(
+                in_channels=128,
+                out_channels=64,
+                kernel_size=2,
+                stride=2,
+                padding=0,
+                output_padding=0,
+            ),
+        )
+        self.decoder0_header = nn.Sequential(
+            Conv2DBlock(64 * 2, 64, dropout=self.drop_rate),
+            Conv2DBlock(64, 64, dropout=self.drop_rate),
+            nn.Conv2d(
+                in_channels=64,
+                out_channels=3,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+            ),
+        )
+        
+        # Decoder for merging and upsampling patch embeddings
+        self.decoder0 = nn.Sequential(
+            Conv2DBlock(3, 32, 3, dropout=self.drop_rate),
+            Conv2DBlock(32, 64, 3, dropout=self.drop_rate),
+        )  # skip connection 0
+        self.decoder1 = nn.Sequential(
+            Deconv2DBlock(self.embed_dim, self.skip_dim_11, dropout=self.drop_rate),
+            Deconv2DBlock(self.skip_dim_11, self.skip_dim_12, dropout=self.drop_rate),
+            Deconv2DBlock(self.skip_dim_12, 128, dropout=self.drop_rate),
+        )  # skip connection 1
+        self.decoder2 = nn.Sequential(
+            Deconv2DBlock(self.embed_dim, self.skip_dim_11, dropout=self.drop_rate),
+            Deconv2DBlock(self.skip_dim_11, 256, dropout=self.drop_rate),
+        )  # skip connection 2
+        self.decoder3 = nn.Sequential(
+            Deconv2DBlock(self.embed_dim, self.bottleneck_dim, dropout=self.drop_rate)
+        )  # skip connection 3
+
+    def forward(
+        self,
+        z0: torch.Tensor,
+        z1: torch.Tensor,
+        z2: torch.Tensor,
+        z3: torch.Tensor,
+        z4: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Forward upsample branch
+
+        Args:
+            z0 (torch.Tensor): Highest skip
+            z1 (torch.Tensor): 1. Skip
+            z2 (torch.Tensor): 2. Skip
+            z3 (torch.Tensor): 3. Skip
+            z4 (torch.Tensor): Bottleneck
+            branch_decoder (nn.Sequential): Branch decoder network
+
+        Returns:
+            torch.Tensor: Branch Output
+        """
+        b4 = self.bottleneck_upsampler(z4)
+
+        b3 = self.decoder3(z3)
+        b3 = self.decoder3_upsampler(torch.cat([b3, b4], dim=1))
+        
+        b2 = self.decoder2(z2)
+        b2 = self.decoder2_upsampler(torch.cat([b2, b3], dim=1))
+        
+        b1 = self.decoder1(z1)
+        b1 = self.decoder1_upsampler(torch.cat([b1, b2], dim=1))
+        
+        b0 = self.decoder0(z0)
+        branch_output = self.decoder0_header(torch.cat([b0, b1], dim=1))
+
+        return branch_output
+
+
+class ViTUNetModel(torch.nn.Module):
+    """
+    Vision transformer with UNet structure. 
+    This model is recreated from https://github.com/Lzy-dot/OCELOT2023/tree/main
+    """
+
+    def __init__(self, pretrained_dataset="owkin/phikon", output_spatial_shape=1024, extract_layers=[3, 6, 9, 12], *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        if len(extract_layers) != 4:
+            raise ValueError("The argument extract layers should be a list of length four")
+        
+        self.output_spatial_shape = output_spatial_shape        
+
+        # Load pretrained weights
+        if pretrained_dataset:
+            vit_config = ViTConfig.from_pretrained(pretrained_dataset)
+            vit_config.image_size = output_spatial_shape
+            self.vit_encoder = ViTModel.from_pretrained(pretrained_dataset, config=vit_config, ignore_mismatched_sizes=True)
+            # Interpolate positional embeddings to match the output spatial shape
+            self.adjust_positional_embeddings(output_spatial_shape)
+        else:
+            self.vit_encoder = ViTModel()
+        
+        # Which patch embeddings to extract for the decoder
+        self.extract_layers = extract_layers
+
+        vit_config = self.vit_encoder.config
+        self.decoder = ViTDecoder(vit_config)
+
+        # Freeze backbone/encoder parameters
+        # for _, param in self.vit_encoder.named_parameters():
+        #     param.requires_grad = False
+    
+    
+    def adjust_positional_embeddings(self, new_size):
+
+        # Get the original positional embeddings
+        pos_embed = ViTModel.from_pretrained("owkin/phikon").embeddings.position_embeddings
+        
+        # Separate the class token embedding
+        class_token_embed = pos_embed[:, 0:1, :]
+        patch_embeddings = pos_embed[:, 1:, :]
+        
+        # Calculate the new grid size from patch size
+        n_patches_side = new_size // self.vit_encoder.config.patch_size
+        n_patches = n_patches_side ** 2
+        
+        # Reshape patch embeddings to [1, 14, 14, embedding_dim]
+        patch_embeddings = patch_embeddings.reshape(1, -1, 14, 14)
+        
+        # Interpolate patch positional embeddings to the new grid size
+        new_patch_embed = torch.nn.functional.interpolate(patch_embeddings, size=(n_patches_side, n_patches_side), mode='bilinear', align_corners=False)
+        
+        # Flatten the interpolated embeddings back to [1, n_patches, embedding_dim]
+        new_patch_embed = new_patch_embed.reshape(1, n_patches, -1)
+        
+        # Concatenate the class token embedding back
+        new_pos_embed = torch.cat([class_token_embed, new_patch_embed], dim=1)
+        
+        # Update the model's positional embeddings
+        self.vit_encoder.embeddings.position_embeddings = torch.nn.Parameter(new_pos_embed.squeeze(0))
+
+    def forward(self, pixel_values):
+
+        outputs = self.vit_encoder(pixel_values, output_hidden_states=True)
+        hidden_states = outputs.hidden_states
+
+        patch_size = self.output_spatial_shape//16
+
+        embeddings = [pixel_values]
+        for i in self.extract_layers:
+            hidden_state = hidden_states[i][:, 1:].reshape(-1, patch_size, patch_size, 768).permute(0, 3, 1, 2)
+            embeddings.append(hidden_state)
+
+        # Decode patch embeddings
+        logits = self.decoder(*embeddings)
+
+        if logits.shape[1:] != self.output_spatial_shape:
+            logits = nn.functional.interpolate(
+                logits,
+                size=(self.output_spatial_shape, self.output_spatial_shape),
+                mode="bilinear",
+                align_corners=False,
+            )
+
+        return logits
+```
+
+import torch
+from transformers import (
+    Dinov2Model,
+    Dinov2PreTrainedModel,
+    Mask2FormerModel,
+    Mask2FormerConfig,
+)
+
+class LinearClassifier(torch.nn.Module):
+    def __init__(self, in_channels, tokenW=73, tokenH=73, num_labels=1):
+        super(LinearClassifier, self).__init__()
+
+        self.in_channels = in_channels
+        self.width = tokenW
+        self.height = tokenH
+        self.classifier = torch.nn.Conv2d(in_channels, num_labels, (1,1))
+
+    def forward(self, embeddings):
+        embeddings = embeddings.reshape(-1, self.height, self.width, self.in_channels)
+        embeddings = embeddings.permute(0,3,1,2)
+
+        return self.classifier(embeddings)
+
+class Dinov2ForSemanticSegmentation(Dinov2PreTrainedModel):
+    def __init__(self, config):
+        super().__init__(config)
+        self.dinov2 = Dinov2Model(config)
+        self.classifier = LinearClassifier(config.hidden_size, 73, 73, config.num_labels)
+
+        # Setup Mask2Former for semantic segmentation
+        mask2former_config = Mask2FormerConfig()
+        self.mask2former = Mask2FormerModel(mask2former_config)
+        self.conv = torch.nn.Conv2d(256, 3, kernel_size=1)
+
+        for _, param in self.backbone.named_parameters():
+            param.requires_grad = False
+
+    def forward(
+        self, pixel_values, output_hidden_states=False, output_attentions=False
+    ):
+        outputs = self.dinov2(
+            pixel_values,
+            output_hidden_states=output_hidden_states,
+            output_attentions=output_attentions,
+        )
+
+        # Use the patch embeddings - excluding the CLS token
+        patch_embeddings = outputs.last_hidden_state[:, 1:, :]
+        
+        logits = self.classifier(patch_embeddings)
+
+        # Feed the embeddings to Mask2Former head
+        logits = self.mask2former(logits) #......
+
+        logits = torch.nn.functional.interpolate(
+            logits, size=pixel_values.shape[2:], mode="bilinear", align_corners=False
+        )
+
+        logits = self.conv(logits)
+
+        return logits
+
+model = Dinov2ForSemanticSegmentation.from_pretrained(
+         "facebook/dinov2-small", num_labels=3
+         )
+
+```{python}
+from src.models import ViTUNetModel
+
+model = ViTUNetModel(input_spatial_shape=1024)
+# model.to(device)
+```
+
+```{python}
+import torch
+
+images = torch.ones(size=(2, 3, 1024, 1024))
+
+device = "cpu"
+model.to(device)
+images = images.to(device)
+
+outputs = model(images)
+outputs.shape
+```
+
+```{python}
+outputs.shape
+```
+
+```{python}
+it = iter(test_dataloader)
+```
+
+```{python}
+next(it)
+images, masks, offsets = next(it)
+images, masks = images[:, :3], masks[:, :3]
+images, masks = images.to(device), masks.to(device)
+
+outputs = model(images, output_hidden_states=True)
+```
+
+```{python}
+print(outputs.shape)
+print(images.shape)
+```
+
+```{python}
+def show_batch_predictions(images, masks, outputs):
+    batch_size = images.size()[0]
+
+    outputs = torch.argmax(outputs, dim=1)
+    for i in range(batch_size):
+        plt.figure(figsize=(16, 8))
+        plt.subplot(1, 3, 1)
+        plt.axis("off")
+        plt.imshow((images[i] * 255).cpu().permute(1, 2, 0).to(torch.uint8))
+
+        plt.subplot(1, 3, 2)
+        plt.axis("off")
+        plt.imshow(masks[i].cpu().permute(1, 2, 0))
+
+        plt.subplot(1, 3, 3)
+        plt.axis("off")
+        plt.imshow(outputs[i].detach().cpu().squeeze())
+        plt.show()
+
+
+show_batch_predictions(images[:, :3], masks[:, :3], outputs)
+```

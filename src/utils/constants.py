@@ -1,8 +1,8 @@
 PYTORCH_STANDARD_IMAGE_SHAPE = (3, 1024, 1024)
 NUMPY_STANDARD_IMAGE_SHAPE = (1024, 1024, 3)
 
-# IDUN_OCELOT_DATA_PATH = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
-IDUN_OCELOT_DATA_PATH = "ocelot_data"
+IDUN_OCELOT_DATA_PATH = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
+# IDUN_OCELOT_DATA_PATH = "ocelot_data"
 
 DEFAULT_EPOCHS: int = 2
 DEFAULT_BATCH_SIZE: int = 2
@@ -72,3 +72,5 @@ SEGFORMER_ARCHITECTURES = {
         "decoder_hidden_size": 768,
     },
 }
+
+INDICES_TISSUE_MOST_CANCER = [51, 265, 101, 85, 102, 43, 218, 47, 360, 72, 28, 86, 234, 116, 133, 100, 38, 108, 4, 226, 267, 71, 114, 46, 87, 59, 277, 334, 127, 5, 191, 121, 115, 6, 209, 119, 206, 178, 10, 2, 120, 13, 27, 228, 259, 84, 8, 147, 40, 336, 263, 186, 225, 300, 188, 189, 55, 26, 113, 9, 200, 308, 205, 169, 56, 193, 270, 94, 49, 310, 236, 69, 35, 381, 199, 64, 66, 39, 107, 140, 77, 379, 266, 117, 68, 67, 192, 96, 260, 304, 208, 79, 204, 194, 63, 280, 380, 109, 269, 145]
