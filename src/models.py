@@ -5,8 +5,7 @@ import torch.nn.functional as F
 
 
 from torch import nn
-from typing import Union, Optional, Dict, List
-from torchvision import transforms
+from typing import Optional, List
 from transformers import (
     SegformerForSemanticSegmentation,
     SegformerConfig,
@@ -21,10 +20,7 @@ sys.path.append(os.getcwd())
 
 from src.deeplabv3.network.utils import IntermediateLayerGetter
 from src.deeplabv3.network.backbone import resnet
-from src.deeplabv3.network._deeplab import (
-    DeepLabHeadV3Plus,
-    DeepLabV3,
-)
+from src.deeplabv3.network._deeplab import DeepLabHeadV3Plus, DeepLabV3
 from src.utils.constants import OCELOT_IMAGE_SIZE, SEGFORMER_ARCHITECTURES
 from src.utils.utils import crop_and_resize_tissue_faster
 

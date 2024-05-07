@@ -400,12 +400,12 @@ class SegformerCellOnlyTrainable(Trainable):
         device: torch.device,
         backbone_model: str,
         pretrained_dataset: str,
-        resize: Optional[int],
+        cell_image_input_size: Optional[int],
         data_dir: str,
     ):
         self.name = "Segformer Cell-Only"
         self.pretrained_dataset = pretrained_dataset
-        self.resize = resize
+        self.cell_image_input_size = cell_image_input_size
         super().__init__(
             normalization=normalization,
             batch_size=batch_size,
@@ -434,8 +434,10 @@ class SegformerCellOnlyTrainable(Trainable):
         transform_list = self._create_transform_list(normalization, partition=partition)
         transforms = A.Compose(transform_list)
 
-        if self.resize is not None:
-            extra_transform_image = A.Resize(height=self.resize, width=self.resize)
+        if self.cell_image_input_size is not None:
+            extra_transform_image = A.Resize(
+                height=self.cell_image_input_size, width=self.cell_image_input_size
+            )
             transforms = self.build_transform_function_with_extra_transforms(
                 transforms=transforms, extra_transform_image=extra_transform_image
             )
@@ -449,8 +451,8 @@ class SegformerCellOnlyTrainable(Trainable):
             zoom="cell",
             macenko=self.macenko_normalize,
         )
-        if self.resize is not None:
-            image_shape = (self.resize, self.resize)
+        if self.cell_image_input_size is not None:
+            image_shape = (self.cell_image_input_size, self.cell_image_input_size)
         else:
             image_shape = (1024, 1024)
 
@@ -515,12 +517,12 @@ class SegformerTissueTrainable(Trainable):
         backbone_model: str,
         pretrained_dataset: str,
         data_dir: str,
-        resize: Optional[int] = 1024,
-        oversample = False,
+        tissue_image_input_size: Optional[int] = 1024,
+        oversample=False,
     ):
         self.name = "Segformer Tissue-Branch"
         self.pretrained_dataset = pretrained_dataset
-        self.resize = resize
+        self.tissue_image_input_size = tissue_image_input_size
         self.oversample = oversample
 
         super().__init__(
@@ -551,8 +553,10 @@ class SegformerTissueTrainable(Trainable):
         transform_list = self._create_transform_list(normalization, partition=partition)
         transforms = A.Compose(transform_list)
 
-        if self.resize is not None:
-            extra_transform_image = A.Resize(height=self.resize, width=self.resize)
+        if self.tissue_image_input_size is not None:
+            extra_transform_image = A.Resize(
+                height=self.tissue_image_input_size, width=self.tissue_image_input_size
+            )
             transforms = self.build_transform_function_with_extra_transforms(
                 transforms=transforms, extra_transform_image=extra_transform_image
             )
@@ -583,7 +587,7 @@ class SegformerTissueTrainable(Trainable):
             image_files=tissue_image_files,
             seg_files=tissue_target_files,
             transform=transform,
-            image_shape=(self.resize, self.resize),
+            image_shape=(self.tissue_image_input_size, self.tissue_image_input_size),
         )
 
         dataloader = DataLoader(
@@ -641,7 +645,7 @@ class SegformerTissueCellTrainable(Trainable):
         device: torch.device,
         backbone_model: str,
         pretrained_dataset: str,
-        resize: Optional[int],
+        cell_image_input_size: Optional[int],
         data_dir: str,
         leak_labels: bool = False,
         debug: bool = False,
@@ -659,7 +663,7 @@ class SegformerTissueCellTrainable(Trainable):
                 "predictions", "train", "cropped_tissue_segformer", "*"
             )
         self.pretrained_dataset = pretrained_dataset
-        self.resize = resize
+        self.cell_image_input_size = cell_image_input_size
         super().__init__(
             normalization=normalization,
             batch_size=batch_size,
@@ -719,9 +723,11 @@ class SegformerTissueCellTrainable(Trainable):
             additional_targets={"cell_label": "mask", "tissue_prediction": "mask"},
         )
 
-        if self.resize is not None:
+        if self.cell_image_input_size is not None:
             resize_function = A.Resize(
-                height=self.resize, width=self.resize, interpolation=cv2.INTER_NEAREST
+                height=self.cell_image_input_size,
+                width=self.cell_image_input_size,
+                interpolation=cv2.INTER_NEAREST,
             )
             extra_transform_cell_tissue = A.Compose(
                 [resize_function], additional_targets={"tissue": "image"}
@@ -760,8 +766,8 @@ class SegformerTissueCellTrainable(Trainable):
             key=lambda x: int(os.path.basename(x).split(".")[0])
         )
 
-        if self.resize is not None:
-            image_shape = (self.resize, self.resize)
+        if self.cell_image_input_size is not None:
+            image_shape = (self.cell_image_input_size, self.cell_image_input_size)
         else:
             image_shape = (1024, 1024)
 
@@ -825,17 +831,17 @@ class SegformerJointPred2InputTrainable(Trainable):
         device: torch.device,
         backbone_model: str,
         pretrained_dataset: str,
-        resize: Optional[int],
         data_dir: str,
         debug: bool = False,
+        cell_image_input_size: int = 512,
+        tissue_image_input_size: int = 1024,
     ):
         self.pretrained_dataset = pretrained_dataset
-        self.resize = resize
         self.name = "Segformer Sharing"
-
+        self.cell_image_input_size = cell_image_input_size
         self.resize_dict = {
-            "cell": SEGFORMER_JOINT_CELL_IMAGE_SIZE,
-            "tissue": SEGFORMER_JOINT_TISSUE_IMAGE_SIZE,
+            "cell": cell_image_input_size,
+            "tissue": tissue_image_input_size,
         }
 
         super().__init__(
@@ -954,7 +960,7 @@ class SegformerJointPred2InputTrainable(Trainable):
         model = SegformerJointPred2InputModel(
             backbone_model=backbone_name,
             pretrained_dataset=self.pretrained_dataset,
-            input_image_size=self.resize,
+            input_image_size=self.cell_image_input_size,
             output_image_size=1024,
         )
         if model_path is not None:
@@ -1024,7 +1030,7 @@ class SegformerAdditiveJointPred2DecoderTrainable(SegformerJointPred2InputTraina
         model = SegformerAdditiveJointPred2DecoderModel(
             backbone_model=backbone_name,
             pretrained_dataset=self.pretrained_dataset,
-            input_image_size=self.resize,
+            input_image_size=self.cell_image_input_size,
             output_image_size=1024,
         )
         if model_path is not None:
@@ -1061,11 +1067,11 @@ class ViTUnetTrainable(Trainable):
         backbone_model: str,
         pretrained_dataset: str,
         data_dir: str,
-        resize: Optional[int] = 1024,
+        cell_image_input_size: Optional[int] = 1024,
     ):
         self.name = "ViTUnet"
         self.pretrained_dataset = pretrained_dataset
-        self.resize = resize
+        self.cell_image_input_size = cell_image_input_size
         super().__init__(
             normalization=normalization,
             batch_size=batch_size,
@@ -1094,8 +1100,10 @@ class ViTUnetTrainable(Trainable):
         transform_list = self._create_transform_list(normalization, partition=partition)
         transforms = A.Compose(transform_list)
 
-        if self.resize is not None:
-            extra_transform_image = A.Resize(height=self.resize, width=self.resize)
+        if self.cell_image_input_size is not None:
+            extra_transform_image = A.Resize(
+                height=self.cell_image_input_size, width=self.cell_image_input_size
+            )
             transforms = self.build_transform_function_with_extra_transforms(
                 transforms=transforms, extra_transform_image=extra_transform_image
             )
@@ -1120,7 +1128,7 @@ class ViTUnetTrainable(Trainable):
             image_files=tissue_image_files,
             seg_files=tissue_target_files,
             transform=transform,
-            image_shape=(self.resize, self.resize),
+            image_shape=(self.cell_image_input_size, self.cell_image_input_size),
         )
 
         dataloader = DataLoader(
@@ -1144,7 +1152,8 @@ class ViTUnetTrainable(Trainable):
     ) -> nn.Module:
 
         model = ViTUNetModel(
-            pretrained_dataset=self.pretrained_dataset, input_spatial_shape=self.resize
+            pretrained_dataset=self.pretrained_dataset,
+            input_spatial_shape=self.cell_image_input_size,
         )
         if model_path is not None:
             model.load_state_dict(torch.load(model_path))
@@ -1182,7 +1191,7 @@ def main():
     pretrained = True
     backbone_model = "b0"
     pretrained_dataset = "ade"
-    resize = 512
+    cell_image_input_size = 512
     leak_labels = False
 
     device = torch.device("cuda")
@@ -1194,7 +1203,7 @@ def main():
         device=device,
         backbone_model=backbone_model,
         pretrained_dataset=pretrained_dataset,
-        resize=resize,
+        tissue_image_input_size=cell_image_input_size,
     )
 
     # loss_function = DiceLoss(softmax=True)

@@ -21,10 +21,11 @@ def generate_python_arg_list(
     do_eval,
     break_early,
     normalization,
-    resize,
     pretrained_dataset,
     leak_labels,
     loss_function,
+    cell_image_input_size,
+    tissue_image_input_size,
     id_,
 ) -> List:
     # Return a list of command components instead of a single string
@@ -59,8 +60,10 @@ def generate_python_arg_list(
         str(break_early),
         "--normalization",
         normalization,
-        "--resize",
-        str(resize),
+        "--cell-image-input-size",
+        str(cell_image_input_size),
+        "--tissue-image-input-size",
+        str(tissue_image_input_size),
         "--pretrained-dataset",
         pretrained_dataset,
         "--leak-labels",
@@ -91,7 +94,8 @@ def generate_slurm_script(
     do_eval,
     break_early,
     normalization,
-    resize,
+    cell_image_input_size,
+    tissue_image_input_size,
     pretrained_dataset,
     leak_labels,
     loss_function,
@@ -115,7 +119,8 @@ def generate_slurm_script(
         do_eval=do_eval,
         break_early=break_early,
         normalization=normalization,
-        resize=resize,
+        cell_image_input_size=cell_image_input_size,
+        tissue_image_input_size=tissue_image_input_size,
         pretrained_dataset=pretrained_dataset,
         leak_labels=leak_labels,
         loss_function=loss_function,
@@ -157,7 +162,7 @@ def main():
     #SBATCH --constraint="gpu32g|gpu40g|gpu80g"
     """
 
-    run_slurm = True
+    run_slurm = False
 
     # General parameters
     job_name = "exp8-additive-2"
@@ -168,7 +173,7 @@ def main():
     # Script-specific parameters
     # "segformer_cell_only", "segformer_tissue_branch", "segformer_cell_branch", "segformer_joint_pred2input", "segformer_sum_sharing", "deeplab_cell_only", "deeplab_tissue_cell", "vit_unet"
     model_architecture = "segformer_additive_joint_pred2decoder"
-    epochs = 100
+    epochs = 2
     batch_size = 2
     checkpoint_interval = 10
     backbone = "b3"
@@ -176,19 +181,20 @@ def main():
     learning_rate = 1e-4
     learning_rate_end = 2e-5
     pretrained = 1
-    warmup_epochs = 10
-    do_save = 1
+    warmup_epochs = 0
+    do_save = 0
     do_eval = 1
-    break_early = 0
+    break_early = 1
     id_ = 1
     normalization = "macenko"
     leak_labels = 0
     loss_function = "dice-ce"
+    cell_image_input_size = 512
+    tissue_image_input_size = 1024
     # Options: "dice", "dice-wrapper", "dice-ce", "dice-ce-wrapper"
     # Use "-wrapper" when training tissue-branch
 
     # SegFormer
-    resize = 512
     pretrained_dataset = "ade"
 
     for id_ in range(1, 2):
@@ -211,8 +217,9 @@ def main():
             do_eval=do_eval,
             break_early=break_early,
             normalization=normalization,
-            resize=resize,
             pretrained_dataset=pretrained_dataset,
+            cell_image_input_size=cell_image_input_size,
+            tissue_image_input_size=tissue_image_input_size,
             leak_labels=leak_labels,
             loss_function=loss_function,
             id_=id_,
@@ -245,7 +252,8 @@ def main():
                 do_eval=do_eval,
                 break_early=break_early,
                 normalization=normalization,
-                resize=resize,
+                cell_image_input_size=cell_image_input_size,
+                tissue_image_input_size=tissue_image_input_size,
                 pretrained_dataset=pretrained_dataset,
                 leak_labels=leak_labels,
                 loss_function=loss_function,

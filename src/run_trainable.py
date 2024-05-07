@@ -39,10 +39,12 @@ def get_trainable(
     device: torch.device,
     backbone_model: str,
     pretrained_dataset: str,
-    resize: int,
+    # resize: int,
     leak_labels: bool,
     data_dir: str,
     oversample: int,
+    cell_image_input_size: int = 512,
+    tissue_image_input_size: int = 1024,
 ) -> Trainable:
     trainable: Trainable
     if model_architecture == "segformer_cell_only":
@@ -53,7 +55,7 @@ def get_trainable(
             device=device,
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
-            resize=resize,
+            cell_image_input_size=cell_image_input_size,
             data_dir=data_dir,
         )
     elif model_architecture == "segformer_tissue_branch":
@@ -64,7 +66,7 @@ def get_trainable(
             device=device,
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
-            resize=resize,
+            tissue_image_input_size=tissue_image_input_size,
             data_dir=data_dir,
             oversample=oversample,
         )
@@ -76,7 +78,7 @@ def get_trainable(
             device=device,
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
-            resize=resize,
+            cell_image_input_size=cell_image_input_size,
             leak_labels=leak_labels,
             data_dir=data_dir,
         )
@@ -88,7 +90,7 @@ def get_trainable(
             device=device,
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
-            resize=resize,
+            cell_image_input_size=cell_image_input_size,
             data_dir=data_dir,
         )
     elif model_architecture == "segformer_additive_joint_pred2decoder":
@@ -99,8 +101,9 @@ def get_trainable(
             device=device,
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
-            resize=resize,
             data_dir=data_dir,
+            cell_image_input_size=cell_image_input_size,
+            tissue_image_input_size=tissue_image_input_size,
         )
     elif model_architecture == "deeplab_cell_only":
         trainable = DeeplabCellOnlyTrainable(
@@ -127,7 +130,7 @@ def get_trainable(
             device=device,
             backbone_model=backbone_model,
             pretrained_dataset=pretrained_dataset,
-            resize=resize,
+            cell_image_input_size=cell_image_input_size,
             data_dir=data_dir,
         )
     else:
@@ -155,12 +158,14 @@ def main():
     break_after_one_iteration: bool = args.break_early
     normalization: str = args.normalization
     pretrained_dataset: str = args.pretrained_dataset
-    resize: int = args.resize
+    # resize: int = args.resize
     device = torch.device(args.device)
     id: str = args.id
     leak_labels = args.leak_labels
     loss_function_arg = args.loss_function
     oversample = args.oversample
+    cell_image_input_size = args.cell_image_input_size
+    tissue_image_input_size = args.tissue_image_input_size
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -177,7 +182,7 @@ def main():
     print(f"Break after one iteration: {break_after_one_iteration}")
     print(f"Device: {device}")
     print(f"Normalization: {normalization}")
-    print(f"Resize: {resize}")
+    # print(f"Resize: {resize}")
     print(f"pretrained dataset: {pretrained_dataset}")
     print(f"Leak labels: {leak_labels}")
     print(f"Loss function: {loss_function_arg}")
@@ -193,10 +198,11 @@ def main():
         device=device,
         backbone_model=backbone_model,
         pretrained_dataset=pretrained_dataset,
-        resize=resize,
         leak_labels=leak_labels,
         data_dir=data_dir,
         oversample=oversample,
+        cell_image_input_size=cell_image_input_size,
+        tissue_image_input_size=tissue_image_input_size,
     )
 
     if loss_function_arg == "dice":

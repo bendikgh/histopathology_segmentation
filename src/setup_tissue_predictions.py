@@ -112,7 +112,7 @@ if __name__ == "__main__":
         device=device,
         backbone_model=backbone,
         pretrained_dataset=pretrained_dataset,
-        resize=resize,
+        tissue_image_input_size=resize,
     )
 
     tissue_model = tissue_trainable.create_model(

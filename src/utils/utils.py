@@ -591,12 +591,12 @@ def get_ocelot_args() -> argparse.Namespace:
         default=None,
         help="trial identifier",
     )
-    parser.add_argument(
-        "--resize",
-        type=int,
-        default=None,
-        help="resize the input images",
-    )
+    # parser.add_argument(
+    #     "--resize",
+    #     type=int,
+    #     default=None,
+    #     help="resize the input images",
+    # )
     parser.add_argument(
         "--pretrained-dataset",
         type=str,
@@ -628,6 +628,18 @@ def get_ocelot_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="Whether to oversample cancer images",
+    )
+    parser.add_argument(
+        "--cell-image-input-size",
+        type=int,
+        default=512,
+        help="Cell Image Input Size",
+    )
+    parser.add_argument(
+        "--tissue-image-input-size",
+        type=int,
+        default=1024,
+        help="Tissue Image Input Size",
     )
 
     args: argparse.Namespace = parser.parse_args()
