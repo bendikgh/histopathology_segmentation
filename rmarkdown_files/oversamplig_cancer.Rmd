@@ -41,7 +41,6 @@ from tqdm import tqdm
 from monai.losses import DiceLoss, DiceCELoss
 from src.loss import DiceLossWrapper
 from src.utils.constants import DATASET_PARTITION_OFFSETS
-from src.trainable import SegformerSharingTrainable
 from src.utils.constants import IDUN_OCELOT_DATA_PATH
 
 from src.utils.utils import (
@@ -98,6 +97,26 @@ print(indices_tissue_most_cancer)
 ```
 
 ```{python}
+import matplotlib.pyplot as plt
+
+def viz(target_image):
+    target_image = cv2.imread(target_image, cv2.IMREAD_UNCHANGED)
+    target_image[target_image == 255] = 3
+    target_image -= 1
+    target_image = target_image.astype(np.int64)
+    target_image = torch.from_numpy(target_image)
+    target_image = torch.eye(3)[target_image]
+    return target_image
+
+plt.imshow(viz(tissue_target_files[indices_tissue_most_cancer[2]]))
+
+img = cv2.imread(tissue_image_files[indices_tissue_most_cancer[1]], cv2.IMREAD_UNCHANGED)
+# print(img)
+plt.imshow(img)
+
+```
+
+```{python}
 not_cancer_pixels = 0
 cancer_pixels = 0
 
@@ -131,4 +150,32 @@ cancer_lst[99][1]
 print(cancer_lst[99][1])
 print(s)
 print(s - not_cancer_pixels)
+```
+
+```{python}
+from src.trainable import SegformerTissueTrainable
+
+normalization = "off"
+batch_size = 1
+pretrained = "ade"
+device = "cpu"
+backbone_model = "b0"
+pretrained_dataset = "ade"
+resize = 1024
+data_dir = IDUN_OCELOT_DATA_PATH
+partition = "train"
+
+trainable = SegformerTissueTrainable(
+    normalization=normalization,
+    batch_size=batch_size,
+    pretrained=pretrained,
+    device=device,
+    backbone_model=backbone_model,
+    pretrained_dataset=pretrained_dataset,
+    resize=resize,
+    data_dir=data_dir,
+    oversample=1,
+)
+
+trainable._create_dataloader(data_dir, partition="train")
 ```
