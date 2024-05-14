@@ -654,14 +654,11 @@ class SegformerTissueCellTrainable(Trainable):
         self.debug = debug
         if self.leak_labels:
             self.name = "Segformer Tissue-Leaking"
-            self.tissue_training_file_path = os.path.join(
-                "annotations", "train", "cropped_tissue", "*"
-            )
         else:
             self.name = "Segformer Tissue-Cell"
-            self.tissue_training_file_path = os.path.join(
-                "predictions", "train", "cropped_tissue_segformer", "*"
-            )
+        
+        self.tissue_training_file_path = os.path.join(self.get_tissue_folder("train"), "*")
+
         self.pretrained_dataset = pretrained_dataset
         self.cell_image_input_size = cell_image_input_size
         super().__init__(
@@ -677,7 +674,7 @@ class SegformerTissueCellTrainable(Trainable):
         if self.leak_labels:
             return os.path.join("annotations", partition, "cropped_tissue")
         else:
-            return os.path.join("predictions", partition, "cropped_tissue_segformer")
+            return os.path.join("predictions", partition, "cropped_tissue_segformer_exp6")
 
     def build_transform_function_with_extra_transforms(
         self, transforms, extra_transform_cell_tissue
@@ -1152,8 +1149,7 @@ class ViTUnetTrainable(Trainable):
     ) -> nn.Module:
 
         model = ViTUNetModel(
-            pretrained_dataset=self.pretrained_dataset,
-            input_spatial_shape=self.cell_image_input_size,
+            pretrained_dataset=self.pretrained_dataset if pretrained else None, input_spatial_shape=self.resize
         )
         if model_path is not None:
             model.load_state_dict(torch.load(model_path))

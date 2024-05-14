@@ -674,7 +674,7 @@ class ViTUNetModel(torch.nn.Module):
 
     def __init__(
         self,
-        pretrained_dataset="owkin/phikon",
+        pretrained_dataset="",
         input_spatial_shape=1024,
         output_spatial_shape=1024,
         extract_layers=[3, 6, 9, 12],
@@ -691,6 +691,8 @@ class ViTUNetModel(torch.nn.Module):
         self.input_spatial_shape = input_spatial_shape
         self.output_spatial_shape = output_spatial_shape
 
+        self.pretrained_dataset = pretrained_dataset
+
         # Load pretrained weights
         if pretrained_dataset:
             vit_config = ViTConfig.from_pretrained(pretrained_dataset)
@@ -701,7 +703,9 @@ class ViTUNetModel(torch.nn.Module):
             # Interpolate positional embeddings to match the output spatial shape
             self.adjust_positional_embeddings(input_spatial_shape)
         else:
-            self.vit_encoder = ViTModel()
+            vit_config = ViTConfig.from_pretrained("owkin/phikon")
+            vit_config.image_size = input_spatial_shape
+            self.vit_encoder = ViTModel(vit_config)
 
         # Which patch embeddings to extract for the decoder
         self.extract_layers = extract_layers
@@ -717,7 +721,7 @@ class ViTUNetModel(torch.nn.Module):
 
         # Get the original positional embeddings
         pos_embed = ViTModel.from_pretrained(
-            "owkin/phikon"
+            self.pretrained_dataset
         ).embeddings.position_embeddings
 
         # Separate the class token embedding
