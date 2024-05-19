@@ -78,6 +78,7 @@ def create_cropped_tissue_predictions(
 
         # Save the cropped image to file
         filename = os.path.join(tissue_cropped_prediction_save_path, f"{image_num}.png")
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
         cv2.imwrite(
             filename=filename,
             img=cv2.cvtColor(one_hot, cv2.COLOR_RGB2BGR),
@@ -90,13 +91,17 @@ if __name__ == "__main__":
         # "outputs/models/20240303_205501_deeplabv3plus-tissue-branch_pretrained-1_lr-6e-05_dropout-0.1_backbone-resnet50_epochs-100.pth"
         "outputs/models/best/20240313_002829_deeplabv3plus-tissue-branch_pretrained-1_lr-1e-04_dropout-0.1_backbone-resnet50_normalization-macenko_id-5_best.pth"
     )
-    segformer_model_path = (
-        "outputs/models/20240422_085251/Segformer_Tissue-Branch_backbone-b0_best.pth"
-    )
+    # Regular segformer model
+    # segformer_model_path = (
+    #     "outputs/models/20240422_085251/Segformer_Tissue-Branch_backbone-b0_best.pth"
+    # )
+
+    # Segformer model after experiment 6
+    new_segformer_model_path = "outputs/models/segformer_b0_exp6_tissue_best.pth"
 
     print("Setting up tissue predictions!")
     print(f"Device: {device}")
-    print(f"Model path: {segformer_model_path}")
+    print(f"Model path: {new_segformer_model_path}")
 
     normalization = "macenko"
     batch_size = 2
@@ -113,16 +118,17 @@ if __name__ == "__main__":
         backbone_model=backbone,
         pretrained_dataset=pretrained_dataset,
         tissue_image_input_size=resize,
+        data_dir=data_dir,
     )
 
     tissue_model = tissue_trainable.create_model(
         backbone_name=backbone,
         pretrained=pretrained,
         device=device,
-        model_path=segformer_model_path,
+        model_path=new_segformer_model_path,
     )
 
-    folder_name = "cropped_tissue_segformer"
+    folder_name = "cropped_tissue_segformer_exp6"
 
     print("Creating images for train set...")
     create_cropped_tissue_predictions(

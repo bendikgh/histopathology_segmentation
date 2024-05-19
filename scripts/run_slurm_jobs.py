@@ -134,8 +134,8 @@ def generate_slurm_script(
 #SBATCH --time={duration_str}               
 
 #SBATCH --partition=GPUQ               
-#SBATCH --gres=gpu:1              
-#SBATCH --constraint=gpu32g
+#SBATCH --gres=gpu:a100             
+#SBATCH --constraint=gpu40g
 #SBATCH --nodes=1                      
 #SBATCH --mem=32G                        
 
@@ -162,39 +162,38 @@ def main():
     #SBATCH --constraint="gpu32g|gpu40g|gpu80g"
     """
 
-    run_slurm = False
+    run_slurm = True
 
     # General parameters
-    job_name = "exp8-additive-2"
+    job_name = "exp8-additive-7"
     python_file = "src/run_trainable.py"
-    duration_str: str = "0-08:00:00"
+    duration_str: str = "0-09:00:00"
     work_dir = os.getcwd()
 
     # Script-specific parameters
     # "segformer_cell_only", "segformer_tissue_branch", "segformer_cell_branch", "segformer_joint_pred2input", "segformer_sum_sharing", "deeplab_cell_only", "deeplab_tissue_cell", "vit_unet"
     model_architecture = "segformer_additive_joint_pred2decoder"
-    epochs = 2
+    epochs = 100
     batch_size = 2
     checkpoint_interval = 10
     backbone = "b3"
     dropout = 0.3
-    learning_rate = 1e-4
-    learning_rate_end = 2e-5
+    learning_rate = 2e-4
+    learning_rate_end = 1e-7
     pretrained = 1
-    warmup_epochs = 0
-    do_save = 0
+    warmup_epochs = 10
+    do_save = 1
     do_eval = 1
-    break_early = 1
+    break_early = 0
     id_ = 1
     normalization = "macenko"
     leak_labels = 0
     loss_function = "dice-ce"
-    cell_image_input_size = 512
-    tissue_image_input_size = 1024
     # Options: "dice", "dice-wrapper", "dice-ce", "dice-ce-wrapper"
     # Use "-wrapper" when training tissue-branch
 
-    # SegFormer
+    cell_image_input_size = 1024
+    tissue_image_input_size = 1024
     pretrained_dataset = "ade"
 
     for id_ in range(1, 2):
