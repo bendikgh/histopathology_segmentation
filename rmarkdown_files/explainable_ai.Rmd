@@ -1,0 +1,151 @@
+---
+jupyter:
+  jupytext:
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.2'
+      jupytext_version: 1.15.2
+  kernelspec:
+    display_name: specialization_project
+    language: python
+    name: python3
+---
+
+```{python}
+# Fixing automatic autoreload
+# %load_ext autoreload
+# %autoreload 2
+```
+
+```{python}
+import os 
+
+# Making sure we are running the code from the root directory
+current_directory = os.getcwd()
+if current_directory.endswith("notebooks"):
+    os.chdir("..")
+    print("Changed directory to:", os.getcwd())
+else:
+    print("Directory was already correct, so did not change.")
+```
+
+```{python}
+import torch
+import torch.nn.functional as F
+import numpy as np
+import matplotlib.pyplot as plt
+
+from pytorch_grad_cam import GradCAM
+from pytorch_grad_cam.utils.image import show_cam_on_image
+from torch import nn
+
+from src.trainable import SegformerTissueCellTrainable
+from src.utils.constants import IDUN_OCELOT_DATA_PATH as data_dir
+```
+
+```{python}
+normalization = "macenko"
+batch_size = 1
+pretrained = True
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+backbone_model = "b3"
+pretrained_dataset = "ade"
+cell_image_input_size = 1024
+leak_labels = False
+debug = False
+
+trainable = SegformerTissueCellTrainable(
+    normalization=normalization,
+    batch_size=batch_size,
+    pretrained=pretrained,
+    device=device,
+    backbone_model=backbone_model,
+    pretrained_dataset=pretrained_dataset,
+    cell_image_input_size=cell_image_input_size,
+    data_dir=data_dir,
+    leak_labels=leak_labels,
+    debug=debug,
+)
+
+model_path = "outputs/models/20240427_073127/Segformer_Tissue-Cell_backbone-b3_best.pth"
+model = trainable.create_model(
+    backbone_name=backbone_model,
+    pretrained=pretrained,
+    device=device,
+    model_path=model_path,
+)
+
+```
+
+```{python}
+# Changing the first layer to only take in three channels
+# input_layer = model.model.segformer.encoder.patch_embeddings[0].proj
+# model.model.segformer.encoder.patch_embeddings[0].proj.weight.data[:, :3].requires_grad = True
+# model.model.segformer.encoder.patch_embeddings[0].proj.weight.data[:, :3] = 0
+
+# new_input_layer = nn.Conv2d(
+#     3,
+#     input_layer.out_channels,
+#     kernel_size=input_layer.kernel_size,
+#     stride=input_layer.stride,
+#     padding=input_layer.padding,
+# )
+# new_input_layer.weight.data[:] = input_layer.weight.data[:, :3]
+# new_input_layer.bias.data[:] = input_layer.bias.data
+# model.model.segformer.encoder.patch_embeddings[0].proj = new_input_layer
+
+model.to(device)
+print()
+```
+
+```{python}
+dataloader = trainable.create_train_dataloader(data_dir)
+dataloader.shuffle = False
+input_image, input_mask = next(iter(dataloader))
+```
+
+```{python}
+category = 1 # bg: 0, cancer: 1, unknown: 2 
+category_mask = (input_mask == category).float()
+print(category_mask.shape)
+print(category_mask.sum())
+```
+
+```{python}
+class SemanticSegmentationTarget:
+    def __init__(self, category: int, mask: torch.Tensor):
+        self.category = category
+        self.mask = mask.to(device)
+
+    def __call__(self, model_output):
+        return (model_output[self.category, :, :] * self.mask).sum()
+
+targets = [SemanticSegmentationTarget(category, category_mask)]
+```
+
+```{python}
+print(input_image.shape)
+```
+
+```{python}
+# layers = [model.model.segformer.encoder.patch_embeddings[0].proj]
+# layers = [model.model.segformer.encoder.block[-1][-1].mlp.dwconv] # Last depth-wise conv layer
+layers = [model.model.decode_head.classifier] # Last depth-wise conv layer
+
+with GradCAM(model=model, target_layers=layers) as cam: 
+    result = cam(input_tensor=input_image, targets=targets)
+```
+
+```{python}
+print(result.shape)
+fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+ax[0].imshow(result[0])
+ax[1].imshow(input_image[0, :3].permute(1, 2, 0))
+ax[2].imshow(input_image[0, 3:].permute(1, 2, 0))
+plt.show()
+```
+
+```{python}
+# model
+```

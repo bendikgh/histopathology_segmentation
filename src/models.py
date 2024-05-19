@@ -725,7 +725,7 @@ class ViTUNetModel(torch.nn.Module):
         ).embeddings.position_embeddings
 
         # Separate the class token embedding
-        class_token_embed = pos_embed[:, 0:1, :]
+        class_token_embed = pos_embed[:, :1, :]
         patch_embeddings = pos_embed[:, 1:, :]
 
         # Calculate the new grid size from patch size
@@ -736,7 +736,7 @@ class ViTUNetModel(torch.nn.Module):
         patch_embeddings = patch_embeddings.reshape(1, -1, 14, 14)
 
         # Interpolate patch positional embeddings to the new grid size
-        new_patch_embed = torch.nn.functional.interpolate(
+        new_patch_embed = F.interpolate(
             patch_embeddings,
             size=(n_patches_side, n_patches_side),
             mode="bilinear",
@@ -755,10 +755,12 @@ class ViTUNetModel(torch.nn.Module):
         )
 
     def forward(self, pixel_values):
-
         outputs = self.vit_encoder(pixel_values, output_hidden_states=True)
         hidden_states = outputs.hidden_states
 
+        # TODO: Could maybe be set in the constructor, so we can skip
+        # calculation and also be sure that nothing is messed up between
+        # then and here?
         patch_size = self.input_spatial_shape // 16
 
         embeddings = [pixel_values]

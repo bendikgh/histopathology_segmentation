@@ -31,8 +31,11 @@ else:
 ```
 
 ```{python}
+import cv2
 import torch
 import albumentations as A
+import numpy as np
+import matplotlib.pyplot as plt
 
 from torch.nn.functional import softmax, one_hot
 
@@ -49,10 +52,13 @@ normalization = "macenko"
 batch_size = 2
 pretrained = True
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-tissue_backbone_model = "b1"
-cell_backbone_model = "resnet50"
 pretrained_dataset = "ade"
-resize = 1024
+
+cell_backbone_model = "b3"
+cell_resize = 512
+
+tissue_backbone_model = "b0"
+tissue_resize = 1024
 
 tissue_trainable = SegformerTissueTrainable(
     normalization=normalization,
@@ -61,33 +67,25 @@ tissue_trainable = SegformerTissueTrainable(
     device=device,
     backbone_model=tissue_backbone_model,
     pretrained_dataset=pretrained_dataset,
-    resize=resize,
+    resize=tissue_resize,
 )
 
-cell_trainable = DeeplabCellOnlyTrainable(
+cell_trainable = SegformerCellOnlyTrainable(
     normalization=normalization,
     batch_size=batch_size,
     pretrained=pretrained,
     device=device,
+    backbone_model=cell_backbone_model,
+    pretrained_dataset=pretrained_dataset,
+    resize=cell_resize,
 )
-
-# cell_trainable = SegformerCellOnlyTrainable(
-#   normalization=normalization,
-#   batch_size=batch_size,
-#   pretrained=pretrained,
-#   device=device,
-#   backbone_model=cell_backbone_model,
-#   pretrained_dataset=pretrained_dataset,
-#   resize=resize
-# )
 ```
 
 ```{python}
 tissue_model_path = (
-    "outputs/models/20240414_192040/Segformer_Tissue-Branch_backbone-b1_best.pth"
+    "outputs/models/20240422_085251/Segformer_Tissue-Branch_backbone-b0_best.pth"
 )
-# cell_model_path = "outputs/models/20240408_001200/deeplabv3plus-cell-only_pretrained-1_lr-1e-04_backbone-b3_normalization-macenko_pretrained_dataset-ade_resize-1024_id-1_best.pth"
-cell_model_path = "outputs/models/20240403_143651/deeplabv3plus-cell-only_pretrained-1_lr-1e-04_dropout-0.3_backbone-resnet50_normalization-macenko_id-1_best.pth"
+cell_model_path = "outputs/models/20240419_060504/Segformer_Cell-Only_backbone-b3_best.pth"
 
 tissue_model = tissue_trainable.create_model(
     backbone_name=tissue_backbone_model,
@@ -102,11 +100,36 @@ cell_model = cell_trainable.create_model(
     device=device,
     model_path=cell_model_path,
 )
+
+tissue_model.eval()
+cell_model.eval()
+print()
 ```
 
 ```{python}
+def create_image_from_predictions(cell_prediction_list, pixel_radius: int = 7): 
+  cell_prediction_image = np.zeros((1024, 1024, 3), dtype="uint8")
+
+  for x, y, label, _ in cell_prediction_list:
+      if label == 1:  # Background
+          # Create a temporary single-channel image for drawing
+          tmp = cell_prediction_image[:, :, 2].copy()
+          cv2.circle(tmp, (x, y), pixel_radius, 1, -1)
+          cell_prediction_image[:, :, 2] = tmp
+      elif label == 2:  # Tumor
+          tmp = cell_prediction_image[:, :, 1].copy()
+          cv2.circle(tmp, (x, y), pixel_radius, 1, -1)
+          cell_prediction_image[:, :, 1] = tmp
+  mask = np.all(cell_prediction_image == [0, 0, 0], axis=-1)
+  cell_prediction_image[mask] = [1, 0, 0]
+  return cell_prediction_image
+```
+
+```{python}
+image_list = []
+
 class NaiveEvaluationModel(EvaluationModel): 
-  def __init__(self, metadata, cell_model, tissue_model, device): 
+  def __init__(self, metadata, cell_model, tissue_model, device, leaking: bool = False, cell_resize: int = 512, tissue_resize: int = 1024): 
     self.metadata = metadata
     self.cell_model = cell_model
     self.tissue_model = tissue_model
@@ -118,17 +141,29 @@ class NaiveEvaluationModel(EvaluationModel):
     self.tissue_model.eval()
     self.tissue_model.to(self.device)
 
-    self.resize_function = A.Resize(height=512, width=512)
+    self.cell_resize_function = A.Resize(height=cell_resize, width=cell_resize)
+    self.tissue_resize_function = A.Resize(height=tissue_resize, width=tissue_resize)
     self.use_tissue = True
+    self.leaking = leaking
+  
+  def get_updated_result(self, result, cropped_tissue_patch): 
+    result = result.copy()
+    for idx in range(len(result)): 
+      x, y, class_id, prob = result[idx]
+      cropped_tissue_class = cropped_tissue_patch[y, x]
+
+      if cropped_tissue_class == 1: 
+        result[idx] = (x, y, 2, prob) 
+      elif cropped_tissue_class == 2: 
+        result[idx] = (x, y, 1, prob) 
+
+    return result
 
 
   def __call__(self, cell_patch, tissue_patch, pair_id, transform=None): 
+    dbg = True
+    cell_patch = self.cell_resize_function(image=cell_patch)["image"] 
 
-    # Calculate the points from the cell model
-    if transform is not None: 
-      transformed = transform(image=cell_patch, mask=tissue_patch)
-      cell_patch = transformed["image"]
-    
     cell_patch = self._scale_cell_patch(cell_patch)
     cell_patch = torch.from_numpy(cell_patch).permute(2, 0, 1)
     cell_patch = cell_patch.unsqueeze(0).to(self.device)
@@ -137,15 +172,39 @@ class NaiveEvaluationModel(EvaluationModel):
     softmaxed = softmax(output, dim=0)
     result = get_point_predictions(softmaxed)
 
+
     if not self.use_tissue: 
       return result
+
+    if self.leaking: 
+      tissue_patch = np.argmax(tissue_patch, axis=2)
+      new_result = self.get_updated_result(result, tissue_patch)
+
+      if pair_id in [9, 69]: 
+        old_prediction_image = create_image_from_predictions(result)
+        old_prediction_image = old_prediction_image * 255
+
+        new_prediction_image = create_image_from_predictions(new_result)
+        new_prediction_image = new_prediction_image * 255
+
+        new_tissue_patch = (np.eye(3)[tissue_patch] * 255).astype(np.uint8)
+
+        cell = cell_patch.squeeze(0).cpu().permute(1, 2, 0)
+        old = old_prediction_image
+        new = new_prediction_image
+        tissue = new_tissue_patch
+        elem = [cell, old, new, None, tissue]
+        image_list.append(elem)
+
+      return new_result
+
 
     # calculating tissue predictions
     meta_pair = self.metadata[pair_id]
     x_offset = meta_pair["patch_x_offset"]
     y_offset = meta_pair["patch_y_offset"]
 
-    tissue_patch = self.resize_function(image=tissue_patch)["image"]
+    tissue_patch = self.tissue_resize_function(image=tissue_patch)["image"]
     tissue_patch = self._scale_tissue_patch(tissue_patch)
     tissue_patch = torch.from_numpy(tissue_patch).permute(2, 0, 1)
     tissue_patch = tissue_patch.unsqueeze(0).to(self.device)
@@ -158,46 +217,91 @@ class NaiveEvaluationModel(EvaluationModel):
       y_offset=y_offset,
     )
 
-    for idx in range(len(result)): 
-      x, y, class_id, prob = result[idx]
-      cropped_tissue_class = cropped_tissue[y, x]
+    new_result =  self.get_updated_result(result, cropped_tissue)
+    if pair_id in [9, 69]: 
+      old_prediction_image = create_image_from_predictions(result)
+      old_prediction_image = old_prediction_image * 255
 
-      if cropped_tissue_class == 1: 
-        result[idx] = (x, y, 2, prob) 
-      elif cropped_tissue_class == 0: 
-        result[idx] = (x, y, 1, prob) 
+      new_prediction_image = create_image_from_predictions(new_result)
+      new_prediction_image = new_prediction_image * 255
 
+      new_tissue_patch = (np.eye(3)[cropped_tissue.cpu().numpy()] * 255).astype(np.uint8)
 
-    return result
-```
+      cell = cell_patch.squeeze(0).cpu().permute(1, 2, 0)
+      old = old_prediction_image
+      new = new_prediction_image
+      tissue = new_tissue_patch
+      elem = [cell, old, new, None, tissue]
+      image_list.append(elem)
 
-```{python}
-val_metadata = get_metadata_with_offset(data_dir=data_dir, partition="val")
-evaluation_model = NaiveEvaluationModel(
-  metadata=val_metadata, 
-  cell_model=cell_model, 
-  tissue_model=tissue_model,
-  device=device
-  )
-```
+    return new_result
 
-```{python}
-transform = A.Resize(height=resize, width=resize)
 ```
 
 ```{python}
 partition = "val"
-tissue_folder = data_dir + "/" + tissue_trainable.get_tissue_folder(partition=partition)
+leaking = False
+val_metadata = get_metadata_with_offset(data_dir=data_dir, partition=partition)
+evaluation_model = NaiveEvaluationModel(
+  metadata=val_metadata, 
+  cell_model=cell_model, 
+  tissue_model=tissue_model,
+  device=device,
+  leaking=leaking
+  )
+```
+
+```{python}
+if leaking: 
+  tissue_folder = data_dir + "/" + f"annotations/{partition}/cropped_tissue"
+else: 
+  tissue_folder = data_dir + "/" + tissue_trainable.get_tissue_folder(partition=partition)
 print(tissue_folder)
+```
+
+```{python}
 result = predict_and_evaluate(
   evaluation_model=evaluation_model,
   partition=partition,
-  tissue_file_folder = tissue_folder,
+  tissue_file_folder=tissue_folder,
   transform=None,
   break_after_one_iteration=False
 )
 print(f"Result: {result}")
-# Result (cell-only without tissue): 0.6963999999999999
-# Result (cell-only with tissue help): 0.7110000000000001
 
+# Cell-only (test):          {'Pre/BC': 0.6733, 'Rec/BC': 0.6424, 'F1/BC': 0.6575, 'Pre/TC': 0.7832, 'Rec/TC': 0.6839, 'F1/TC': 0.7302, 'mF1': 0.69385}
+# Cell + tissue pred (test): {'Pre/BC': 0.7151, 'Rec/BC': 0.5364, 'F1/BC': 0.613,  'Pre/TC': 0.7199, 'Rec/TC': 0.7382, 'F1/TC': 0.7289, 'mF1': 0.6709499999999999}
+# Cell + leaking (test):     {'Pre/BC': 0.7488, 'Rec/BC': 0.5759, 'F1/BC': 0.651,  'Pre/TC': 0.7475, 'Rec/TC': 0.7559, 'F1/TC': 0.7517, 'mF1': 0.70135}
+
+# Cell-only (val):           {'Pre/BC': 0.6347, 'Rec/BC': 0.6707, 'F1/BC': 0.6522, 'Pre/TC': 0.8482, 'Rec/TC': 0.7239, 'F1/TC': 0.7812, 'mF1': 0.7167}
+# Cell + tissue pred (val):  {'Pre/BC': 0.6577, 'Rec/BC': 0.5837, 'F1/BC': 0.6185, 'Pre/TC': 0.8043, 'Rec/TC': 0.7566, 'F1/TC': 0.7797, 'mF1': 0.6991} 
+# Cell + leaking (val):      {'Pre/BC': 0.7162, 'Rec/BC': 0.6038, 'F1/BC': 0.6552, 'Pre/TC': 0.8108, 'Rec/TC': 0.7812, 'F1/TC': 0.7957, 'mF1': 0.7254499999999999} 
+```
+
+```{python}
+val_dataloader = cell_trainable._create_dataloader(data_dir=data_dir, partition="val")
+masks = []
+for i, j in enumerate([9, 69]): 
+  _, mask = val_dataloader.dataset[j]
+  mask = mask.permute(1, 2, 0).numpy() * 255
+  image_list[i][3] = mask
+```
+
+```{python}
+titles = ["Input", "Cell-Only Pred", "Cell + Tissue Pred", "Cell Label", "Tissue Prediction"]
+for images in image_list: 
+  for idx, image in enumerate(images): 
+    print(titles[idx])
+    plt.imshow(image)
+    plt.axis("off")
+    plt.show()
+  # fig, ax = plt.subplots(1, 5, figsize=(20, 5))
+  # for i, image in enumerate(images): 
+  #   if image is not None: 
+  #     ax[i].imshow(image)
+  #   ax[i].axis("off")
+  #   ax[i].set_title(titles[i])
+
+  # plt.tight_layout()
+  # plt.show()
 ```

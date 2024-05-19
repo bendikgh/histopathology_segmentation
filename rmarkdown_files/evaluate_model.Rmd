@@ -49,7 +49,7 @@ print(f"Device: {device}")
 
 ```{python}
 data_dir = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
-train_seg_files = glob(os.path.join(data_dir, "annotations/train/segmented_cell/*"))
+train_seg_files = glob(os.path.join(data_dir, "annotations/train/cell_mask_images/*"))
 train_image_numbers = [
     file_name.split("/")[-1].split(".")[0] for file_name in train_seg_files
 ]
@@ -58,7 +58,7 @@ train_image_files = [
     for image_number in train_image_numbers
 ]
 
-val_seg_files = glob(os.path.join(data_dir, "annotations/val/segmented_cell/*"))
+val_seg_files = glob(os.path.join(data_dir, "annotations/val/cell_mask_images/*"))
 val_image_numbers = [
     file_name.split("/")[-1].split(".")[0] for file_name in val_seg_files
 ]
@@ -67,7 +67,7 @@ val_image_files = [
     for image_number in val_image_numbers
 ]
 
-test_seg_files = glob(os.path.join(data_dir, "annotations/test/segmented_cell/*"))
+test_seg_files = glob(os.path.join(data_dir, "annotations/test/cell_mask_images/*"))
 test_image_numbers = [
     file_name.split("/")[-1].split(".")[0] for file_name in test_seg_files
 ]

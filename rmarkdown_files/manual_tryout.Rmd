@@ -61,7 +61,7 @@ val_image_nums = [x.split("/")[-1].split(".")[0] for x in val_cell_image_files]
 
 # Finding annotated files
 val_tissue_cropped_predictions = glob(
-    os.path.join(IDUN_OCELOT_DATA_PATH, "annotations/val/predicted_cropped_tissue/*")
+    os.path.join(IDUN_OCELOT_DATA_PATH, "predictions/val/cropped_tissue_deeplab/*")
 )
 val_tissue_cropped_predictions = [
     file
@@ -250,5 +250,17 @@ plt.show()
 ```
 
 ```{python}
+partition = "val"
+initial = 450
+for i in range(15): 
+  file_name1 = f"/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data/predictions/{partition}/cropped_tissue_segformer/{str(initial + i)}.png"
+  file_name2 = f"/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data/images/{partition}/cell/{str(initial + i)}.jpg"
+  fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+  ax[0].imshow(cv2.imread(file_name1)*255)
+  ax[0].axis("off")
 
+  ax[1].imshow(cv2.imread(file_name2))
+  ax[1].axis("off")
+  plt.tight_layout()
+  plt.show()
 ```

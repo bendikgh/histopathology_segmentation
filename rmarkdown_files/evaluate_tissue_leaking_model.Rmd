@@ -55,7 +55,7 @@ data_path = "/cluster/projects/vc/data/mic/open/OCELOT/ocelot_data"
 ```
 
 ```{python}
-train_cell_seg = sorted(glob(os.path.join(data_path, "annotations/train/segmented_cell/*")))
+train_cell_seg = sorted(glob(os.path.join(data_path, "annotations/train/cell_mask_images/*")))
 train_tissue_seg = []
 train_input_img = []
 
@@ -67,7 +67,7 @@ for img_path in train_cell_seg:
     train_input_img.append(input_img_path)
 
 
-val_cell_seg = sorted(glob(os.path.join(data_path, "annotations/val/segmented_cell/*")))
+val_cell_seg = sorted(glob(os.path.join(data_path, "annotations/val/cell_mask_images/*")))
 val_tissue_seg = []
 val_input_img = []
 
@@ -79,7 +79,7 @@ for img_path in val_cell_seg:
     val_input_img.append(input_img_path)
 
 
-test_cell_seg = sorted(glob(os.path.join(data_path, "annotations/test/segmented_cell/*")))
+test_cell_seg = sorted(glob(os.path.join(data_path, "annotations/test/cell_mask_images/*")))
 test_tissue_seg = []
 test_input_img = []
 
