@@ -898,6 +898,18 @@ class SegformerJointPred2InputTrainable(Trainable):
             macenko=self.macenko_normalize,
         )
 
+        train_cell_image_files = [
+            file
+            for file in train_cell_image_files
+            if os.path.basename(file).split(".")[0] not in EXCLUDED_SAMPLES
+        ]
+
+        train_cell_target_files = [
+            file
+            for file in train_cell_target_files
+            if os.path.basename(file).split(".")[0] not in EXCLUDED_SAMPLES
+        ]
+
         # Removing image numbers from tissue images to match cell and tissue
         image_numbers = [
             os.path.basename(x).split(".")[0] for x in train_cell_image_files
@@ -1149,7 +1161,7 @@ class ViTUnetTrainable(Trainable):
     ) -> nn.Module:
 
         model = ViTUNetModel(
-            pretrained_dataset=self.pretrained_dataset if pretrained else None, input_spatial_shape=self.resize
+            pretrained_dataset=self.pretrained_dataset if pretrained else None, input_spatial_shape=self.cell_image_input_size
         )
         if model_path is not None:
             model.load_state_dict(torch.load(model_path))

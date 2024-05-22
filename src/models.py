@@ -678,6 +678,7 @@ class ViTUNetModel(torch.nn.Module):
         input_spatial_shape=1024,
         output_spatial_shape=1024,
         extract_layers=[3, 6, 9, 12],
+        patch_size=8,
         *args,
         **kwargs,
     ) -> None:
@@ -691,83 +692,136 @@ class ViTUNetModel(torch.nn.Module):
         self.input_spatial_shape = input_spatial_shape
         self.output_spatial_shape = output_spatial_shape
 
-        self.pretrained_dataset = pretrained_dataset
+        # Which patch embeddings to extract for the decoder
+        self.extract_layers = extract_layers
 
-        # Load pretrained weights
-        if pretrained_dataset:
-            vit_config = ViTConfig.from_pretrained(pretrained_dataset)
+        self.pretrained_dataset = pretrained_dataset
+        self.positional_embedding = None
+
+        # Load model
+        if pretrained_dataset == "Kang":
+            file_path = "/cluster/home/bendikgh/master_project/outputs/models/20240519_151550/dino_vit_small_patch8_ep200.torch"
+            vit_config = ViTConfig(
+                hidden_size=384,
+                num_attention_heads=6,
+                intermediate_size=1536,
+                num_hidden_layers=12,
+                patch_size=8,
+                image_size=input_spatial_shape,
+            )
+            self.vit_encoder = ViTModel(vit_config)
+            state_dict = torch.load(file_path)
+            self.vit_encoder.load_state_dict(state_dict, strict=False)
+            self.positional_embedding = state_dict["pos_embed"][:, 1:]
+        elif pretrained_dataset == "owkin/phikon":
+            vit_config = ViTConfig.from_pretrained("owkin/phikon")
             vit_config.image_size = input_spatial_shape
             self.vit_encoder = ViTModel.from_pretrained(
                 pretrained_dataset, config=vit_config, ignore_mismatched_sizes=True
             )
-            # Interpolate positional embeddings to match the output spatial shape
-            self.adjust_positional_embeddings(input_spatial_shape)
+
+            self.positional_embedding = ViTModel.from_pretrained(
+                "owkin/phikon"
+            ).embeddings.position_embeddings[:, 1:]
         else:
-            vit_config = ViTConfig.from_pretrained("owkin/phikon")
+            vit_config = ViTConfig()
             vit_config.image_size = input_spatial_shape
-            self.vit_encoder = ViTModel(vit_config)
+            vit_config.patch_size = patch_size
+            self.vit_encoder = ViTModel(config=vit_config)
 
-        # Which patch embeddings to extract for the decoder
-        self.extract_layers = extract_layers
+        self.vit_config = self.vit_encoder.config
+        self.num_patches = self.input_spatial_shape // self.vit_config.patch_size
 
-        vit_config = self.vit_encoder.config
-        self.decoder = ViTDecoder(vit_config)
+        # Absolute positional embedding
+        if self.positional_embedding is not None:
+            num_patches = int(self.positional_embedding.shape[1] ** (1 / 2))
+            self.positional_embedding = self.positional_embedding.reshape(
+                (1, num_patches, num_patches, self.vit_config.hidden_size)
+            )
+            self.positional_embedding = self.positional_embedding.permute(0, 3, 1, 2)
+            self.positional_embedding = torch.nn.functional.interpolate(
+                self.positional_embedding,
+                size=(self.num_patches, self.num_patches),
+                mode="bilinear",
+                align_corners=False,
+            )
+            self.positional_embedding = self.positional_embedding.permute(0, 2, 3, 1)
+            self.pos_embed = nn.Parameter(self.positional_embedding)
+        else:
+            self.pos_embed = nn.Parameter(
+                torch.zeros(
+                    1, self.num_patches, self.num_patches, self.vit_config.hidden_size
+                )
+            )
+
+        self.decoder = ViTDecoder(self.vit_config)
 
         # Freeze backbone/encoder parameters
         # for _, param in self.vit_encoder.named_parameters():
         #     param.requires_grad = False
 
-    def adjust_positional_embeddings(self, new_size):
+    def get_encodings(self, x):
+        hidden_states = []
+        patch_embed = self.vit_encoder.embeddings.patch_embeddings
 
-        # Get the original positional embeddings
-        pos_embed = ViTModel.from_pretrained(
-            self.pretrained_dataset
-        ).embeddings.position_embeddings
+        x = patch_embed(x)
+        x = x.reshape((x.shape[0], self.num_patches, self.num_patches, x.shape[-1]))
+        x = x + self.pos_embed
+        x = x.reshape((x.shape[0], -1, x.shape[-1]))
 
-        # Separate the class token embedding
-        class_token_embed = pos_embed[:, :1, :]
-        patch_embeddings = pos_embed[:, 1:, :]
+        for blk in self.vit_encoder.encoder.layer:
+            x = blk(x)[0]
+            hidden_states.append(x)
 
-        # Calculate the new grid size from patch size
-        n_patches_side = new_size // self.vit_encoder.config.patch_size
-        n_patches = n_patches_side**2
+        return hidden_states
 
-        # Reshape patch embeddings to [1, 14, 14, embedding_dim]
-        patch_embeddings = patch_embeddings.reshape(1, -1, 14, 14)
+    # def adjust_positional_embeddings(self, new_size):
 
-        # Interpolate patch positional embeddings to the new grid size
-        new_patch_embed = F.interpolate(
-            patch_embeddings,
-            size=(n_patches_side, n_patches_side),
-            mode="bilinear",
-            align_corners=False,
-        )
+    #     pos_embed = ViTModel.from_pretrained(
+    #         self.pretrained_dataset
+    #     ).embeddings.position_embeddings
 
-        # Flatten the interpolated embeddings back to [1, n_patches, embedding_dim]
-        new_patch_embed = new_patch_embed.reshape(1, n_patches, -1)
+    #     # Separate the class token embedding
+    #     class_token_embed = pos_embed[:, 0:1, :]
+    #     patch_embeddings = pos_embed[:, 1:, :]
 
-        # Concatenate the class token embedding back
-        new_pos_embed = torch.cat([class_token_embed, new_patch_embed], dim=1)
+    #     # Calculate the new grid size from patch size
+    #     n_patches_side = new_size // self.vit_encoder.config.patch_size
+    #     n_patches = n_patches_side**2
 
-        # Update the model's positional embeddings
-        self.vit_encoder.embeddings.position_embeddings = torch.nn.Parameter(
-            new_pos_embed.squeeze(0)
-        )
+    #     # Reshape patch embeddings to [1, 14, 14, embedding_dim]
+    #     patch_embeddings = patch_embeddings.reshape(1, -1, 14, 14)
+
+    #     # Interpolate patch positional embeddings to the new grid size
+    #     new_patch_embed = torch.nn.functional.interpolate(
+    #         patch_embeddings,
+    #         size=(n_patches_side, n_patches_side),
+    #         mode="bilinear",
+    #         align_corners=False,
+    #     )
+
+    #     # Flatten the interpolated embeddings back to [1, n_patches, embedding_dim]
+    #     new_patch_embed = new_patch_embed.reshape(1, n_patches, -1)
+
+    #     # Concatenate the class token embedding back
+    #     new_pos_embed = torch.cat([class_token_embed, new_patch_embed], dim=1)
+
+    #     # Update the model's positional embeddings
+    #     self.vit_encoder.embeddings.position_embeddings = torch.nn.Parameter(
+    #         new_pos_embed.squeeze(0)
+    #     )
 
     def forward(self, pixel_values):
-        outputs = self.vit_encoder(pixel_values, output_hidden_states=True)
-        hidden_states = outputs.hidden_states
-
-        # TODO: Could maybe be set in the constructor, so we can skip
-        # calculation and also be sure that nothing is messed up between
-        # then and here?
-        patch_size = self.input_spatial_shape // 16
+        # outputs = self.vit_encoder(pixel_values, output_hidden_states=True)
+        hidden_states = self.get_encodings(pixel_values)
 
         embeddings = [pixel_values]
         for i in self.extract_layers:
             hidden_state = (
-                hidden_states[i][:, 1:]
-                .reshape(-1, patch_size, patch_size, 768)
+                hidden_states[i - 1]  # [:, 1:]
+                .reshape(
+                    -1, self.num_patches, self.num_patches, self.vit_config.hidden_size
+                )
                 .permute(0, 3, 1, 2)
             )
             embeddings.append(hidden_state)
@@ -920,6 +974,26 @@ class SegformerAdditiveJointPred2DecoderModel(nn.Module):
             num_channels=3,
             pretrained_dataset=self.pretrained_dataset,
         )
+
+        # model_path = "outputs/models/20240507_011932/Segformer_Tissue-Branch_backbone-b0_best.pth"
+        # state_dict = torch.load(model_path)
+
+        # new_state_dict = {}
+        # prefix = "model."
+
+        # for key, value in state_dict.items():
+        #     if key.startswith(prefix):
+        #         new_key = key[len(prefix) :]
+        #         new_state_dict[new_key] = value
+        #     else:
+        #         new_state_dict[key] = value
+
+        # Load the modified state dict into the model
+        # self.tissue_model.load_state_dict(new_state_dict)
+
+        # Freeze weights
+        # for param in self.tissue_model.parameters():
+        #     param.requires_grad = False
 
         segformer_info = SEGFORMER_ARCHITECTURES[self.backbone_model]
         hidden_sizes: List = segformer_info["hidden_sizes"]
