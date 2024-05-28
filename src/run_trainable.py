@@ -45,6 +45,7 @@ def get_trainable(
     oversample: int,
     exclude_bad_images,
     weight_loss,
+    freeze_tissue,
     cell_image_input_size: int = 512,
     tissue_image_input_size: int = 1024,
 ) -> Trainable:
@@ -113,6 +114,7 @@ def get_trainable(
             tissue_image_input_size=tissue_image_input_size,
             exclude_bad_images=exclude_bad_images,
             weight_loss=weight_loss,
+            freeze_tissue=freeze_tissue,
         )
     elif model_architecture == "deeplab_cell_only":
         trainable = DeeplabCellOnlyTrainable(
@@ -180,6 +182,7 @@ def main():
     tissue_image_input_size = args.tissue_image_input_size
     exclude_bad_images = args.exclude_bad_images
     weight_loss = args.weight_loss
+    freeze_tissue = args.freeze_tissue
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -206,6 +209,7 @@ def main():
     print(f"Oversample cancer: {oversample}")
     print(f"Exclude bad images: {exclude_bad_images}")
     print(f"Weight loss between cell and tissue: {weight_loss}")
+    print(f"Freeze weights of tissue branch: {freeze_tissue}")
     print(f"ID: {id}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
@@ -224,6 +228,7 @@ def main():
         tissue_image_input_size=tissue_image_input_size,
         exclude_bad_images=exclude_bad_images,
         weight_loss=weight_loss,
+        freeze_tissue=freeze_tissue,
     )
 
     if loss_function_arg == "dice":

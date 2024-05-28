@@ -659,6 +659,12 @@ def get_ocelot_args() -> argparse.Namespace:
         default=0,
         help="Weight loss between cell and tissue",
     )
+    parser.add_argument(
+        "--freeze-tissue",
+        type=int,
+        default=0,
+        help="Freeze tissue weights",
+    )
 
     args: argparse.Namespace = parser.parse_args()
     return args

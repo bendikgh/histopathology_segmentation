@@ -52,6 +52,7 @@ def run_training_joint_pred2input(
     epoch,
     break_after_one_iteration: bool = False,
     weight_loss = False,
+    freeze_tissue = False,
 ):
     model.train()
     training_loss = 0.0
@@ -71,11 +72,12 @@ def run_training_joint_pred2input(
         optimizer.zero_grad()
         cell_logits, tissue_logits = model(cell_images, tissue_images, offsets)
 
-        # loss = loss_function(cell_logits, cell_masks)
         cell_loss = loss_function(cell_logits, cell_labels)
-        tissue_loss = loss_function(tissue_logits, tissue_labels)
-        
-        loss = (1-lam)*cell_loss + lam*tissue_loss
+        if freeze_tissue:
+            loss = cell_loss
+        else:
+            tissue_loss = loss_function(tissue_logits, tissue_labels)
+            loss = (1-lam)*cell_loss + lam*tissue_loss
 
         loss.backward()
         optimizer.step()
@@ -100,7 +102,8 @@ def run_training(
     device,
     epoch,
     break_after_one_iteration: bool = False,
-    weight_loss = False,
+    weight_loss=False,
+    freeze_tissue=False
 ) -> float:
     model.train()
     training_loss = 0.0
@@ -180,6 +183,7 @@ def train(
     validation_function=run_validation,
     do_save_model_and_plot: bool = True,
     weight_loss = False,
+    freeze_tissue = False
 ) -> Union[str, None]:
     """
     validation_function: takes in (...)
@@ -207,6 +211,7 @@ def train(
             break_after_one_iteration=break_after_one_iteration,
             epoch=epoch,
             weight_loss=weight_loss,
+            freeze_tissue=freeze_tissue,
         )
         training_losses.append(training_loss)
 

@@ -851,6 +851,7 @@ class SegformerJointPred2InputTrainable(Trainable):
         tissue_image_input_size: int = 1024,
         exclude_bad_images=False,
         weight_loss = False,
+        freeze_tissue = False
     ):
         self.pretrained_dataset = pretrained_dataset
         self.name = "Segformer Sharing"
@@ -859,6 +860,8 @@ class SegformerJointPred2InputTrainable(Trainable):
             "cell": cell_image_input_size,
             "tissue": tissue_image_input_size,
         }
+        self.freeze_tissue = freeze_tissue
+        self.weight_loss = weight_loss
 
         super().__init__(
             normalization=normalization,
@@ -1031,6 +1034,8 @@ class SegformerJointPred2InputTrainable(Trainable):
             do_save_model_and_plot=do_save_model_and_plot,
             validation_function=self.get_evaluation_function(partition="val"),
             training_func=run_training_joint_pred2input,
+            weight_loss=self.weight_loss,
+            freeze_tissue=self.freeze_tissue,
         )
 
         return best_model_path
@@ -1051,6 +1056,7 @@ class SegformerAdditiveJointPred2DecoderTrainable(SegformerJointPred2InputTraina
             pretrained_dataset=self.pretrained_dataset,
             input_image_size=self.cell_image_input_size,
             output_image_size=1024,
+            freeze_tissue=self.freeze_tissue,
         )
         if model_path is not None:
             model.load_state_dict(torch.load(model_path))

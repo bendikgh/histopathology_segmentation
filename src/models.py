@@ -1014,6 +1014,7 @@ class SegformerAdditiveJointPred2DecoderModel(nn.Module):
         drop_rate: float = 0.0,
         input_image_size: int = 1024,
         output_image_size: int = 1024,
+        freeze_tissue=False,
     ):
         super().__init__()
 
@@ -1058,8 +1059,9 @@ class SegformerAdditiveJointPred2DecoderModel(nn.Module):
         self.tissue_model.load_state_dict(new_state_dict)
 
         # Freeze weights
-        # for param in self.tissue_model.parameters():
-        #     param.requires_grad = False
+        if freeze_tissue:
+            for param in self.tissue_model.parameters():
+                param.requires_grad = False
 
         segformer_info = SEGFORMER_ARCHITECTURES[self.backbone_model]
         hidden_sizes: List = segformer_info["hidden_sizes"]
