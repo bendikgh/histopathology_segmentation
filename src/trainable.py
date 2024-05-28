@@ -81,6 +81,7 @@ class Trainable(ABC):
         device: torch.device,
         backbone_model: str,
         data_dir: str,
+        exclude_bad_images: bool = False
     ):
         self.macenko_normalize = "macenko" in normalization
         self.batch_size = batch_size
@@ -88,6 +89,7 @@ class Trainable(ABC):
         self.device = device
         self.backbone_model = backbone_model
         self.normalization = normalization
+        self.exclude_bad_images = exclude_bad_images
 
         self.train_transforms = self.create_transforms(normalization)
         self.val_transforms = self.create_transforms(normalization, partition="val")
@@ -212,6 +214,7 @@ class DeeplabCellOnlyTrainable(Trainable):
         pretrained: bool,
         device: torch.device,
         data_dir: str,
+        exclude_bad_images=False,
     ):
         self.name = "DeeplabV3+ Cell-Only"
         super().__init__(
@@ -221,6 +224,7 @@ class DeeplabCellOnlyTrainable(Trainable):
             device=device,
             backbone_model="resnet50",
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
         )
 
     def create_train_dataloader(self, data_dir: str):
@@ -229,6 +233,7 @@ class DeeplabCellOnlyTrainable(Trainable):
             partition="train",
             zoom="cell",
             macenko=self.macenko_normalize,
+            exclude_bad_images=self.exclude_bad_images,
         )
 
         # Create dataset and dataloader
@@ -284,6 +289,7 @@ class DeeplabTissueCellTrainable(Trainable):
         device: torch.device,
         data_dir: str,
         leak_labels: bool = False,
+        exclude_bad_images=False,
     ):
         self.leak_labels = leak_labels
         if self.leak_labels:
@@ -303,6 +309,7 @@ class DeeplabTissueCellTrainable(Trainable):
             device=device,
             backbone_model="resnet50",
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
         )
 
     def get_tissue_folder(self, partition: str) -> str:
@@ -325,6 +332,7 @@ class DeeplabTissueCellTrainable(Trainable):
             partition="train",
             zoom="cell",
             macenko=self.macenko_normalize,
+            exclude_bad_images=self.exclude_bad_images,
         )
         train_image_nums = [
             os.path.basename(x).split(".")[0] for x in train_cell_image_files
@@ -402,6 +410,7 @@ class SegformerCellOnlyTrainable(Trainable):
         pretrained_dataset: str,
         cell_image_input_size: Optional[int],
         data_dir: str,
+        exclude_bad_images=False,
     ):
         self.name = "Segformer Cell-Only"
         self.pretrained_dataset = pretrained_dataset
@@ -413,6 +422,7 @@ class SegformerCellOnlyTrainable(Trainable):
             device=device,
             backbone_model=backbone_model,
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
         )
 
     def build_transform_function_with_extra_transforms(
@@ -450,6 +460,7 @@ class SegformerCellOnlyTrainable(Trainable):
             partition=partition,
             zoom="cell",
             macenko=self.macenko_normalize,
+            exclude_bad_images=self.exclude_bad_images,
         )
         if self.cell_image_input_size is not None:
             image_shape = (self.cell_image_input_size, self.cell_image_input_size)
@@ -519,6 +530,7 @@ class SegformerTissueTrainable(Trainable):
         data_dir: str,
         tissue_image_input_size: Optional[int] = 1024,
         oversample=False,
+        exclude_bad_images=False,
     ):
         self.name = "Segformer Tissue-Branch"
         self.pretrained_dataset = pretrained_dataset
@@ -532,6 +544,7 @@ class SegformerTissueTrainable(Trainable):
             device=device,
             backbone_model=backbone_model,
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
         )
 
     def build_transform_function_with_extra_transforms(
@@ -569,6 +582,7 @@ class SegformerTissueTrainable(Trainable):
             partition=partition,
             zoom="tissue",
             macenko=self.macenko_normalize,
+            exclude_bad_images=self.exclude_bad_images,
         )
         if partition == "train":
             shuffle = True
@@ -649,6 +663,7 @@ class SegformerTissueCellTrainable(Trainable):
         data_dir: str,
         leak_labels: bool = False,
         debug: bool = False,
+        exclude_bad_images=False,
     ):
         self.leak_labels = leak_labels
         self.debug = debug
@@ -668,6 +683,7 @@ class SegformerTissueCellTrainable(Trainable):
             device=device,
             backbone_model=backbone_model,
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
         )
 
     def get_tissue_folder(self, partition: str) -> str:
@@ -743,6 +759,7 @@ class SegformerTissueCellTrainable(Trainable):
             partition="train",
             zoom="cell",
             macenko=self.macenko_normalize,
+            exclude_bad_images=self.exclude_bad_images
         )
 
         train_image_nums = [
@@ -832,6 +849,8 @@ class SegformerJointPred2InputTrainable(Trainable):
         debug: bool = False,
         cell_image_input_size: int = 512,
         tissue_image_input_size: int = 1024,
+        exclude_bad_images=False,
+        weight_loss = False,
     ):
         self.pretrained_dataset = pretrained_dataset
         self.name = "Segformer Sharing"
@@ -848,6 +867,7 @@ class SegformerJointPred2InputTrainable(Trainable):
             device=device,
             backbone_model=backbone_model,
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
         )
 
     def create_transforms(self, normalization, partition: str = "train"):
@@ -890,25 +910,15 @@ class SegformerJointPred2InputTrainable(Trainable):
             partition="train",
             zoom="cell",
             macenko=self.macenko_normalize,
+            exclude_bad_images=self.exclude_bad_images,
         )
         train_tissue_image_files, train_tissue_target_files = get_ocelot_files(
             data_dir=data_dir,
             partition="train",
             zoom="tissue",
             macenko=self.macenko_normalize,
+            exclude_bad_images=self.exclude_bad_images
         )
-
-        train_cell_image_files = [
-            file
-            for file in train_cell_image_files
-            if os.path.basename(file).split(".")[0] not in EXCLUDED_SAMPLES
-        ]
-
-        train_cell_target_files = [
-            file
-            for file in train_cell_target_files
-            if os.path.basename(file).split(".")[0] not in EXCLUDED_SAMPLES
-        ]
 
         # Removing image numbers from tissue images to match cell and tissue
         image_numbers = [
@@ -1077,6 +1087,7 @@ class ViTUnetTrainable(Trainable):
         pretrained_dataset: str,
         data_dir: str,
         cell_image_input_size: Optional[int] = 1024,
+        exclude_bad_images=False,
     ):
         self.name = "ViTUnet"
         self.pretrained_dataset = pretrained_dataset
@@ -1088,6 +1099,7 @@ class ViTUnetTrainable(Trainable):
             device=device,
             backbone_model=backbone_model,
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
         )
 
     def build_transform_function_with_extra_transforms(
@@ -1125,6 +1137,7 @@ class ViTUnetTrainable(Trainable):
             partition=partition,
             zoom="tissue",
             macenko=self.macenko_normalize,
+            exclude_bad_images=self.exclude_bad_images,
         )
         if partition == "train":
             shuffle = True

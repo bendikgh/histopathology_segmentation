@@ -536,10 +536,10 @@ class ViTDecoder(nn.Module):
     This decoder is mostly copied from https://github.com/Lzy-dot/OCELOT2023/tree/main
     """
 
-    def __init__(self, backbone_config, drop_rate=0) -> None:
+    def __init__(self, hidden_size, drop_rate=0) -> None:
         super().__init__()
 
-        self.embed_dim = backbone_config.hidden_size  # 768 for vit_base
+        self.embed_dim = hidden_size  # 768 for vit_base
         self.skip_dim_11 = 512
         self.skip_dim_12 = 256
         self.bottleneck_dim = 512
@@ -678,7 +678,7 @@ class ViTUNetModel(torch.nn.Module):
         input_spatial_shape=1024,
         output_spatial_shape=1024,
         extract_layers=[3, 6, 9, 12],
-        patch_size=8,
+        patch_size=16,
         *args,
         **kwargs,
     ) -> None:
@@ -698,45 +698,62 @@ class ViTUNetModel(torch.nn.Module):
         self.pretrained_dataset = pretrained_dataset
         self.positional_embedding = None
 
+        vit_config = ViTConfig.from_pretrained("owkin/phikon")
+        vit_config.image_size = input_spatial_shape
+        vit_config.patch_size = patch_size
+
         # Load model
         if pretrained_dataset == "Kang":
-            file_path = "/cluster/home/bendikgh/master_project/outputs/models/20240519_151550/dino_vit_small_patch8_ep200.torch"
-            vit_config = ViTConfig(
-                hidden_size=384,
-                num_attention_heads=6,
-                intermediate_size=1536,
-                num_hidden_layers=12,
-                patch_size=8,
-                image_size=input_spatial_shape,
+            # file_path = "/cluster/home/bendikgh/master_project/outputs/models/20240519_151550/dino_vit_small_patch8_ep200.torch"
+            # vit_config = ViTConfig(
+            #     hidden_size=384,
+            #     num_attention_heads=6,
+            #     intermediate_size=1536,
+            #     num_hidden_layers=12,
+            #     patch_size=8,
+            #     image_size=input_spatial_shape,
+            # )
+            # self.vit_encoder = ViTModel(vit_config)
+            # state_dict = torch.load(file_path)
+            # self.vit_encoder.load_state_dict(state_dict, strict=True)
+            # self.positional_embedding = state_dict["pos_embed"][:, 1:]
+            self.vit_encoder, self.positional_embedding = vit_small_kang(
+                pretrained=True,
+                progress=False,
+                key="DINO_p8",
+                patch_size=patch_size
             )
-            self.vit_encoder = ViTModel(vit_config)
-            state_dict = torch.load(file_path)
-            self.vit_encoder.load_state_dict(state_dict, strict=False)
-            self.positional_embedding = state_dict["pos_embed"][:, 1:]
+            self.hidden_size = self.vit_encoder.embed_dim
         elif pretrained_dataset == "owkin/phikon":
-            vit_config = ViTConfig.from_pretrained("owkin/phikon")
-            vit_config.image_size = input_spatial_shape
             self.vit_encoder = ViTModel.from_pretrained(
                 pretrained_dataset, config=vit_config, ignore_mismatched_sizes=True
             )
-
             self.positional_embedding = ViTModel.from_pretrained(
                 "owkin/phikon"
             ).embeddings.position_embeddings[:, 1:]
+            vit_config = self.vit_encoder.config
+            self.hidden_size = vit_config.hidden_size
+        elif pretrained_dataset == "imagenet":
+            self.vit_encoder = ViTModel.from_pretrained(
+                "google/vit-base-patch16-224", config=vit_config, ignore_mismatched_sizes=True
+            )
+            self.positional_embedding = ViTModel.from_pretrained(
+                "google/vit-base-patch16-224"
+            ).embeddings.position_embeddings[:, 1:]
+            vit_config = self.vit_encoder.config
+            self.hidden_size = vit_config.hidden_size
         else:
-            vit_config = ViTConfig()
-            vit_config.image_size = input_spatial_shape
-            vit_config.patch_size = patch_size
             self.vit_encoder = ViTModel(config=vit_config)
+            vit_config = self.vit_encoder.config
+            self.hidden_size = vit_config.hidden_size
 
-        self.vit_config = self.vit_encoder.config
-        self.num_patches = self.input_spatial_shape // self.vit_config.patch_size
+        self.num_patches = self.input_spatial_shape // patch_size
 
         # Absolute positional embedding
         if self.positional_embedding is not None:
             num_patches = int(self.positional_embedding.shape[1] ** (1 / 2))
             self.positional_embedding = self.positional_embedding.reshape(
-                (1, num_patches, num_patches, self.vit_config.hidden_size)
+                (1, num_patches, num_patches, self.hidden_size)
             )
             self.positional_embedding = self.positional_embedding.permute(0, 3, 1, 2)
             self.positional_embedding = torch.nn.functional.interpolate(
@@ -750,11 +767,11 @@ class ViTUNetModel(torch.nn.Module):
         else:
             self.pos_embed = nn.Parameter(
                 torch.zeros(
-                    1, self.num_patches, self.num_patches, self.vit_config.hidden_size
+                    1, self.num_patches, self.num_patches, self.hidden_size
                 )
             )
 
-        self.decoder = ViTDecoder(self.vit_config)
+        self.decoder = ViTDecoder(self.hidden_size)
 
         # Freeze backbone/encoder parameters
         # for _, param in self.vit_encoder.named_parameters():
@@ -762,16 +779,30 @@ class ViTUNetModel(torch.nn.Module):
 
     def get_encodings(self, x):
         hidden_states = []
-        patch_embed = self.vit_encoder.embeddings.patch_embeddings
+        bs = x.shape[0]
+        if isinstance(self.vit_encoder, VisionTransformer):
+            patch_embed = self.vit_encoder.patch_embed
 
-        x = patch_embed(x)
-        x = x.reshape((x.shape[0], self.num_patches, self.num_patches, x.shape[-1]))
-        x = x + self.pos_embed
-        x = x.reshape((x.shape[0], -1, x.shape[-1]))
+            x = patch_embed(x)
+            x = x.reshape((x.shape[0], self.num_patches, self.num_patches, x.shape[-1]))
+            x = x + self.pos_embed
+            x = x.reshape((x.shape[0], -1, x.shape[-1]))
 
-        for blk in self.vit_encoder.encoder.layer:
-            x = blk(x)[0]
-            hidden_states.append(x)
+            for blk in self.vit_encoder.blocks:
+                x = blk(x)[0]
+                x = x.reshape((bs, -1, x.shape[-1]))
+                hidden_states.append(x)
+        else:
+            patch_embed = self.vit_encoder.embeddings.patch_embeddings
+
+            x = patch_embed(x)
+            x = x.reshape((x.shape[0], self.num_patches, self.num_patches, x.shape[-1]))
+            x = x + self.pos_embed
+            x = x.reshape((x.shape[0], -1, x.shape[-1]))
+
+            for blk in self.vit_encoder.encoder.layer:
+                x = blk(x)[0]
+                hidden_states.append(x)
 
         return hidden_states
 
@@ -820,7 +851,7 @@ class ViTUNetModel(torch.nn.Module):
             hidden_state = (
                 hidden_states[i - 1]  # [:, 1:]
                 .reshape(
-                    -1, self.num_patches, self.num_patches, self.vit_config.hidden_size
+                    -1, self.num_patches, self.num_patches, self.hidden_size
                 )
                 .permute(0, 3, 1, 2)
             )
@@ -838,6 +869,41 @@ class ViTUNetModel(torch.nn.Module):
             )
 
         return logits
+
+
+from timm.models.vision_transformer import VisionTransformer
+
+
+def get_pretrained_url(key):
+    URL_PREFIX = "https://github.com/lunit-io/benchmark-ssl-pathology/releases/download/pretrained-weights"
+    model_zoo_registry = {
+        "DINO_p16": "dino_vit_small_patch16_ep200.torch",
+        "DINO_p8": "dino_vit_small_patch8_ep200.torch",
+    }
+    pretrained_url = f"{URL_PREFIX}/{model_zoo_registry.get(key)}"
+    return pretrained_url
+
+
+def vit_small_kang(pretrained, progress, key, **kwargs):
+    patch_size = kwargs.get("patch_size", 16)
+    model = VisionTransformer(
+        img_size=1024,
+        patch_size=patch_size,
+        embed_dim=384,
+        num_heads=6,
+        num_classes=0,
+    )
+    if pretrained:
+        pretrained_url = get_pretrained_url(key)
+        state_dict = torch.hub.load_state_dict_from_url(pretrained_url, progress=progress)
+        pos_embed = state_dict["pos_embed"][:, 1:]
+        del state_dict["pos_embed"]
+        verbose = model.load_state_dict(
+            state_dict,
+            strict=False,
+        )
+        print(verbose)
+    return model, pos_embed
 
 
 class SegformerJointPred2InputModel(nn.Module):
@@ -975,21 +1041,21 @@ class SegformerAdditiveJointPred2DecoderModel(nn.Module):
             pretrained_dataset=self.pretrained_dataset,
         )
 
-        # model_path = "outputs/models/20240507_011932/Segformer_Tissue-Branch_backbone-b0_best.pth"
-        # state_dict = torch.load(model_path)
+        model_path = "outputs/models/20240507_011932/Segformer_Tissue-Branch_backbone-b0_epochs-600.pth" #"outputs/models/20240507_011932/Segformer_Tissue-Branch_backbone-b0_best.pth"
+        state_dict = torch.load(model_path)
 
-        # new_state_dict = {}
-        # prefix = "model."
+        new_state_dict = {}
+        prefix = "model."
 
-        # for key, value in state_dict.items():
-        #     if key.startswith(prefix):
-        #         new_key = key[len(prefix) :]
-        #         new_state_dict[new_key] = value
-        #     else:
-        #         new_state_dict[key] = value
+        for key, value in state_dict.items():
+            if key.startswith(prefix):
+                new_key = key[len(prefix) :]
+                new_state_dict[new_key] = value
+            else:
+                new_state_dict[key] = value
 
         # Load the modified state dict into the model
-        # self.tissue_model.load_state_dict(new_state_dict)
+        self.tissue_model.load_state_dict(new_state_dict)
 
         # Freeze weights
         # for param in self.tissue_model.parameters():

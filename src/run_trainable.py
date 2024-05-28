@@ -43,6 +43,8 @@ def get_trainable(
     leak_labels: bool,
     data_dir: str,
     oversample: int,
+    exclude_bad_images,
+    weight_loss,
     cell_image_input_size: int = 512,
     tissue_image_input_size: int = 1024,
 ) -> Trainable:
@@ -57,6 +59,7 @@ def get_trainable(
             pretrained_dataset=pretrained_dataset,
             cell_image_input_size=cell_image_input_size,
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
         )
     elif model_architecture == "segformer_tissue_branch":
         trainable = SegformerTissueTrainable(
@@ -69,6 +72,7 @@ def get_trainable(
             tissue_image_input_size=tissue_image_input_size,
             data_dir=data_dir,
             oversample=oversample,
+            exclude_bad_images=exclude_bad_images,
         )
     elif model_architecture == "segformer_cell_branch":
         trainable = SegformerTissueCellTrainable(
@@ -81,6 +85,7 @@ def get_trainable(
             cell_image_input_size=cell_image_input_size,
             leak_labels=leak_labels,
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
         )
     elif model_architecture == "segformer_joint_pred2input":
         trainable = SegformerJointPred2InputTrainable(
@@ -92,6 +97,8 @@ def get_trainable(
             pretrained_dataset=pretrained_dataset,
             cell_image_input_size=cell_image_input_size,
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
+            weight_loss=weight_loss,
         )
     elif model_architecture == "segformer_additive_joint_pred2decoder":
         trainable = SegformerAdditiveJointPred2DecoderTrainable(
@@ -104,6 +111,8 @@ def get_trainable(
             data_dir=data_dir,
             cell_image_input_size=cell_image_input_size,
             tissue_image_input_size=tissue_image_input_size,
+            exclude_bad_images=exclude_bad_images,
+            weight_loss=weight_loss,
         )
     elif model_architecture == "deeplab_cell_only":
         trainable = DeeplabCellOnlyTrainable(
@@ -112,6 +121,7 @@ def get_trainable(
             pretrained=pretrained,
             device=device,
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
         )
     elif model_architecture == "deeplab_tissue_cell":
         trainable = DeeplabTissueCellTrainable(
@@ -121,6 +131,7 @@ def get_trainable(
             device=device,
             leak_labels=leak_labels,
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
         )
     elif model_architecture == "vit_unet":
         trainable = ViTUnetTrainable(
@@ -132,6 +143,7 @@ def get_trainable(
             pretrained_dataset=pretrained_dataset,
             cell_image_input_size=cell_image_input_size,
             data_dir=data_dir,
+            exclude_bad_images=exclude_bad_images,
         )
     else:
         raise ValueError("Invalid model name")
@@ -166,6 +178,8 @@ def main():
     oversample = args.oversample
     cell_image_input_size = args.cell_image_input_size
     tissue_image_input_size = args.tissue_image_input_size
+    exclude_bad_images = args.exclude_bad_images
+    weight_loss = args.weight_loss
 
     print("Training with the following parameters:")
     print(f"Data directory: {data_dir}")
@@ -190,6 +204,8 @@ def main():
     print(f"Cell Input Image Size: {cell_image_input_size}")
     print(f"Tissue Input Image Size: {tissue_image_input_size}")
     print(f"Oversample cancer: {oversample}")
+    print(f"Exclude bad images: {exclude_bad_images}")
+    print(f"Weight loss between cell and tissue: {weight_loss}")
     print(f"ID: {id}")
     print(f"Number of GPUs: {torch.cuda.device_count()}")
 
@@ -206,6 +222,8 @@ def main():
         oversample=oversample,
         cell_image_input_size=cell_image_input_size,
         tissue_image_input_size=tissue_image_input_size,
+        exclude_bad_images=exclude_bad_images,
+        weight_loss=weight_loss,
     )
 
     if loss_function_arg == "dice":

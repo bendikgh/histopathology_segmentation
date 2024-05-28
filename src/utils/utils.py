@@ -230,7 +230,7 @@ def crop_and_resize_tissue_faster(
 
 
 def get_ocelot_files(
-    data_dir: str, partition: str, zoom: str = "cell", macenko: bool = False
+    data_dir: str, partition: str, zoom: str = "cell", macenko: bool = False, exclude_bad_images=False
 ) -> tuple:
     """
     Retrieves paths to image and annotation files for a specified partition
@@ -292,6 +292,12 @@ def get_ocelot_files(
         os.path.join(data_dir, "images", partition, image_dir, image_number + ".jpg")
         for image_number in image_numbers
     ]
+
+    # Exclude bad images if specified
+    if exclude_bad_images:
+        target_files = [file for file in target_files if os.path.basename(file).split(".")[0] not in EXCLUDED_SAMPLES]
+        image_files = [file for file in image_files if os.path.basename(file).split(".")[0] not in EXCLUDED_SAMPLES]
+
     # Sorting by image numbers
     target_files.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
     image_files.sort(key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
@@ -640,6 +646,18 @@ def get_ocelot_args() -> argparse.Namespace:
         type=int,
         default=1024,
         help="Tissue Image Input Size",
+    )
+    parser.add_argument(
+        "--exclude-bad-images",
+        type=int,
+        default=0,
+        help="Exclude bad images for training cell model",
+    )
+    parser.add_argument(
+        "--weight-loss",
+        type=int,
+        default=0,
+        help="Weight loss between cell and tissue",
     )
 
     args: argparse.Namespace = parser.parse_args()

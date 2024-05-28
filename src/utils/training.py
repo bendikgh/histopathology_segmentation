@@ -49,10 +49,17 @@ def run_training_joint_pred2input(
     optimizer,
     loss_function,
     device,
+    epoch,
     break_after_one_iteration: bool = False,
+    weight_loss = False,
 ):
     model.train()
     training_loss = 0.0
+
+    lam = 0.5
+    if weight_loss:
+        if epoch < 30:
+            lam = 0.2
 
     for cell_images, tissue_images, cell_labels, tissue_labels, offsets in tqdm(
         train_dataloader
@@ -67,7 +74,8 @@ def run_training_joint_pred2input(
         # loss = loss_function(cell_logits, cell_masks)
         cell_loss = loss_function(cell_logits, cell_labels)
         tissue_loss = loss_function(tissue_logits, tissue_labels)
-        loss = cell_loss + tissue_loss
+        
+        loss = (1-lam)*cell_loss + lam*tissue_loss
 
         loss.backward()
         optimizer.step()
@@ -90,7 +98,9 @@ def run_training(
     optimizer,
     loss_function,
     device,
+    epoch,
     break_after_one_iteration: bool = False,
+    weight_loss = False,
 ) -> float:
     model.train()
     training_loss = 0.0
@@ -169,6 +179,7 @@ def train(
     training_func=run_training,
     validation_function=run_validation,
     do_save_model_and_plot: bool = True,
+    weight_loss = False,
 ) -> Union[str, None]:
     """
     validation_function: takes in (...)
@@ -194,6 +205,8 @@ def train(
             loss_function=loss_function,
             device=device,
             break_after_one_iteration=break_after_one_iteration,
+            epoch=epoch,
+            weight_loss=weight_loss,
         )
         training_losses.append(training_loss)
 
