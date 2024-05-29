@@ -96,7 +96,7 @@ trainable = SegformerAdditiveJointPred2DecoderTrainable(
     weight_loss=weight_loss,
 )
 
-best_model_path = "outputs/models/20240527_210945/Segformer_Sharing_backbone-b3_best.pth" #"outputs/models/20240526_080329/Segformer_Sharing_backbone-b3_best.pth" #outputs/models/20240518_201826/Segformer_Sharing_backbone-b3_best.pth" #outputs/models/20240519_022221/Segformer_Sharing_backbone-b3_best.pth"
+best_model_path = "outputs/models/20240528_175128/Segformer_Sharing_backbone-b3_best.pth" #"outputs/models/20240529_005550/Segformer_Sharing_backbone-b3_best.pth" #"outputs/models/20240528_174655/Segformer_Sharing_backbone-b3_best.pth" #"outputs/models/20240528_175128/Segformer_Sharing_backbone-b3_best.pth" #"outputs/models/20240528_133252/Segformer_Sharing_backbone-b3_best.pth" #"outputs/models/20240527_210945/Segformer_Sharing_backbone-b3_best.pth" #"outputs/models/20240526_080329/Segformer_Sharing_backbone-b3_best.pth" #outputs/models/20240518_201826/Segformer_Sharing_backbone-b3_best.pth" #outputs/models/20240519_022221/Segformer_Sharing_backbone-b3_best.pth"
 
 trainable.model = trainable.create_model(
     backbone_name=backbone_model,

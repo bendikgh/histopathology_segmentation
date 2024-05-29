@@ -1042,24 +1042,24 @@ class SegformerAdditiveJointPred2DecoderModel(nn.Module):
             pretrained_dataset=self.pretrained_dataset,
         )
 
-        model_path = "outputs/models/20240507_011932/Segformer_Tissue-Branch_backbone-b0_epochs-600.pth" #"outputs/models/20240507_011932/Segformer_Tissue-Branch_backbone-b0_best.pth"
-        state_dict = torch.load(model_path)
-
-        new_state_dict = {}
-        prefix = "model."
-
-        for key, value in state_dict.items():
-            if key.startswith(prefix):
-                new_key = key[len(prefix) :]
-                new_state_dict[new_key] = value
-            else:
-                new_state_dict[key] = value
-
-        # Load the modified state dict into the model
-        self.tissue_model.load_state_dict(new_state_dict)
-
-        # Freeze weights
         if freeze_tissue:
+            model_path = "outputs/models/20240507_011932/Segformer_Tissue-Branch_backbone-b0_epochs-600.pth" #"outputs/models/20240507_011932/Segformer_Tissue-Branch_backbone-b0_best.pth"
+            state_dict = torch.load(model_path)
+
+            new_state_dict = {}
+            prefix = "model."
+
+            for key, value in state_dict.items():
+                if key.startswith(prefix):
+                    new_key = key[len(prefix) :]
+                    new_state_dict[new_key] = value
+                else:
+                    new_state_dict[key] = value
+
+            # Load the modified state dict into the model
+            self.tissue_model.load_state_dict(new_state_dict)
+
+            # Freeze weights
             for param in self.tissue_model.parameters():
                 param.requires_grad = False
 
