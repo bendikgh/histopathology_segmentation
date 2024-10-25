@@ -1,10 +1,27 @@
 # Histopathology Segmentation
+Authors: Jarl Sondre Bringslid Sæther and Bendik Gjermundrød Holter
+
+This repository contains the code used for our Master's thesis at the Norwegian 
+University of Science and Technology (NTNU), with the title
+"Multi-Level Magnification with Transformer-Based Architectures for Enhanced Cell 
+Detection and Classification in Computational Pathology". The work is also presented
+in the NIK track of NIKT 2024 with the title, "Enhancing Cell Detection with 
+Transformer-Based Architectures in Multi-Level Magnification Classification for 
+Computational Pathology".
+
+## Running the experiments
+Our experiments were run using NTNU's HPC cluster, IDUN, using the SLURM workload 
+manager. To automate the creation of SLURM scripts we used the 
+[run_slurm_jobs.py](scripts/run_slurm_jobs.py) file. 
+
+# Useful Commands
 
 ## Converting notebooks
-Since Git doesn't work well with notebooks, we include a script for converting .rmd files
-into .ipynb files and vice versa. This is done with the `create_jupyter_notebooks.sh` and 
-`create_rmarkdown.sh` files, respectively. Before doing this, however, make sure you have 
-permission to execute the scripts. This can be done by typing 
+Since Git doesn't work well with notebooks, we include a script for converting .rmd 
+files into .ipynb files and vice versa. This is done with the 
+`create_jupyter_notebooks.sh` and `create_rmarkdown.sh` files, respectively. Before 
+doing this, however, make sure you have permission to execute the scripts. This can be 
+done by typing 
 ```
 chmod +x scripts/create_jupyter_notebooks.sh
 chmod +x scripts/create_rmarkdown.sh
@@ -24,7 +41,7 @@ If you are using Conda to manage your packages, you have probably noticed that t
 ```
 pip freeze > requirements.txt
 ```
-does not work very well. A workaround with Conda is to type the following command: 
+does not work very well. A workaround with conda is to type the following command: 
 ```
 pip list | awk 'NR>2 {print $1"=="$2}' > requirements.txt
 ```
